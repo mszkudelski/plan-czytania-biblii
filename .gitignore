@@ -1,0 +1,7 @@
+node_modules
+dist
+.netlify
+outputs
+work
+.DS_Store
+*.local
