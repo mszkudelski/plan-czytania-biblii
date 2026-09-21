@@ -53,11 +53,15 @@ export function buildSchedule(
   });
 }
 
-export function formatPolishDate(iso: string, style: "long" | "short" = "long") {
+export function formatPolishDate(
+  iso: string,
+  style: "long" | "short" | "shortYear" = "long",
+) {
   return new Intl.DateTimeFormat("pl-PL", {
     day: "numeric",
     month: style === "long" ? "long" : "short",
     ...(style === "long" ? { weekday: "long" as const } : {}),
+    ...(style === "shortYear" ? { year: "numeric" as const } : {}),
   }).format(new Date(`${iso}T12:00:00`));
 }
 

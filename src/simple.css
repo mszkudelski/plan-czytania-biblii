@@ -591,6 +591,7 @@ button {
   align-content: center;
   justify-items: center;
   gap: 2px;
+  text-align: center;
   cursor: pointer;
   color: var(--muted);
   border: 1px solid var(--border);
@@ -623,25 +624,6 @@ button {
 
 .day-strip strong {
   font-size: 0.83rem;
-}
-
-.day-strip i {
-  display: grid;
-  width: 16px;
-  height: 16px;
-  place-items: center;
-  color: #fff;
-  border-radius: 50%;
-  background: transparent;
-}
-
-.day-strip button.complete i {
-  background: var(--success);
-}
-
-.day-strip button.active.complete i {
-  color: var(--green-button);
-  background: #fff;
 }
 
 .plan-overview {

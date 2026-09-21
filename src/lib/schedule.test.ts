@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSchedule } from "./schedule";
+import { buildSchedule, formatPolishDate } from "./schedule";
 
 describe("buildSchedule", () => {
   it("skips weekends for a weekday plan", () => {
@@ -18,5 +18,9 @@ describe("buildSchedule", () => {
       "2026-09-21",
       "2026-09-22",
     ]);
+  });
+
+  it("includes the year in start and end date formatting", () => {
+    expect(formatPolishDate("2026-09-21", "shortYear")).toContain("2026");
   });
 });

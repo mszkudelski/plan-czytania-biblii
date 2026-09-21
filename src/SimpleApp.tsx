@@ -681,11 +681,11 @@ function PlanView({
       <section className="plan-dates">
         <div>
           <span>Start</span>
-          <strong>{formatPolishDate(startDate, "short")}</strong>
+          <strong>{formatPolishDate(startDate, "shortYear")}</strong>
         </div>
         <div>
           <span>Koniec</span>
-          <strong>{formatPolishDate(endDate, "short")}</strong>
+          <strong>{formatPolishDate(endDate, "shortYear")}</strong>
         </div>
       </section>
       <div className="plan-overview">
@@ -829,8 +829,14 @@ function SettingsView({
       </section>
       <h2 className="settings-heading">Plan</h2>
       <section className="settings-card">
-        <Setting label="Start" value={formatPolishDate(startDate, "short")} />
-        <Setting label="Koniec" value={formatPolishDate(endDate, "short")} />
+        <Setting
+          label="Start"
+          value={formatPolishDate(startDate, "shortYear")}
+        />
+        <Setting
+          label="Koniec"
+          value={formatPolishDate(endDate, "shortYear")}
+        />
         <Setting label="Dni czytania" value={frequency} />
         <button className="logout-button" onClick={onLeave}>
           <Icon name="logout" size={18} /> Wyloguj
@@ -1089,7 +1095,6 @@ function DaySwitcher({
                   .replace(".", "")}
               </small>
               <strong>{new Date(`${day.date}T12:00:00`).getDate()}</strong>
-              <i>{complete && <Icon name="check" size={11} />}</i>
             </button>
           );
         })}
