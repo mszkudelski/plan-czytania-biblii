@@ -20,7 +20,13 @@ import {
 } from "./lib/api";
 import { parsePlanCsv, SAMPLE_CSV } from "./lib/csv";
 import { createJoinLink, readJoinFromHash } from "./lib/invite";
-import { getMemberMetrics, getNextDay } from "./lib/metrics";
+import {
+  calculateProgressPercent,
+  formatProgressPercent,
+  getMemberMetrics,
+  getNextDay,
+  getPaceTone,
+} from "./lib/metrics";
 import { cleanPersonName } from "./lib/name";
 import { buildSchedule, formatPolishDate, todayIso } from "./lib/schedule";
 import type {
@@ -788,7 +794,7 @@ function PlanView({
   const progress = group.progress[member.id] ?? {};
   const total = group.planDays.flatMap((day) => day.segments).length;
   const completed = Object.keys(progress).length;
-  const percent = total ? Math.round((completed / total) * 100) : 0;
+  const percent = calculateProgressPercent(completed, total);
   const startDate = group.planDays[0]?.date ?? group.startDate;
   const endDate = group.planDays.at(-1)?.date ?? group.startDate;
   return (
@@ -807,7 +813,7 @@ function PlanView({
       <div className="plan-overview">
         <div className="plan-overview-label">
           <span>Cały plan</span>
-          <strong>{percent}%</strong>
+          <strong>{formatProgressPercent(percent)}%</strong>
         </div>
         <div className="wide-progress">
           <span style={{ width: `${percent}%` }} />
@@ -891,16 +897,16 @@ function GroupView({
                 {person.name}
                 {person.id === member.id && <small> Ty</small>}
               </strong>
-              <span>{person.metrics.progressPercent}% planu</span>
+              <span>
+                {formatProgressPercent(person.metrics.progressPercent)}% planu
+              </span>
               <span className="member-progress" aria-hidden="true">
                 <i style={{ width: `${person.metrics.progressPercent}%` }} />
               </span>
             </div>
             <div className="member-actions">
               <b
-                className={
-                  person.metrics.paceDays < 0 ? "negative" : "positive"
-                }
+                className={`pace-${getPaceTone(person.metrics.paceDays)}`}
               >
                 {person.metrics.paceDays > 0 ? "+" : ""}
                 {person.metrics.paceDays} d.
@@ -1147,7 +1153,7 @@ function ProgressDonut({ percent }: { percent: number }) {
         className="progress-donut"
         style={{ "--value": `${percent * 3.6}deg` } as React.CSSProperties}
       >
-        <strong>{percent}%</strong>
+        <strong>{formatProgressPercent(percent)}%</strong>
       </div>
       <span>Postęp</span>
     </div>
@@ -1158,12 +1164,9 @@ function BacklogCard({ pace }: { pace: number }) {
   const ahead = pace > 0;
   const behind = pace < 0;
   const value = Math.abs(pace);
+  const tone = getPaceTone(pace);
   return (
-    <div
-      className={`viz-card backlog-card ${
-        ahead ? "is-ahead" : behind ? "has-backlog" : "is-current"
-      }`}
-    >
+    <div className={`viz-card backlog-card pace-${tone}`}>
       <span>{ahead ? "Do przodu" : behind ? "Zaległość" : "Na bieżąco"}</span>
       <strong>{ahead ? `+${value}` : value}</strong>
       <small>{value === 1 ? "dzień" : "dni"}</small>

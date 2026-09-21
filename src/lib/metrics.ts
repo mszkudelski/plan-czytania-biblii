@@ -1,6 +1,25 @@
 import type { Group, MemberMetrics, PlanDay } from "../types";
 import { todayIso } from "./schedule";
 
+export type PaceTone = "good" | "warning" | "danger";
+
+export function getPaceTone(paceDays: number): PaceTone {
+  if (paceDays >= 0) return "good";
+  if (paceDays >= -7) return "warning";
+  return "danger";
+}
+
+export function calculateProgressPercent(completed: number, total: number) {
+  if (total <= 0) return 0;
+  return Math.round((completed / total) * 200) / 2;
+}
+
+export function formatProgressPercent(percent: number) {
+  return Number.isInteger(percent)
+    ? String(percent)
+    : percent.toFixed(1).replace(".", ",");
+}
+
 export function getMemberMetrics(
   group: Group,
   memberId: string,
@@ -39,9 +58,10 @@ export function getMemberMetrics(
     completedSegments,
     totalSegments: allSegments.length,
     expectedSegments,
-    progressPercent: allSegments.length
-      ? Math.round((completedSegments / allSegments.length) * 100)
-      : 0,
+    progressPercent: calculateProgressPercent(
+      completedSegments,
+      allSegments.length,
+    ),
     paceDays,
     completedDays,
     streak: calculateStreak(group.planDays, completed, today),

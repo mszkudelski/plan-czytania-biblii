@@ -455,11 +455,15 @@ button {
   font-size: 0.67rem;
 }
 
-.positive {
+.pace-good {
+  color: var(--success) !important;
+}
+
+.pace-warning {
   color: var(--ahead) !important;
 }
 
-.negative {
+.pace-danger {
   color: var(--danger) !important;
 }
 
@@ -530,34 +534,34 @@ button {
   line-height: 1;
 }
 
-.backlog-card.is-ahead {
-  border-color: var(--ahead-border);
-  background: var(--ahead-soft);
-}
-
-.backlog-card.is-ahead span,
-.backlog-card.is-ahead strong {
-  color: var(--ahead);
-}
-
-.backlog-card.has-backlog {
-  border-color: var(--danger);
-  background: var(--danger-soft);
-}
-
-.backlog-card.has-backlog span,
-.backlog-card.has-backlog strong {
-  color: var(--danger);
-}
-
-.backlog-card.is-current {
+.backlog-card.pace-good {
   border-color: var(--success-border);
   background: var(--success-soft);
 }
 
-.backlog-card.is-current span,
-.backlog-card.is-current strong {
+.backlog-card.pace-good span,
+.backlog-card.pace-good strong {
   color: var(--success);
+}
+
+.backlog-card.pace-warning {
+  border-color: var(--ahead-border);
+  background: var(--ahead-soft);
+}
+
+.backlog-card.pace-warning span,
+.backlog-card.pace-warning strong {
+  color: var(--ahead);
+}
+
+.backlog-card.pace-danger {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.backlog-card.pace-danger span,
+.backlog-card.pace-danger strong {
+  color: var(--danger);
 }
 
 .backlog-card small {
@@ -928,11 +932,15 @@ button {
   font-size: 0.72rem;
 }
 
-.member-actions > b.positive {
+.member-actions > b.pace-good {
+  background: var(--success-soft);
+}
+
+.member-actions > b.pace-warning {
   background: var(--ahead-soft);
 }
 
-.member-actions > b.negative {
+.member-actions > b.pace-danger {
   background: var(--danger-soft);
 }
 
