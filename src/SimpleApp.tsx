@@ -1,21 +1,23 @@
 import {
   type ChangeEvent,
   type FormEvent,
+  useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
 import {
-  addMember,
   clearCredentials,
   createGroup,
+  ensureInvite,
   getGroup,
+  joinGroup,
   loadCredentials,
   saveCredentials,
   updateProgress,
 } from "./lib/api";
 import { parsePlanCsv, SAMPLE_CSV } from "./lib/csv";
-import { createInviteLink, readInviteFromHash } from "./lib/invite";
+import { createJoinLink, readJoinFromHash } from "./lib/invite";
 import { getMemberMetrics, getNextDay } from "./lib/metrics";
 import { buildSchedule, formatPolishDate, todayIso } from "./lib/schedule";
 import type {
@@ -23,6 +25,7 @@ import type {
   Frequency,
   FrequencyKind,
   Group,
+  JoinInvite,
   Member,
   PlanDay,
 } from "./types";
@@ -129,17 +132,16 @@ export default function SimpleApp() {
       ? "dark"
       : "light";
   });
-  const [credentials, setCredentials] = useState<Credentials | null>(() => {
-    const invite = readInviteFromHash();
-    if (invite) {
-      saveCredentials(invite);
-      window.history.replaceState(null, "", window.location.pathname);
-      return invite;
-    }
-    return loadCredentials();
-  });
+  const [joinInvite, setJoinInvite] = useState<JoinInvite | null>(() =>
+    readJoinFromHash(),
+  );
+  const [credentials, setCredentials] = useState<Credentials | null>(() =>
+    loadCredentials(),
+  );
   const [group, setGroup] = useState<Group | null>(null);
-  const [loading, setLoading] = useState(Boolean(credentials));
+  const [loading, setLoading] = useState(
+    Boolean(credentials) && !joinInvite,
+  );
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -148,7 +150,7 @@ export default function SimpleApp() {
   }, [theme]);
 
   useEffect(() => {
-    if (!credentials) return;
+    if (!credentials || joinInvite) return;
     setLoading(true);
     getGroup(credentials.groupId)
       .then(setGroup)
@@ -158,12 +160,37 @@ export default function SimpleApp() {
         setError("Nie udało się otworzyć planu.");
       })
       .finally(() => setLoading(false));
-  }, [credentials]);
+  }, [
+    credentials?.groupId,
+    credentials?.memberId,
+    credentials?.token,
+    joinInvite,
+  ]);
 
   function enter(groupData: Group, nextCredentials: Credentials) {
     saveCredentials(nextCredentials);
     setCredentials(nextCredentials);
     setGroup(groupData);
+    setJoinInvite(null);
+    if (window.location.hash) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }
+
+  const changeCredentials = useCallback((nextCredentials: Credentials) => {
+    saveCredentials(nextCredentials);
+    setCredentials(nextCredentials);
+  }, []);
+
+  if (joinInvite) {
+    return (
+      <JoinSetup
+        invite={joinInvite}
+        onJoined={enter}
+        theme={theme}
+        onThemeChange={setTheme}
+      />
+    );
   }
 
   if (loading) return <div className="simple-loader">Wczytywanie…</div>;
@@ -174,6 +201,7 @@ export default function SimpleApp() {
         credentials={credentials}
         group={group}
         setGroup={setGroup}
+        onCredentialsChange={changeCredentials}
         theme={theme}
         onThemeChange={setTheme}
         onLeave={() => {
@@ -192,6 +220,63 @@ export default function SimpleApp() {
       theme={theme}
       onThemeChange={setTheme}
     />
+  );
+}
+
+function JoinSetup({
+  invite,
+  onJoined,
+  theme,
+  onThemeChange,
+}: {
+  invite: JoinInvite;
+  onJoined: (group: Group, credentials: Credentials) => void;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+}) {
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await joinGroup(invite, name.trim());
+      onJoined(result.group, result.credentials);
+    } catch {
+      setError("Nie udało się dołączyć do planu.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="setup-page">
+      <div className="setup-box join-box">
+        <div className="setup-top">
+          <Brand />
+          <ThemeToggle theme={theme} onChange={onThemeChange} />
+        </div>
+        <h1>Dołącz do planu</h1>
+        <form onSubmit={submit}>
+          {error && <div className="simple-alert">{error}</div>}
+          <Field label="Twoje imię">
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              autoFocus
+              required
+            />
+          </Field>
+          <button className="main-button" disabled={busy || !name.trim()}>
+            {busy ? "Dołączanie…" : "Dołącz"}
+          </button>
+        </form>
+      </div>
+    </main>
   );
 }
 
@@ -380,6 +465,7 @@ function Dashboard({
   credentials,
   group,
   setGroup,
+  onCredentialsChange,
   theme,
   onThemeChange,
   onLeave,
@@ -387,6 +473,7 @@ function Dashboard({
   credentials: Credentials;
   group: Group;
   setGroup: (group: Group) => void;
+  onCredentialsChange: (credentials: Credentials) => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
   onLeave: () => void;
@@ -394,6 +481,12 @@ function Dashboard({
   const [tab, setTab] = useState<Tab>("today");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [busySegment, setBusySegment] = useState("");
+
+  useEffect(() => {
+    if (tab !== "group") return;
+    getGroup(credentials.groupId).then(setGroup).catch(() => undefined);
+  }, [credentials.groupId, setGroup, tab]);
+
   const member = group.members.find((item) => item.id === credentials.memberId);
   if (!member) return null;
   const memberId = member.id;
@@ -467,7 +560,7 @@ function Dashboard({
         <InviteModal
           credentials={credentials}
           onClose={() => setInviteOpen(false)}
-          onGroupChange={setGroup}
+          onCredentialsChange={onCredentialsChange}
         />
       )}
     </div>
@@ -613,7 +706,7 @@ function GroupView({
         action={
           member.isAdmin ? (
             <button className="small-button" onClick={onInvite}>
-              <Icon name="plus" size={17} /> Dodaj
+              <Icon name="plus" size={17} /> Zaproś
             </button>
           ) : undefined
         }
@@ -727,22 +820,36 @@ function DayCard({
 function InviteModal({
   credentials,
   onClose,
-  onGroupChange,
+  onCredentialsChange,
 }: {
   credentials: Credentials;
   onClose: () => void;
-  onGroupChange: (group: Group) => void;
+  onCredentialsChange: (credentials: Credentials) => void;
 }) {
-  const [name, setName] = useState("");
   const [link, setLink] = useState("");
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const result = await addMember(credentials, name.trim());
-    onGroupChange(result.group);
-    setLink(createInviteLink(result.memberCredentials));
-  }
+  useEffect(() => {
+    let cancelled = false;
+    ensureInvite(credentials)
+      .then((nextCredentials) => {
+        if (cancelled) return;
+        onCredentialsChange(nextCredentials);
+        setLink(createJoinLink(nextCredentials));
+      })
+      .catch(() => {
+        if (!cancelled) setError("Nie udało się utworzyć linku.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    credentials.groupId,
+    credentials.memberId,
+    credentials.token,
+    onCredentialsChange,
+  ]);
 
   return (
     <div className="simple-modal-bg" onMouseDown={onClose}>
@@ -753,27 +860,16 @@ function InviteModal({
         <button className="icon-button" onClick={onClose} aria-label="Zamknij">
           <Icon name="close" />
         </button>
-        <h2>Dodaj osobę</h2>
-        {!link ? (
-          <form onSubmit={submit}>
-            <Field label="Imię">
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                autoFocus
-              />
-            </Field>
-            <button className="main-button" disabled={!name.trim()}>
-              Dodaj
-            </button>
-          </form>
-        ) : (
+        <h2>Link zaproszenia</h2>
+        {error ? (
+          <div className="simple-alert">{error}</div>
+        ) : link ? (
           <div className="invite-link">
             <input value={link} readOnly aria-label="Link zaproszenia" />
             <button
               className="main-button"
               onClick={async () => {
-                await navigator.clipboard.writeText(link);
+                await copyText(link);
                 setCopied(true);
               }}
             >
@@ -781,10 +877,27 @@ function InviteModal({
               {copied ? "Skopiowano" : "Kopiuj link"}
             </button>
           </div>
+        ) : (
+          <div className="simple-loader inline-loader">Tworzenie linku…</div>
         )}
       </section>
     </div>
   );
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand("copy");
+  input.remove();
 }
 
 function TabButton({

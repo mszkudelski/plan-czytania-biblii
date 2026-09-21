@@ -1,8 +1,15 @@
-import type { Credentials, Frequency, Group, PlanDay } from "../types";
+import type {
+  Credentials,
+  Frequency,
+  Group,
+  JoinInvite,
+  PlanDay,
+} from "../types";
 import {
-  localAddMember,
   localCreateGroup,
+  localEnsureInvite,
   localGetGroup,
+  localJoinGroup,
   localUpdateProgress,
 } from "./local-store";
 
@@ -97,18 +104,31 @@ export async function updateProgress(
   }
 }
 
-export async function addMember(credentials: Credentials, name: string) {
-  if (useLocalOnly()) return localAddMember(credentials, name);
+export async function ensureInvite(credentials: Credentials) {
+  if (useLocalOnly()) return localEnsureInvite(credentials);
   try {
-    return await request<{
-      group: Group;
-      memberCredentials: Credentials;
-    }>(`/groups/${credentials.groupId}/members`, {
+    return await request<Credentials>(`/groups/${credentials.groupId}/invite`, {
       method: "POST",
-      body: JSON.stringify({ ...credentials, name }),
+      body: JSON.stringify(credentials),
     });
   } catch (error) {
     if (!canFallback()) throw error;
-    return localAddMember(credentials, name);
+    return localEnsureInvite(credentials);
+  }
+}
+
+export async function joinGroup(invite: JoinInvite, name: string) {
+  if (useLocalOnly()) return localJoinGroup(invite, name);
+  try {
+    return await request<{ group: Group; credentials: Credentials }>(
+      `/groups/${invite.groupId}/join`,
+      {
+        method: "POST",
+        body: JSON.stringify({ inviteToken: invite.inviteToken, name }),
+      },
+    );
+  } catch (error) {
+    if (!canFallback()) throw error;
+    return localJoinGroup(invite, name);
   }
 }

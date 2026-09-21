@@ -1,23 +1,42 @@
-import type { Credentials } from "../types";
+import type { Credentials, JoinInvite } from "../types";
 
-export function createInviteLink(credentials: Credentials) {
+function encode(value: unknown) {
   const payload = btoa(
-    unescape(encodeURIComponent(JSON.stringify(credentials))),
+    String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))),
   )
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replaceAll("=", "");
-  return `${window.location.origin}${window.location.pathname}#invite=${payload}`;
+  return payload;
 }
 
-export function readInviteFromHash(): Credentials | null {
-  const match = window.location.hash.match(/^#invite=([A-Za-z0-9_-]+)$/);
-  if (!match) return null;
+function decode<T>(payload: string): T | null {
   try {
-    const padded = match[1].replaceAll("-", "+").replaceAll("_", "/");
-    const json = decodeURIComponent(escape(atob(padded)));
-    return JSON.parse(json) as Credentials;
+    const normalized = payload.replaceAll("-", "+").replaceAll("_", "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const bytes = Uint8Array.from(atob(padded), (character) =>
+      character.charCodeAt(0),
+    );
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
   } catch {
     return null;
   }
+}
+
+export function createJoinLink(credentials: Credentials) {
+  if (!credentials.inviteToken) {
+    throw new Error("Brakuje tokenu zaproszenia.");
+  }
+  const payload = encode({
+    groupId: credentials.groupId,
+    inviteToken: credentials.inviteToken,
+  } satisfies JoinInvite);
+  return `${window.location.origin}${window.location.pathname}#join=${payload}`;
+}
+
+export function readJoinFromHash(): JoinInvite | null {
+  const match = window.location.hash.match(/^#join=([A-Za-z0-9_-]+)$/);
+  if (!match) return null;
+  const invite = decode<JoinInvite>(match[1]);
+  return invite?.groupId && invite.inviteToken ? invite : null;
 }

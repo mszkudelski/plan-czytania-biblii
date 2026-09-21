@@ -70,6 +70,10 @@ button {
   color: var(--muted);
 }
 
+.inline-loader {
+  min-height: 80px;
+}
+
 .simple-brand {
   display: flex;
   align-items: center;
@@ -104,6 +108,10 @@ button {
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--paper);
+}
+
+.join-box {
+  width: min(100%, 440px);
 }
 
 .setup-top {

@@ -9,7 +9,10 @@ import type {
 } from "../../src/types";
 
 type StoredMember = Member & { tokenHash: string };
-type StoredGroup = Omit<Group, "members"> & { members: StoredMember[] };
+type StoredGroup = Omit<Group, "members"> & {
+  members: StoredMember[];
+  inviteTokenHash?: string;
+};
 
 const COLORS = ["#47634f", "#bf6f54", "#65778e", "#9a7245", "#765b7d"];
 const store = getStore({
@@ -48,9 +51,14 @@ async function hashToken(token: string) {
 }
 
 function publicGroup(group: StoredGroup): Group {
+  const {
+    members,
+    inviteTokenHash: _inviteTokenHash,
+    ...publicFields
+  } = group;
   return {
-    ...group,
-    members: group.members.map(({ tokenHash: _tokenHash, ...member }) => member),
+    ...publicFields,
+    members: members.map(({ tokenHash: _tokenHash, ...member }) => member),
   };
 }
 
@@ -143,6 +151,7 @@ async function createGroup(request: Request) {
   const groupId = crypto.randomUUID();
   const memberId = crypto.randomUUID();
   const token = randomToken();
+  const inviteToken = randomToken();
   const group: StoredGroup = {
     id: groupId,
     name,
@@ -160,6 +169,7 @@ async function createGroup(request: Request) {
       },
     ],
     progress: { [memberId]: {} },
+    inviteTokenHash: await hashToken(inviteToken),
   };
 
   const result = await store.set(keyFor(groupId), JSON.stringify(group), {
@@ -170,7 +180,7 @@ async function createGroup(request: Request) {
   return json(
     {
       group: publicGroup(group),
-      credentials: { groupId, memberId, token },
+      credentials: { groupId, memberId, token, inviteToken },
     },
     201,
   );
@@ -232,16 +242,56 @@ async function updateProgress(request: Request, groupId: string) {
   });
 }
 
-async function addMember(request: Request, groupId: string) {
-  const body = (await request.json()) as Partial<Credentials> & { name?: unknown };
+async function ensureInvite(request: Request, groupId: string) {
+  const body = (await request.json()) as Partial<Credentials>;
+  let inviteCredentials: Credentials | null = null;
+
+  const response = await updateStoredGroup(groupId, async (group) => {
+    const current = await authenticate(group, body);
+    if (!current?.isAdmin || !body.memberId || !body.token) {
+      return error("Tylko administrator może zapraszać.", 403);
+    }
+
+    let inviteToken = cleanText(body.inviteToken, 200);
+    const tokenMatches =
+      inviteToken &&
+      group.inviteTokenHash &&
+      (await hashToken(inviteToken)) === group.inviteTokenHash;
+
+    if (!tokenMatches) {
+      inviteToken = randomToken();
+      group.inviteTokenHash = await hashToken(inviteToken);
+    }
+
+    inviteCredentials = {
+      groupId,
+      memberId: body.memberId,
+      token: body.token,
+      inviteToken,
+    };
+  });
+
+  if (response.status !== 200 || !inviteCredentials) return response;
+  return json(inviteCredentials);
+}
+
+async function joinGroup(request: Request, groupId: string) {
+  const body = (await request.json()) as {
+    name?: unknown;
+    inviteToken?: unknown;
+  };
   const name = cleanText(body.name);
+  const inviteToken = cleanText(body.inviteToken, 200);
   if (!name) return error("Podaj imię.");
+  if (!inviteToken) return error("Link zaproszenia jest nieprawidłowy.", 401);
 
   let createdCredentials: Credentials | null = null;
   const response = await updateStoredGroup(groupId, async (group) => {
-    const current = await authenticate(group, body);
-    if (!current?.isAdmin) {
-      return error("Tylko administrator może zapraszać.", 403);
+    if (
+      !group.inviteTokenHash ||
+      (await hashToken(inviteToken)) !== group.inviteTokenHash
+    ) {
+      return error("Link zaproszenia jest nieprawidłowy.", 401);
     }
     if (group.members.length >= 100) {
       return error("Grupa osiągnęła limit 100 osób.", 409);
@@ -261,10 +311,7 @@ async function addMember(request: Request, groupId: string) {
 
   if (response.status !== 200 || !createdCredentials) return response;
   const group = (await response.json()) as Group;
-  return json(
-    { group, memberCredentials: createdCredentials },
-    201,
-  );
+  return json({ group, credentials: createdCredentials }, 201);
 }
 
 export default async (request: Request) => {
@@ -297,9 +344,17 @@ export default async (request: Request) => {
       request.method === "POST" &&
       route.length === 3 &&
       route[0] === "groups" &&
-      route[2] === "members"
+      route[2] === "invite"
     ) {
-      return addMember(request, route[1]);
+      return ensureInvite(request, route[1]);
+    }
+    if (
+      request.method === "POST" &&
+      route.length === 3 &&
+      route[0] === "groups" &&
+      route[2] === "join"
+    ) {
+      return joinGroup(request, route[1]);
     }
     return error("Nie znaleziono endpointu.", 404);
   } catch (caught) {

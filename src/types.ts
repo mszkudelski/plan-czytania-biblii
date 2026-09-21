@@ -41,6 +41,12 @@ export type Credentials = {
   groupId: string;
   memberId: string;
   token: string;
+  inviteToken?: string;
+};
+
+export type JoinInvite = {
+  groupId: string;
+  inviteToken: string;
 };
 
 export type ImportedRow = {

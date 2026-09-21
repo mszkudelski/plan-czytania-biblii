@@ -1,6 +1,16 @@
-import type { Credentials, Frequency, Group, Member, PlanDay } from "../types";
+import type {
+  Credentials,
+  Frequency,
+  Group,
+  JoinInvite,
+  Member,
+  PlanDay,
+} from "../types";
 
-type LocalGroup = Group & { tokens: Record<string, string> };
+type LocalGroup = Group & {
+  tokens: Record<string, string>;
+  inviteToken?: string;
+};
 
 const STORAGE_KEY = "plan-czytania-biblii-local-groups";
 const COLORS = ["#47634f", "#bf6f54", "#65778e", "#9a7245", "#765b7d"];
@@ -22,7 +32,7 @@ function saveAll(groups: Record<string, LocalGroup>) {
 }
 
 function publicGroup(group: LocalGroup): Group {
-  const { tokens: _tokens, ...rest } = group;
+  const { tokens: _tokens, inviteToken: _inviteToken, ...rest } = group;
   return rest;
 }
 
@@ -36,6 +46,7 @@ export function localCreateGroup(input: {
   const groupId = randomId();
   const memberId = randomId();
   const token = randomToken();
+  const inviteToken = randomToken();
   const owner: Member = {
     id: memberId,
     name: input.ownerName,
@@ -52,13 +63,14 @@ export function localCreateGroup(input: {
     members: [owner],
     progress: { [memberId]: {} },
     tokens: { [memberId]: token },
+    inviteToken,
   };
   const all = loadAll();
   all[groupId] = group;
   saveAll(all);
   return {
     group: publicGroup(group),
-    credentials: { groupId, memberId, token },
+    credentials: { groupId, memberId, token, inviteToken },
   };
 }
 
@@ -86,10 +98,9 @@ export function localUpdateProgress(
   return publicGroup(group);
 }
 
-export function localAddMember(
+export function localEnsureInvite(
   credentials: Credentials,
-  name: string,
-): { group: Group; memberCredentials: Credentials } {
+): Credentials {
   const all = loadAll();
   const group = all[credentials.groupId];
   const current = group?.members.find(
@@ -101,6 +112,25 @@ export function localAddMember(
     group.tokens[credentials.memberId] !== credentials.token
   ) {
     throw new Error("Tylko administrator może zapraszać.");
+  }
+  if (!group.inviteToken || group.inviteToken !== credentials.inviteToken) {
+    group.inviteToken = randomToken();
+    saveAll(all);
+  }
+  return { ...credentials, inviteToken: group.inviteToken };
+}
+
+export function localJoinGroup(
+  invite: JoinInvite,
+  name: string,
+): { group: Group; credentials: Credentials } {
+  const all = loadAll();
+  const group = all[invite.groupId];
+  if (!group || group.inviteToken !== invite.inviteToken) {
+    throw new Error("Link zaproszenia jest nieprawidłowy.");
+  }
+  if (group.members.length >= 100) {
+    throw new Error("Grupa osiągnęła limit 100 osób.");
   }
   const memberId = randomId();
   const token = randomToken();
@@ -115,7 +145,7 @@ export function localAddMember(
   saveAll(all);
   return {
     group: publicGroup(group),
-    memberCredentials: {
+    credentials: {
       groupId: group.id,
       memberId,
       token,
