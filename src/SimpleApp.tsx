@@ -13,6 +13,7 @@ import {
   getGroup,
   joinGroup,
   loadCredentials,
+  removeMember,
   saveCredentials,
   updateProgress,
 } from "./lib/api";
@@ -42,6 +43,7 @@ type IconName =
   | "plus"
   | "close"
   | "copy"
+  | "trash"
   | "logout"
   | "moon"
   | "sun"
@@ -88,6 +90,12 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
       <>
         <rect x="9" y="9" width="12" height="12" rx="2" />
         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </>
+    ),
+    trash: (
+      <>
+        <path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6" />
+        <path d="M10 11v6M14 11v6" />
       </>
     ),
     logout: (
@@ -153,7 +161,13 @@ export default function SimpleApp() {
     if (!credentials || joinInvite) return;
     setLoading(true);
     getGroup(credentials.groupId)
-      .then(setGroup)
+      .then((groupData) => {
+        const hasAccess = groupData.members.some(
+          (member) => member.id === credentials.memberId,
+        );
+        if (!hasAccess) throw new Error("Brak dostępu.");
+        setGroup(groupData);
+      })
       .catch(() => {
         clearCredentials();
         setCredentials(null);
@@ -481,11 +495,23 @@ function Dashboard({
   const [tab, setTab] = useState<Tab>("today");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [busySegment, setBusySegment] = useState("");
+  const [busyMember, setBusyMember] = useState("");
 
   useEffect(() => {
     if (tab !== "group") return;
-    getGroup(credentials.groupId).then(setGroup).catch(() => undefined);
-  }, [credentials.groupId, setGroup, tab]);
+    getGroup(credentials.groupId)
+      .then((groupData) => {
+        const hasAccess = groupData.members.some(
+          (person) => person.id === credentials.memberId,
+        );
+        if (!hasAccess) {
+          onLeave();
+          return;
+        }
+        setGroup(groupData);
+      })
+      .catch(() => undefined);
+  }, [credentials.groupId, credentials.memberId, setGroup, tab]);
 
   const member = group.members.find((item) => item.id === credentials.memberId);
   if (!member) return null;
@@ -499,6 +525,21 @@ function Dashboard({
       setGroup(await updateProgress(credentials, segmentId, completed));
     } finally {
       setBusySegment("");
+    }
+  }
+
+  async function remove(person: Member) {
+    const confirmed = window.confirm(
+      `Czy na pewno chcesz usunąć ${person.name} z grupy?`,
+    );
+    if (!confirmed) return;
+    setBusyMember(person.id);
+    try {
+      setGroup(await removeMember(credentials, person.id));
+    } catch {
+      window.alert("Nie udało się usunąć osoby.");
+    } finally {
+      setBusyMember("");
     }
   }
 
@@ -543,6 +584,8 @@ function Dashboard({
             group={group}
             member={member}
             onInvite={() => setInviteOpen(true)}
+            onRemove={remove}
+            busyMember={busyMember}
           />
         )}
         {tab === "settings" && (
@@ -680,10 +723,14 @@ function GroupView({
   group,
   member,
   onInvite,
+  onRemove,
+  busyMember,
 }: {
   group: Group;
   member: Member;
   onInvite: () => void;
+  onRemove: (member: Member) => void;
+  busyMember: string;
 }) {
   const ranking = group.members
     .map((person) => ({
@@ -728,10 +775,26 @@ function GroupView({
                 <i style={{ width: `${person.metrics.progressPercent}%` }} />
               </span>
             </div>
-            <b className={person.metrics.paceDays < 0 ? "negative" : "positive"}>
-              {person.metrics.paceDays > 0 ? "+" : ""}
-              {person.metrics.paceDays} d.
-            </b>
+            <div className="member-actions">
+              <b
+                className={
+                  person.metrics.paceDays < 0 ? "negative" : "positive"
+                }
+              >
+                {person.metrics.paceDays > 0 ? "+" : ""}
+                {person.metrics.paceDays} d.
+              </b>
+              {member.isAdmin && person.id !== member.id && (
+                <button
+                  className="remove-member-button"
+                  disabled={busyMember === person.id}
+                  onClick={() => onRemove(person)}
+                  aria-label={`Usuń ${person.name}`}
+                >
+                  <Icon name="trash" size={16} />
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </section>

@@ -8,7 +8,10 @@ import type {
   PlanDay,
 } from "../../src/types";
 
-type StoredMember = Member & { tokenHash: string };
+type StoredMember = Member & {
+  tokenHash?: string;
+  tokenHashes?: string[];
+};
 type StoredGroup = Omit<Group, "members"> & {
   members: StoredMember[];
   inviteTokenHash?: string;
@@ -58,12 +61,29 @@ function publicGroup(group: StoredGroup): Group {
   } = group;
   return {
     ...publicFields,
-    members: members.map(({ tokenHash: _tokenHash, ...member }) => member),
+    members: members.map(
+      ({
+        tokenHash: _tokenHash,
+        tokenHashes: _tokenHashes,
+        ...member
+      }) => member,
+    ),
   };
 }
 
 function cleanText(value: unknown, maxLength = 80) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function normalizeName(name: string) {
+  return name.normalize("NFKC").toLocaleLowerCase("pl-PL");
+}
+
+function tokenHashes(member: StoredMember) {
+  return [
+    ...(member.tokenHashes ?? []),
+    ...(member.tokenHash ? [member.tokenHash] : []),
+  ];
 }
 
 function validatePlanDays(value: unknown): PlanDay[] | null {
@@ -116,7 +136,8 @@ async function authenticate(
     (candidate) => candidate.id === credentials.memberId,
   );
   if (!member || !credentials.token) return null;
-  return (await hashToken(credentials.token)) === member.tokenHash ? member : null;
+  const candidateHash = await hashToken(credentials.token);
+  return tokenHashes(member).includes(candidateHash) ? member : null;
 }
 
 async function createGroup(request: Request) {
@@ -165,7 +186,7 @@ async function createGroup(request: Request) {
         name: ownerName,
         color: COLORS[0],
         isAdmin: true,
-        tokenHash: await hashToken(token),
+        tokenHashes: [await hashToken(token)],
       },
     ],
     progress: { [memberId]: {} },
@@ -293,17 +314,35 @@ async function joinGroup(request: Request, groupId: string) {
     ) {
       return error("Link zaproszenia jest nieprawidłowy.", 401);
     }
+    const memberId = crypto.randomUUID();
+    const token = randomToken();
+    const existingMember = group.members.find(
+      (member) => normalizeName(member.name) === normalizeName(name),
+    );
+
+    if (existingMember) {
+      existingMember.tokenHashes = [
+        ...tokenHashes(existingMember),
+        await hashToken(token),
+      ];
+      delete existingMember.tokenHash;
+      createdCredentials = {
+        groupId,
+        memberId: existingMember.id,
+        token,
+      };
+      return;
+    }
+
     if (group.members.length >= 100) {
       return error("Grupa osiągnęła limit 100 osób.", 409);
     }
-    const memberId = crypto.randomUUID();
-    const token = randomToken();
     group.members.push({
       id: memberId,
       name,
       color: COLORS[group.members.length % COLORS.length],
       isAdmin: false,
-      tokenHash: await hashToken(token),
+      tokenHashes: [await hashToken(token)],
     });
     group.progress[memberId] = {};
     createdCredentials = { groupId, memberId, token };
@@ -312,6 +351,31 @@ async function joinGroup(request: Request, groupId: string) {
   if (response.status !== 200 || !createdCredentials) return response;
   const group = (await response.json()) as Group;
   return json({ group, credentials: createdCredentials }, 201);
+}
+
+async function removeMember(
+  request: Request,
+  groupId: string,
+  memberId: string,
+) {
+  const body = (await request.json()) as Partial<Credentials>;
+
+  return updateStoredGroup(groupId, async (group) => {
+    const current = await authenticate(group, body);
+    if (!current?.isAdmin) {
+      return error("Tylko administrator może usuwać osoby.", 403);
+    }
+    const member = group.members.find((candidate) => candidate.id === memberId);
+    if (!member) return error("Nie znaleziono osoby.", 404);
+    if (member.isAdmin) {
+      return error("Nie można usunąć administratora.", 409);
+    }
+
+    group.members = group.members.filter(
+      (candidate) => candidate.id !== memberId,
+    );
+    delete group.progress[memberId];
+  });
 }
 
 export default async (request: Request) => {
@@ -355,6 +419,14 @@ export default async (request: Request) => {
       route[2] === "join"
     ) {
       return joinGroup(request, route[1]);
+    }
+    if (
+      request.method === "DELETE" &&
+      route.length === 4 &&
+      route[0] === "groups" &&
+      route[2] === "members"
+    ) {
+      return removeMember(request, route[1], route[3]);
     }
     return error("Nie znaleziono endpointu.", 404);
   } catch (caught) {

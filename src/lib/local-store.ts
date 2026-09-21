@@ -8,7 +8,7 @@ import type {
 } from "../types";
 
 type LocalGroup = Group & {
-  tokens: Record<string, string>;
+  tokens: Record<string, string | string[]>;
   inviteToken?: string;
 };
 
@@ -34,6 +34,15 @@ function saveAll(groups: Record<string, LocalGroup>) {
 function publicGroup(group: LocalGroup): Group {
   const { tokens: _tokens, inviteToken: _inviteToken, ...rest } = group;
   return rest;
+}
+
+function memberTokens(group: LocalGroup, memberId: string) {
+  const tokens = group.tokens[memberId];
+  return Array.isArray(tokens) ? tokens : tokens ? [tokens] : [];
+}
+
+function normalizeName(name: string) {
+  return name.normalize("NFKC").toLocaleLowerCase("pl-PL");
 }
 
 export function localCreateGroup(input: {
@@ -62,7 +71,7 @@ export function localCreateGroup(input: {
     planDays: input.planDays,
     members: [owner],
     progress: { [memberId]: {} },
-    tokens: { [memberId]: token },
+    tokens: { [memberId]: [token] },
     inviteToken,
   };
   const all = loadAll();
@@ -87,7 +96,10 @@ export function localUpdateProgress(
 ): Group {
   const all = loadAll();
   const group = all[credentials.groupId];
-  if (!group || group.tokens[credentials.memberId] !== credentials.token) {
+  if (
+    !group ||
+    !memberTokens(group, credentials.memberId).includes(credentials.token)
+  ) {
     throw new Error("Nieprawidłowy link członka.");
   }
   const memberProgress = group.progress[credentials.memberId] ?? {};
@@ -109,7 +121,7 @@ export function localEnsureInvite(
   if (
     !group ||
     !current?.isAdmin ||
-    group.tokens[credentials.memberId] !== credentials.token
+    !memberTokens(group, credentials.memberId).includes(credentials.token)
   ) {
     throw new Error("Tylko administrator może zapraszać.");
   }
@@ -130,10 +142,31 @@ export function localJoinGroup(
     throw new Error("Link zaproszenia jest nieprawidłowy.");
   }
   if (group.members.length >= 100) {
-    throw new Error("Grupa osiągnęła limit 100 osób.");
+    const existing = group.members.find(
+      (member) => normalizeName(member.name) === normalizeName(name),
+    );
+    if (!existing) throw new Error("Grupa osiągnęła limit 100 osób.");
   }
   const memberId = randomId();
   const token = randomToken();
+  const existingMember = group.members.find(
+    (member) => normalizeName(member.name) === normalizeName(name),
+  );
+  if (existingMember) {
+    group.tokens[existingMember.id] = [
+      ...memberTokens(group, existingMember.id),
+      token,
+    ];
+    saveAll(all);
+    return {
+      group: publicGroup(group),
+      credentials: {
+        groupId: group.id,
+        memberId: existingMember.id,
+        token,
+      },
+    };
+  }
   group.members.push({
     id: memberId,
     name,
@@ -141,7 +174,7 @@ export function localJoinGroup(
     isAdmin: false,
   });
   group.progress[memberId] = {};
-  group.tokens[memberId] = token;
+  group.tokens[memberId] = [token];
   saveAll(all);
   return {
     group: publicGroup(group),
@@ -151,4 +184,33 @@ export function localJoinGroup(
       token,
     },
   };
+}
+
+export function localRemoveMember(
+  credentials: Credentials,
+  memberId: string,
+): Group {
+  const all = loadAll();
+  const group = all[credentials.groupId];
+  const current = group?.members.find(
+    (member) => member.id === credentials.memberId,
+  );
+  if (
+    !group ||
+    !current?.isAdmin ||
+    !memberTokens(group, credentials.memberId).includes(credentials.token)
+  ) {
+    throw new Error("Tylko administrator może usuwać osoby.");
+  }
+  const member = group.members.find((candidate) => candidate.id === memberId);
+  if (!member) throw new Error("Nie znaleziono osoby.");
+  if (member.isAdmin) throw new Error("Nie można usunąć administratora.");
+
+  group.members = group.members.filter(
+    (candidate) => candidate.id !== memberId,
+  );
+  delete group.progress[memberId];
+  delete group.tokens[memberId];
+  saveAll(all);
+  return publicGroup(group);
 }

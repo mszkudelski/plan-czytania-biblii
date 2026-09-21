@@ -10,6 +10,7 @@ import {
   localEnsureInvite,
   localGetGroup,
   localJoinGroup,
+  localRemoveMember,
   localUpdateProgress,
 } from "./local-store";
 
@@ -130,5 +131,24 @@ export async function joinGroup(invite: JoinInvite, name: string) {
   } catch (error) {
     if (!canFallback()) throw error;
     return localJoinGroup(invite, name);
+  }
+}
+
+export async function removeMember(
+  credentials: Credentials,
+  memberId: string,
+) {
+  if (useLocalOnly()) return localRemoveMember(credentials, memberId);
+  try {
+    return await request<Group>(
+      `/groups/${credentials.groupId}/members/${memberId}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify(credentials),
+      },
+    );
+  } catch (error) {
+    if (!canFallback()) throw error;
+    return localRemoveMember(credentials, memberId);
   }
 }
