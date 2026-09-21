@@ -6,6 +6,7 @@ import type {
   Member,
   PlanDay,
 } from "../types";
+import { cleanPersonName, normalizePersonName } from "./name";
 
 type LocalGroup = Group & {
   tokens: Record<string, string | string[]>;
@@ -41,10 +42,6 @@ function memberTokens(group: LocalGroup, memberId: string) {
   return Array.isArray(tokens) ? tokens : tokens ? [tokens] : [];
 }
 
-function normalizeName(name: string) {
-  return name.normalize("NFKC").toLocaleLowerCase("pl-PL");
-}
-
 export function localCreateGroup(input: {
   name: string;
   ownerName: string;
@@ -58,7 +55,7 @@ export function localCreateGroup(input: {
   const inviteToken = randomToken();
   const owner: Member = {
     id: memberId,
-    name: input.ownerName,
+    name: cleanPersonName(input.ownerName),
     color: COLORS[0],
     isAdmin: true,
   };
@@ -136,6 +133,7 @@ export function localJoinGroup(
   invite: JoinInvite,
   name: string,
 ): { group: Group; credentials: Credentials } {
+  const cleanName = cleanPersonName(name);
   const all = loadAll();
   const group = all[invite.groupId];
   if (!group || group.inviteToken !== invite.inviteToken) {
@@ -143,14 +141,16 @@ export function localJoinGroup(
   }
   if (group.members.length >= 100) {
     const existing = group.members.find(
-      (member) => normalizeName(member.name) === normalizeName(name),
+      (member) =>
+        normalizePersonName(member.name) === normalizePersonName(cleanName),
     );
     if (!existing) throw new Error("Grupa osiągnęła limit 100 osób.");
   }
   const memberId = randomId();
   const token = randomToken();
   const existingMember = group.members.find(
-    (member) => normalizeName(member.name) === normalizeName(name),
+    (member) =>
+      normalizePersonName(member.name) === normalizePersonName(cleanName),
   );
   if (existingMember) {
     group.tokens[existingMember.id] = [
@@ -169,7 +169,7 @@ export function localJoinGroup(
   }
   group.members.push({
     id: memberId,
-    name,
+    name: cleanName,
     color: COLORS[group.members.length % COLORS.length],
     isAdmin: false,
   });

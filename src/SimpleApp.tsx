@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import {
+  ApiError,
   clearCredentials,
   createGroup,
   ensureInvite,
@@ -20,6 +21,7 @@ import {
 import { parsePlanCsv, SAMPLE_CSV } from "./lib/csv";
 import { createJoinLink, readJoinFromHash } from "./lib/invite";
 import { getMemberMetrics, getNextDay } from "./lib/metrics";
+import { cleanPersonName } from "./lib/name";
 import { buildSchedule, formatPolishDate, todayIso } from "./lib/schedule";
 import type {
   Credentials,
@@ -148,9 +150,13 @@ export default function SimpleApp() {
   );
   const [group, setGroup] = useState<Group | null>(null);
   const [loading, setLoading] = useState(
-    Boolean(credentials) && !joinInvite,
+    Boolean(
+      credentials &&
+        (!joinInvite || credentials.groupId === joinInvite.groupId),
+    ),
   );
   const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -158,27 +164,48 @@ export default function SimpleApp() {
   }, [theme]);
 
   useEffect(() => {
-    if (!credentials || joinInvite) return;
+    if (!credentials) {
+      setLoading(false);
+      return;
+    }
+    if (joinInvite && credentials.groupId !== joinInvite.groupId) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
     setLoading(true);
+    setError("");
     getGroup(credentials.groupId)
       .then((groupData) => {
+        if (cancelled) return;
         const hasAccess = groupData.members.some(
           (member) => member.id === credentials.memberId,
         );
         if (!hasAccess) throw new Error("Brak dostępu.");
         setGroup(groupData);
+        if (joinInvite) {
+          setJoinInvite(null);
+          if (window.location.hash) {
+            window.history.replaceState(null, "", window.location.pathname);
+          }
+        }
       })
-      .catch(() => {
-        clearCredentials();
-        setCredentials(null);
-        setError("Nie udało się otworzyć planu.");
+      .catch((caught: unknown) => {
+        if (cancelled) return;
+        setError(sessionError(caught));
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [
     credentials?.groupId,
     credentials?.memberId,
     credentials?.token,
-    joinInvite,
+    joinInvite?.groupId,
+    retry,
   ]);
 
   function enter(groupData: Group, nextCredentials: Credentials) {
@@ -196,7 +223,11 @@ export default function SimpleApp() {
     setCredentials(nextCredentials);
   }, []);
 
-  if (joinInvite) {
+  const canResumeInvite = Boolean(
+    joinInvite && credentials?.groupId === joinInvite.groupId,
+  );
+
+  if (joinInvite && !canResumeInvite) {
     return (
       <JoinSetup
         invite={joinInvite}
@@ -227,6 +258,23 @@ export default function SimpleApp() {
     );
   }
 
+  if (credentials) {
+    return (
+      <SessionRecovery
+        error={error}
+        onRetry={() => setRetry((current) => current + 1)}
+        onReset={() => {
+          clearCredentials();
+          setCredentials(null);
+          setGroup(null);
+          setError("");
+        }}
+        theme={theme}
+        onThemeChange={setTheme}
+      />
+    );
+  }
+
   return (
     <Setup
       onCreated={enter}
@@ -235,6 +283,60 @@ export default function SimpleApp() {
       onThemeChange={setTheme}
     />
   );
+}
+
+function SessionRecovery({
+  error,
+  onRetry,
+  onReset,
+  theme,
+  onThemeChange,
+}: {
+  error: string;
+  onRetry: () => void;
+  onReset: () => void;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+}) {
+  return (
+    <main className="setup-page">
+      <div className="setup-box join-box session-recovery">
+        <div className="setup-top">
+          <Brand />
+          <ThemeToggle theme={theme} onChange={onThemeChange} />
+        </div>
+        <h1>Nie mogę wczytać planu</h1>
+        <div className="simple-alert">
+          {error || "Wystąpił chwilowy problem z połączeniem."}
+        </div>
+        <p>
+          Zapisane połączenie z planem zostało zachowane. Spróbuj ponownie za
+          chwilę.
+        </p>
+        <div className="session-recovery-actions">
+          <button className="main-button" onClick={onRetry}>
+            Spróbuj ponownie
+          </button>
+          <button className="link-button" onClick={onReset}>
+            Wyczyść zapisane połączenie
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function sessionError(caught: unknown) {
+  if (caught instanceof ApiError && caught.status === 404) {
+    return "Nie znaleziono planu na serwerze. Zapisane połączenie nie zostało usunięte.";
+  }
+  if (caught instanceof ApiError && [401, 403].includes(caught.status)) {
+    return "To zapisane połączenie nie ma już dostępu do tego planu.";
+  }
+  if (caught instanceof Error && caught.message === "Brak dostępu.") {
+    return "To zapisane połączenie nie ma już dostępu do tego planu.";
+  }
+  return "Nie udało się otworzyć planu. Zapisane połączenie nie zostało usunięte.";
 }
 
 function JoinSetup({
@@ -254,11 +356,12 @@ function JoinSetup({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!name.trim()) return;
+    const cleanName = cleanPersonName(name);
+    if (!cleanName) return;
     setBusy(true);
     setError("");
     try {
-      const result = await joinGroup(invite, name.trim());
+      const result = await joinGroup(invite, cleanName);
       onJoined(result.group, result.credentials);
     } catch {
       setError("Nie udało się dołączyć do planu.");
@@ -279,13 +382,21 @@ function JoinSetup({
           {error && <div className="simple-alert">{error}</div>}
           <Field label="Twoje imię">
             <input
+              type="text"
+              name="name"
+              autoComplete="name"
+              maxLength={80}
+              placeholder="np. Szymon Kowalski"
               value={name}
               onChange={(event) => setName(event.target.value)}
               autoFocus
               required
             />
           </Field>
-          <button className="main-button" disabled={busy || !name.trim()}>
+          <button
+            className="main-button"
+            disabled={busy || !cleanPersonName(name)}
+          >
             {busy ? "Dołączanie…" : "Dołącz"}
           </button>
         </form>
@@ -330,7 +441,7 @@ function Setup({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!ownerName.trim()) return setError("Podaj imię.");
+    if (!cleanPersonName(ownerName)) return setError("Podaj imię.");
     if (!rows.length) return setError("Dodaj plan CSV.");
     if (frequencyKind === "custom" && !customDays.length) {
       return setError("Wybierz dni czytania.");
@@ -351,7 +462,7 @@ function Setup({
     try {
       const result = await createGroup({
         name: groupName.trim(),
-        ownerName: ownerName.trim(),
+        ownerName: cleanPersonName(ownerName),
         startDate,
         frequency,
         planDays: buildSchedule(rows, startDate, frequency),
@@ -384,6 +495,11 @@ function Setup({
             </Field>
             <Field label="Twoje imię">
               <input
+                type="text"
+                name="ownerName"
+                autoComplete="name"
+                maxLength={80}
+                placeholder="np. Marek Kowalski"
                 value={ownerName}
                 onChange={(event) => setOwnerName(event.target.value)}
                 required

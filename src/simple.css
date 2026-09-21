@@ -126,6 +126,19 @@ button {
   width: min(100%, 440px);
 }
 
+.session-recovery p {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.session-recovery-actions {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+}
+
 .setup-top {
   display: flex;
   align-items: center;

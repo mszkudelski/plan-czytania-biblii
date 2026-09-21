@@ -7,6 +7,7 @@ import type {
   Member,
   PlanDay,
 } from "../../src/types";
+import { cleanPersonName, normalizePersonName } from "../../src/lib/name";
 
 type StoredMember = Member & {
   tokenHash?: string;
@@ -73,10 +74,6 @@ function publicGroup(group: StoredGroup): Group {
 
 function cleanText(value: unknown, maxLength = 80) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
-}
-
-function normalizeName(name: string) {
-  return name.normalize("NFKC").toLocaleLowerCase("pl-PL");
 }
 
 function tokenHashes(member: StoredMember) {
@@ -149,7 +146,7 @@ async function createGroup(request: Request) {
     planDays?: unknown;
   };
   const name = cleanText(body.name);
-  const ownerName = cleanText(body.ownerName);
+  const ownerName = cleanPersonName(cleanText(body.ownerName));
   const planDays = validatePlanDays(body.planDays);
   const startDate = cleanText(body.startDate, 10);
   const frequency = body.frequency;
@@ -301,7 +298,7 @@ async function joinGroup(request: Request, groupId: string) {
     name?: unknown;
     inviteToken?: unknown;
   };
-  const name = cleanText(body.name);
+  const name = cleanPersonName(cleanText(body.name));
   const inviteToken = cleanText(body.inviteToken, 200);
   if (!name) return error("Podaj imię.");
   if (!inviteToken) return error("Link zaproszenia jest nieprawidłowy.", 401);
@@ -317,7 +314,8 @@ async function joinGroup(request: Request, groupId: string) {
     const memberId = crypto.randomUUID();
     const token = randomToken();
     const existingMember = group.members.find(
-      (member) => normalizeName(member.name) === normalizeName(name),
+      (member) =>
+        normalizePersonName(member.name) === normalizePersonName(name),
     );
 
     if (existingMember) {

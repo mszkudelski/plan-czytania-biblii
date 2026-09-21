@@ -66,6 +66,40 @@ describe("członkowie grupy", () => {
     ).not.toThrow();
   });
 
+  it("odróżnia osoby o tym samym imieniu po imieniu i nazwisku", () => {
+    const created = localCreateGroup({
+      name: "Plan czytania Biblii",
+      ownerName: "Marek Kowalski",
+      startDate: "2026-09-21",
+      frequency: { kind: "daily", days: [0, 1, 2, 3, 4, 5, 6] },
+      planDays: [
+        {
+          id: "day-1",
+          index: 0,
+          date: "2026-09-21",
+          title: "",
+          segments: [
+            { id: "segment-1", label: "Rdz 1", section: "Stary Testament" },
+          ],
+        },
+      ],
+    });
+    const invite = {
+      groupId: created.credentials.groupId,
+      inviteToken: created.credentials.inviteToken!,
+    };
+
+    const first = localJoinGroup(invite, "  Szymon   Kowalski ");
+    const second = localJoinGroup(invite, "Szymon Nowak");
+
+    expect(first.credentials.memberId).not.toBe(second.credentials.memberId);
+    expect(second.group.members.map((member) => member.name)).toEqual([
+      "Marek Kowalski",
+      "Szymon Kowalski",
+      "Szymon Nowak",
+    ]);
+  });
+
   it("usuwa osobę i unieważnia jej dostęp", () => {
     const created = localCreateGroup({
       name: "Plan czytania Biblii",

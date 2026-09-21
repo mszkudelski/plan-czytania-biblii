@@ -16,6 +16,16 @@ import {
 
 const CREDENTIALS_KEY = "plan-czytania-biblii-credentials";
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...options,
@@ -25,10 +35,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     },
   });
   const contentType = response.headers.get("content-type") ?? "";
-  if (!response.ok || !contentType.includes("application/json")) {
-    throw new Error(
-      response.ok ? "Backend nie jest dostępny." : await response.text(),
-    );
+  if (!response.ok) {
+    let message = "Backend nie jest dostępny.";
+    try {
+      const body = (await response.json()) as { error?: unknown };
+      if (typeof body.error === "string" && body.error) message = body.error;
+    } catch {
+      // Keep the generic message when the backend does not return JSON.
+    }
+    throw new ApiError(message, response.status);
+  }
+  if (!contentType.includes("application/json")) {
+    throw new Error("Backend nie jest dostępny.");
   }
   return response.json() as Promise<T>;
 }
