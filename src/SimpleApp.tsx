@@ -703,7 +703,12 @@ function PlanView({
             (segment) => progress[segment.id],
           ).length;
           return (
-            <div className="plan-day-row" key={day.id}>
+            <div
+              className={`plan-day-row ${
+                completed === day.segments.length ? "complete" : ""
+              }`}
+              key={day.id}
+            >
               <strong>{formatPolishDate(day.date, "short")}</strong>
               <span>
                 {day.segments.map((segment) => segment.label).join(" · ")}
@@ -847,8 +852,9 @@ function DayCard({
   onToggle: (segmentId: string) => void;
 }) {
   const completed = day.segments.filter((segment) => progress[segment.id]).length;
+  const complete = completed === day.segments.length;
   return (
-    <section className="simple-day">
+    <section className={`simple-day ${complete ? "is-complete" : ""}`}>
       <header>
         <strong>{formatPolishDate(day.date)}</strong>
         <b>
@@ -1027,13 +1033,18 @@ function ProgressDonut({ percent }: { percent: number }) {
 }
 
 function BacklogCard({ pace }: { pace: number }) {
-  const backlog = Math.max(0, -pace);
+  const ahead = pace > 0;
+  const behind = pace < 0;
+  const value = Math.abs(pace);
   return (
-    <div className={`viz-card backlog-card ${backlog > 0 ? "has-backlog" : ""}`}>
-      <span>Zaległość</span>
-      <strong>{backlog}</strong>
-      <small>{backlog === 1 ? "dzień" : "dni"}</small>
-      {pace > 0 && <em>+{pace} do przodu</em>}
+    <div
+      className={`viz-card backlog-card ${
+        ahead ? "is-ahead" : behind ? "has-backlog" : "is-current"
+      }`}
+    >
+      <span>{ahead ? "Do przodu" : behind ? "Zaległość" : "Na bieżąco"}</span>
+      <strong>{ahead ? `+${value}` : value}</strong>
+      <small>{value === 1 ? "dzień" : "dni"}</small>
     </div>
   );
 }
@@ -1078,7 +1089,7 @@ function DaySwitcher({
                   .replace(".", "")}
               </small>
               <strong>{new Date(`${day.date}T12:00:00`).getDate()}</strong>
-              <i />
+              <i>{complete && <Icon name="check" size={11} />}</i>
             </button>
           );
         })}
