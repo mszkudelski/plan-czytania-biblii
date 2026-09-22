@@ -87,6 +87,14 @@ npm run build
 Netlify automatycznie udostępnia funkcjom poświadczenia do Blobs. Dane planu są
 przechowywane między wdrożeniami w store `plan-czytania-biblii-groups`.
 
+### Workflow produkcja/testy
+
+- `main` jest branchem produkcyjnym i publikuje się pod adresem głównym.
+- `develop` służy do testów i publikuje się jako branch deploy przed
+  promowaniem zmian na `main`.
+- Przed scaleniem zmian uruchom lokalnie `npm test` oraz `npm run build`, a
+  następnie sprawdź wdrożenie `develop`.
+
 ## Model dostępu
 
 To pragmatyczny model dla zaufanej, prywatnej grupy:
