@@ -18,3 +18,14 @@ export function isStandaloneApp(
 ) {
   return displayModeStandalone || navigatorStandalone;
 }
+
+export function isMobileDevice(
+  userAgent: string,
+  platform: string,
+  maxTouchPoints: number,
+) {
+  return (
+    /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent) ||
+    (platform === "MacIntel" && maxTouchPoints > 1)
+  );
+}

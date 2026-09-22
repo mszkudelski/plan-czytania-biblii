@@ -33,7 +33,11 @@ import {
   readJoinFromHash,
   readSessionTransferFromHash,
 } from "./lib/invite";
-import { isIosSafariBrowser, isStandaloneApp } from "./lib/install";
+import {
+  isIosSafariBrowser,
+  isMobileDevice,
+  isStandaloneApp,
+} from "./lib/install";
 import {
   calculateProgressPercent,
   formatProgressPercent,
@@ -404,11 +408,16 @@ type InstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
+const INSTALL_PROMPT_DISMISSED_KEY = "plan-czytania-install-prompt-dismissed";
+
 function InstallApp() {
   const [promptEvent, setPromptEvent] = useState<InstallPromptEvent | null>(
     null,
   );
   const [instructionsOpen, setInstructionsOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(
+    () => localStorage.getItem(INSTALL_PROMPT_DISMISSED_KEY) === "true",
+  );
   const [installed, setInstalled] = useState(() =>
     isStandaloneApp(
       window.matchMedia("(display-mode: standalone)").matches,
@@ -416,6 +425,11 @@ function InstallApp() {
     ),
   );
   const iosSafari = isIosSafariBrowser(
+    navigator.userAgent,
+    navigator.platform,
+    navigator.maxTouchPoints,
+  );
+  const mobileDevice = isMobileDevice(
     navigator.userAgent,
     navigator.platform,
     navigator.maxTouchPoints,
@@ -441,7 +455,20 @@ function InstallApp() {
     };
   }, []);
 
-  if (installed || (!promptEvent && !iosSafari)) return null;
+  if (
+    installed ||
+    dismissed ||
+    !mobileDevice ||
+    (!promptEvent && !iosSafari)
+  ) {
+    return null;
+  }
+
+  function dismiss() {
+    localStorage.setItem(INSTALL_PROMPT_DISMISSED_KEY, "true");
+    setDismissed(true);
+    setInstructionsOpen(false);
+  }
 
   async function install() {
     if (!promptEvent) {
@@ -457,14 +484,38 @@ function InstallApp() {
 
   return (
     <>
-      <button
-        type="button"
-        className="install-app-trigger"
-        onClick={() => void install()}
-      >
-        <Icon name="install" size={18} />
-        Zainstaluj
-      </button>
+      <aside className="install-app-card" aria-labelledby="install-card-title">
+        <button
+          type="button"
+          className="install-card-close"
+          onClick={dismiss}
+          aria-label="Nie pokazuj ponownie"
+        >
+          <Icon name="close" size={18} />
+        </button>
+        <span className="install-card-icon">
+          <Icon name="install" size={24} />
+        </span>
+        <div className="install-card-content">
+          <h2 id="install-card-title">Dodaj aplikację do ekranu głównego</h2>
+          <p>
+            Po instalacji ikona aplikacji pojawi się na ekranie głównym
+            urządzenia. Plan będzie otwierać się jak zwykła aplikacja.
+          </p>
+          <p className="install-card-note">
+            W Chrome otworzy się systemowe potwierdzenie. W Safari pokażemy Ci
+            krótką instrukcję.
+          </p>
+          <button
+            type="button"
+            className="main-button"
+            onClick={() => void install()}
+          >
+            <Icon name="install" size={18} />
+            Zainstaluj
+          </button>
+        </div>
+      </aside>
 
       {instructionsOpen && (
         <div

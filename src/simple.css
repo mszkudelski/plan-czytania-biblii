@@ -1186,25 +1186,81 @@ button {
   gap: 16px;
 }
 
-.install-app-trigger {
+.install-app-card {
   position: fixed;
   z-index: 45;
   right: 18px;
   bottom: 18px;
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 0 17px;
+  display: none;
+  width: min(calc(100% - 36px), 430px);
+  grid-template-columns: 44px 1fr;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--paper);
+  box-shadow: 0 10px 32px rgba(24, 40, 30, 0.22);
+}
+
+.install-card-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  width: 34px;
+  height: 34px;
   cursor: pointer;
-  color: #fff;
+  place-items: center;
+  color: var(--muted);
   border: 0;
-  border-radius: 999px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.install-card-close:hover,
+.install-card-close:focus-visible {
+  color: var(--ink);
+  outline: none;
+  background: var(--subtle);
+}
+
+.install-card-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  color: #fff;
+  border-radius: 11px;
   background: var(--green-button);
-  box-shadow: 0 5px 18px rgba(24, 67, 43, 0.24);
-  font-size: 0.76rem;
-  font-weight: 700;
+}
+
+.install-card-content {
+  display: grid;
+  gap: 10px;
+  padding-right: 22px;
+}
+
+.install-card-content h2 {
+  margin: 1px 0 0;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.install-card-content p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.install-card-content .install-card-note {
+  color: var(--ink);
+  font-size: 0.68rem;
+}
+
+.install-card-content .main-button {
+  width: 100%;
+  margin-top: 2px;
 }
 
 .install-instructions {
@@ -1342,8 +1398,11 @@ button {
     background: var(--soft-green);
   }
 
-  .install-app-trigger {
+  .install-app-card {
     right: 14px;
+    left: 14px;
+    display: grid;
+    width: auto;
     bottom: calc(82px + env(safe-area-inset-bottom));
   }
 

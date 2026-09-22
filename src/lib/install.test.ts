@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isIosSafariBrowser, isStandaloneApp } from "./install";
+import {
+  isIosSafariBrowser,
+  isMobileDevice,
+  isStandaloneApp,
+} from "./install";
 
 describe("isIosSafariBrowser", () => {
   it("recognizes Safari on iPhone", () => {
@@ -48,5 +52,30 @@ describe("isStandaloneApp", () => {
     expect(isStandaloneApp(true, false)).toBe(true);
     expect(isStandaloneApp(false, true)).toBe(true);
     expect(isStandaloneApp(false, false)).toBe(false);
+  });
+});
+
+describe("isMobileDevice", () => {
+  it("recognizes phones and iPads", () => {
+    expect(isMobileDevice("Mozilla/5.0 (Linux; Android 15)", "Linux", 5)).toBe(
+      true,
+    );
+    expect(
+      isMobileDevice(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)",
+        "MacIntel",
+        5,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not recognize a desktop browser as mobile", () => {
+    expect(
+      isMobileDevice(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)",
+        "MacIntel",
+        0,
+      ),
+    ).toBe(false);
   });
 });
