@@ -1161,6 +1161,14 @@ button {
   font-size: 0.68rem;
 }
 
+.transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 3px;
+}
+
 .transfer-help,
 .invite-help {
   margin: 0;

@@ -1628,7 +1628,8 @@ function SettingsView({
       <section className="settings-card transfer-card">
         <p>
           Utwórz jednorazowy kod, a następnie wpisz go w aplikacji otwieranej z
-          ekranu początkowego. Kod jest ważny przez 10 minut.
+          ekranu początkowego. Kod jest ważny przez 10 minut. Po wygaśnięciu
+          możesz utworzyć nowy.
         </p>
         {transferError && <div className="simple-alert">{transferError}</div>}
         {transfer ? (
@@ -1645,16 +1646,25 @@ function SettingsView({
                 minute: "2-digit",
               }).format(new Date(transfer.expiresAt))}
             </span>
-            <button
-              className="small-button"
-              onClick={async () => {
-                await copyText(transfer.code);
-                setCopied(true);
-              }}
-            >
-              <Icon name="copy" size={16} />
-              {copied ? "Skopiowano" : "Kopiuj kod"}
-            </button>
+            <div className="transfer-actions">
+              <button
+                className="small-button"
+                onClick={async () => {
+                  await copyText(transfer.code);
+                  setCopied(true);
+                }}
+              >
+                <Icon name="copy" size={16} />
+                {copied ? "Skopiowano" : "Kopiuj kod"}
+              </button>
+              <button
+                className="small-button transfer-refresh"
+                disabled={transferBusy}
+                onClick={prepareTransfer}
+              >
+                {transferBusy ? "Tworzenie…" : "Utwórz nowy kod"}
+              </button>
+            </div>
             <p className="transfer-help">
               Zeskanuj kod QR drugim urządzeniem. Kod tekstowy pozostaje
               awaryjną opcją.
