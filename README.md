@@ -48,16 +48,16 @@ Po wdrożeniu aplikację można zainstalować z menu przeglądarki. Service work
 jest rejestrowany tylko w buildzie produkcyjnym; w trybie deweloperskim pozostaje
 wyłączony, żeby nie zakłócać HMR.
 
-### Przenoszenie sesji do aplikacji na iPhone
+### Przenoszenie sesji na inne urządzenie
 
 Nowe instalacje mogą odzyskać sesję z bezpiecznego cookie ustawianego po
-utworzeniu planu lub dołączeniu do niego. Dla aplikacji zainstalowanej wcześniej:
+utworzeniu planu lub dołączeniu do niego. Aby przenieść sesję:
 
-1. Otwórz działający plan w Safari.
-2. Przejdź do **Ustawienia → Aplikacja na iPhone**.
+1. Otwórz działający plan na pierwszym urządzeniu.
+2. Przejdź do **Ustawienia → Przeniesienie sesji**.
 3. Utwórz jednorazowy kod ważny przez 10 minut.
-4. W aplikacji z ekranu początkowego wybierz **Przenieś istniejącą sesję** i
-   wpisz kod.
+4. Na drugim urządzeniu wybierz **Przenieś sesję z innego urządzenia** i
+   zeskanuj kod QR.
 
 Sam Vite używa lokalnego zapisu w przeglądarce. Aby testować dokładnie ten sam
 backend co na Netlify:

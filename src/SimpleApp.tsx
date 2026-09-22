@@ -1621,12 +1621,11 @@ function SettingsView({
         />
         <Setting label="Dni czytania" value={frequency} />
       </section>
-      <h2 className="settings-heading">Aplikacja na iPhone</h2>
+      <h2 className="settings-heading">Przeniesienie sesji</h2>
       <section className="settings-card transfer-card">
         <p>
-          Utwórz jednorazowy kod, a następnie wpisz go w aplikacji otwieranej z
-          ekranu początkowego. Kod jest ważny przez 10 minut. Po wygaśnięciu
-          możesz utworzyć nowy.
+          Utwórz jednorazowy kod, a następnie zeskanuj go na drugim urządzeniu.
+          Kod jest ważny przez 10 minut. Po wygaśnięciu możesz utworzyć nowy.
         </p>
         {transferError && <div className="simple-alert">{transferError}</div>}
         {transfer ? (
