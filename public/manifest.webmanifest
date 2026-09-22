@@ -1,0 +1,20 @@
+{
+  "name": "Plan czytania Biblii",
+  "short_name": "Plan Biblii",
+  "description": "Grupowy, długoterminowy plan czytania Biblii.",
+  "lang": "pl",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f5f1",
+  "theme_color": "#f6f3ea",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

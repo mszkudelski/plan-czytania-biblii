@@ -16,6 +16,7 @@ postęp, zaznacza fragmenty oddzielnie i widzi zaległość lub wyprzedzenie.
 - prywatne linki zaproszeń dla kolejnych osób;
 - trwały zapis danych w Netlify Blobs;
 - lokalny tryb demonstracyjny oparty o `localStorage`.
+- instalowalna aplikacja PWA z cache’owaną powłoką interfejsu i obsługą offline.
 
 ## Format CSV
 
@@ -42,6 +43,10 @@ wybranej częstotliwości.
 npm install
 npm run dev
 ```
+
+Po wdrożeniu aplikację można zainstalować z menu przeglądarki. Service worker
+jest rejestrowany tylko w buildzie produkcyjnym; w trybie deweloperskim pozostaje
+wyłączony, żeby nie zakłócać HMR.
 
 Sam Vite używa lokalnego zapisu w przeglądarce. Aby testować dokładnie ten sam
 backend co na Netlify:

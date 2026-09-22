@@ -19,6 +19,11 @@
   to = "/index.html"
   status = 200
 
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
 [dev]
   command = "npm run dev"
   targetPort = 5173
