@@ -1186,6 +1186,82 @@ button {
   gap: 16px;
 }
 
+.install-app-trigger {
+  position: fixed;
+  z-index: 45;
+  right: 18px;
+  bottom: 18px;
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 17px;
+  cursor: pointer;
+  color: #fff;
+  border: 0;
+  border-radius: 999px;
+  background: var(--green-button);
+  box-shadow: 0 5px 18px rgba(24, 67, 43, 0.24);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.install-instructions {
+  display: grid;
+  gap: 20px;
+}
+
+.install-instructions h2 {
+  margin: 0;
+  padding-right: 34px;
+}
+
+.install-instructions > .main-button {
+  width: 100%;
+}
+
+.install-steps {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.install-steps li {
+  display: grid;
+  align-items: start;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+}
+
+.install-steps li > span:first-child {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: #fff;
+  border-radius: 50%;
+  background: var(--green-button);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.install-steps p {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.inline-share-icon {
+  display: inline-flex;
+  margin-left: 2px;
+  vertical-align: -4px;
+  color: var(--green);
+}
+
 .icon-button {
   position: absolute;
   top: 14px;
@@ -1264,6 +1340,11 @@ button {
   .mobile-tabs button.active {
     color: var(--green);
     background: var(--soft-green);
+  }
+
+  .install-app-trigger {
+    right: 14px;
+    bottom: calc(82px + env(safe-area-inset-bottom));
   }
 
   .simple-stats {
