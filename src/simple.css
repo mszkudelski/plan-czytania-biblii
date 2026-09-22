@@ -158,6 +158,48 @@ button {
   line-height: 1.55;
 }
 
+.setup-choice-box {
+  width: min(100%, 560px);
+}
+
+.setup-choice-list {
+  display: grid;
+  gap: 10px;
+}
+
+.setup-choice {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 17px;
+  cursor: pointer;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--subtle);
+}
+
+.setup-choice:hover,
+.setup-choice:focus-visible {
+  border-color: var(--green);
+  outline: none;
+  background: var(--soft-green);
+}
+
+.setup-choice strong {
+  font-size: 0.82rem;
+}
+
+.setup-choice span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.setup-back-link {
+  margin: -12px 0 24px;
+}
+
 .setup-transfer-prompt {
   display: flex;
   align-items: center;
@@ -1055,6 +1097,11 @@ button {
   gap: 8px;
 }
 
+.transfer-result .qr-code {
+  align-self: center;
+  margin-bottom: 4px;
+}
+
 .transfer-result > strong {
   color: var(--green);
   font-size: 1.45rem;
@@ -1064,6 +1111,36 @@ button {
 .transfer-result > span {
   color: var(--muted);
   font-size: 0.68rem;
+}
+
+.transfer-help,
+.invite-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.qr-code {
+  display: block;
+  width: 220px;
+  height: 220px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.qr-code-placeholder {
+  display: grid;
+  width: 220px;
+  height: 220px;
+  place-items: center;
+  padding: 20px;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  text-align: center;
+  font-size: 0.7rem;
 }
 
 .empty-state {
@@ -1127,6 +1204,11 @@ button {
 .invite-link {
   display: grid;
   gap: 10px;
+}
+
+.invite-link .qr-code,
+.invite-link .qr-code-placeholder {
+  justify-self: center;
 }
 
 .invite-link input {

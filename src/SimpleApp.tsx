@@ -25,7 +25,14 @@ import {
   updateProgress,
 } from "./lib/api";
 import { parsePlanCsv, SAMPLE_CSV } from "./lib/csv";
-import { createJoinLink, readJoinFromHash } from "./lib/invite";
+import QRCode from "qrcode";
+import {
+  createJoinLink,
+  createSessionTransferLink,
+  parseJoinLink,
+  readJoinFromHash,
+  readSessionTransferFromHash,
+} from "./lib/invite";
 import { isIosSafariBrowser, isStandaloneApp } from "./lib/install";
 import {
   calculateProgressPercent,
@@ -161,6 +168,35 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   );
 }
 
+function QrCode({ value, label }: { value: string; label: string }) {
+  const [source, setSource] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setSource("");
+    QRCode.toDataURL(value, {
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 220,
+    })
+      .then((nextSource) => {
+        if (!cancelled) setSource(nextSource);
+      })
+      .catch(() => {
+        if (!cancelled) setSource("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [value]);
+
+  if (!source) {
+    return <div className="qr-code-placeholder">Tworzenie kodu QR…</div>;
+  }
+
+  return <img className="qr-code" src={source} alt={label} />;
+}
+
 export default function SimpleApp() {
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem("plan-czytania-biblii-theme");
@@ -171,6 +207,9 @@ export default function SimpleApp() {
   });
   const [joinInvite, setJoinInvite] = useState<JoinInvite | null>(() =>
     readJoinFromHash(),
+  );
+  const [transferCode, setTransferCode] = useState<string | null>(() =>
+    readSessionTransferFromHash(),
   );
   const [credentials, setCredentials] = useState<Credentials | null>(() =>
     loadCredentials(),
@@ -265,6 +304,7 @@ export default function SimpleApp() {
     setCredentials(nextCredentials);
     setGroup(groupData);
     setJoinInvite(null);
+    setTransferCode(null);
     if (window.location.hash) {
       window.history.replaceState(null, "", window.location.pathname);
     }
@@ -286,6 +326,19 @@ export default function SimpleApp() {
       <JoinSetup
         invite={joinInvite}
         onJoined={enter}
+        theme={theme}
+        onThemeChange={setTheme}
+      />
+    );
+  } else if (transferCode && !credentials) {
+    content = (
+      <TransferSetup
+        initialCode={transferCode}
+        onRecovered={enter}
+        onBack={() => {
+          setTransferCode(null);
+          window.history.replaceState(null, "", window.location.pathname);
+        }}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -330,6 +383,7 @@ export default function SimpleApp() {
       <Setup
         onCreated={enter}
         onRecovered={enter}
+        onJoinInvite={(invite) => setJoinInvite(invite)}
         error={error}
         theme={theme}
         onThemeChange={setTheme}
@@ -593,36 +647,55 @@ function JoinSetup({
 }
 
 function TransferSetup({
+  initialCode = "",
   onRecovered,
   onBack,
   theme,
   onThemeChange,
 }: {
+  initialCode?: string;
   onRecovered: (group: Group, credentials: Credentials) => void;
   onBack: () => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
 }) {
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(initialCode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const submittedCode = useRef("");
 
-  async function submit(event: FormEvent) {
+  const redeem = useCallback(
+    async (nextCode: string) => {
+      const normalizedCode = nextCode.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+      if (normalizedCode.length !== 8) return;
+      setCode(normalizedCode);
+      setBusy(true);
+      setError("");
+      try {
+        const result = await redeemSessionTransfer(normalizedCode);
+        onRecovered(result.group, result.credentials);
+      } catch (caught) {
+        setError(
+          caught instanceof ApiError && caught.status === 410
+            ? "Kod wygasł. Utwórz nowy kod na urządzeniu, na którym działa plan."
+            : "Kod jest nieprawidłowy lub został już wykorzystany.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [onRecovered],
+  );
+
+  useEffect(() => {
+    if (!initialCode || submittedCode.current === initialCode) return;
+    submittedCode.current = initialCode;
+    void redeem(initialCode);
+  }, [initialCode, redeem]);
+
+  function submit(event: FormEvent) {
     event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      const result = await redeemSessionTransfer(code);
-      onRecovered(result.group, result.credentials);
-    } catch (caught) {
-      setError(
-        caught instanceof ApiError && caught.status === 410
-          ? "Kod wygasł. Utwórz nowy kod w Safari."
-          : "Kod jest nieprawidłowy lub został już wykorzystany.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    void redeem(code);
   }
 
   return (
@@ -634,8 +707,8 @@ function TransferSetup({
         </div>
         <h1>Przenieś sesję</h1>
         <p className="setup-description">
-          W Safari otwórz działający plan, przejdź do Ustawień i utwórz kod
-          przeniesienia. Kod jest ważny przez 10 minut.
+          Zeskanuj kod QR wyświetlony na urządzeniu, na którym działa Twój
+          plan. Możesz też wkleić kod ręcznie.
         </p>
         <form onSubmit={submit}>
           {error && <div className="simple-alert">{error}</div>}
@@ -648,17 +721,140 @@ function TransferSetup({
               inputMode="text"
               maxLength={9}
               placeholder="ABCD-EFGH"
+              autoFocus={!initialCode}
+              required
+            />
+          </Field>
+          <button className="main-button" disabled={busy || code.replace(/[^A-Z0-9]/gi, "").length < 8}>
+            {busy ? "Przenoszenie…" : "Przenieś plan"}
+          </button>
+          <button type="button" className="link-button" onClick={onBack}>
+            Wróć do wyboru
+          </button>
+        </form>
+      </div>
+    </main>
+  );
+}
+
+function JoinEntrySetup({
+  onJoinInvite,
+  onBack,
+  theme,
+  onThemeChange,
+}: {
+  onJoinInvite: (invite: JoinInvite) => void;
+  onBack: () => void;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+}) {
+  const [link, setLink] = useState("");
+  const [error, setError] = useState("");
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const invite = parseJoinLink(link.trim());
+    if (!invite) {
+      setError("Wklej prawidłowy link zaproszenia do planu.");
+      return;
+    }
+    onJoinInvite(invite);
+  }
+
+  return (
+    <main className="setup-page">
+      <div className="setup-box join-box">
+        <div className="setup-top">
+          <Brand />
+          <ThemeToggle theme={theme} onChange={onThemeChange} />
+        </div>
+        <h1>Dołącz do planu</h1>
+        <p className="setup-description">
+          Zeskanuj kod QR zaproszenia aparatem telefonu albo wklej otrzymany
+          link.
+        </p>
+        <form onSubmit={submit}>
+          {error && <div className="simple-alert">{error}</div>}
+          <Field label="Link zaproszenia">
+            <input
+              value={link}
+              onChange={(event) => setLink(event.target.value)}
+              type="url"
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              placeholder="https://plan-czytania.netlify.app/#join=…"
               autoFocus
               required
             />
           </Field>
-          <button className="main-button" disabled={busy || code.length < 8}>
-            {busy ? "Przenoszenie…" : "Przenieś plan"}
+          <button className="main-button" disabled={!link.trim()}>
+            Otwórz zaproszenie
           </button>
           <button type="button" className="link-button" onClick={onBack}>
-            Wróć do tworzenia planu
+            Wróć do wyboru
           </button>
         </form>
+      </div>
+    </main>
+  );
+}
+
+function SetupChoices({
+  error,
+  onChoose,
+  theme,
+  onThemeChange,
+}: {
+  error: string;
+  onChoose: (choice: "transfer" | "create" | "join") => void;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+}) {
+  return (
+    <main className="setup-page">
+      <div className="setup-box setup-choice-box">
+        <div className="setup-top">
+          <Brand />
+          <ThemeToggle theme={theme} onChange={onThemeChange} />
+        </div>
+        <h1>Witaj</h1>
+        {error && <div className="simple-alert">{error}</div>}
+        <p className="setup-description">
+          Wybierz, jak chcesz rozpocząć korzystanie z planu czytania.
+        </p>
+        <div className="setup-choice-list">
+          <button
+            type="button"
+            className="setup-choice"
+            onClick={() => onChoose("transfer")}
+          >
+            <strong>Przenieś sesję z innego urządzenia</strong>
+            <span>
+              Zeskanuj kod QR z działającego planu i otwórz go tutaj.
+            </span>
+          </button>
+          <button
+            type="button"
+            className="setup-choice"
+            onClick={() => onChoose("create")}
+          >
+            <strong>Utwórz nowy plan</strong>
+            <span>
+              Stwórz plan, dodaj własny harmonogram i zaproś inne osoby.
+            </span>
+          </button>
+          <button
+            type="button"
+            className="setup-choice"
+            onClick={() => onChoose("join")}
+          >
+            <strong>Dołącz do planu</strong>
+            <span>
+              Zeskanuj kod QR zaproszenia albo wklej otrzymany link.
+            </span>
+          </button>
+        </div>
       </div>
     </main>
   );
@@ -667,12 +863,14 @@ function TransferSetup({
 function Setup({
   onCreated,
   onRecovered,
+  onJoinInvite,
   error: initialError,
   theme,
   onThemeChange,
 }: {
   onCreated: (group: Group, credentials: Credentials) => void;
   onRecovered: (group: Group, credentials: Credentials) => void;
+  onJoinInvite: (invite: JoinInvite) => void;
   error: string;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
@@ -687,7 +885,9 @@ function Setup({
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
-  const [transferOpen, setTransferOpen] = useState(false);
+  const [view, setView] = useState<
+    "choices" | "create" | "transfer" | "join"
+  >("choices");
   const rows = useMemo(() => parsePlanCsv(csvText), [csvText]);
 
   function readFile(file?: File) {
@@ -737,11 +937,33 @@ function Setup({
     }
   }
 
-  if (transferOpen) {
+  if (view === "transfer") {
     return (
       <TransferSetup
         onRecovered={onRecovered}
-        onBack={() => setTransferOpen(false)}
+        onBack={() => setView("choices")}
+        theme={theme}
+        onThemeChange={onThemeChange}
+      />
+    );
+  }
+
+  if (view === "join") {
+    return (
+      <JoinEntrySetup
+        onJoinInvite={onJoinInvite}
+        onBack={() => setView("choices")}
+        theme={theme}
+        onThemeChange={onThemeChange}
+      />
+    );
+  }
+
+  if (view === "choices") {
+    return (
+      <SetupChoices
+        error={error}
+        onChoose={setView}
         theme={theme}
         onThemeChange={onThemeChange}
       />
@@ -756,16 +978,13 @@ function Setup({
           <ThemeToggle theme={theme} onChange={onThemeChange} />
         </div>
         <h1>Utwórz plan</h1>
-        <div className="setup-transfer-prompt">
-          <span>Masz już plan otwarty w Safari?</span>
-          <button
-            type="button"
-            className="link-button"
-            onClick={() => setTransferOpen(true)}
-          >
-            Przenieś istniejącą sesję
-          </button>
-        </div>
+        <button
+          type="button"
+          className="link-button setup-back-link"
+          onClick={() => setView("choices")}
+        >
+          Wróć do wyboru
+        </button>
         <form onSubmit={submit}>
           {error && <div className="simple-alert">{error}</div>}
           <div className="form-row">
@@ -1275,6 +1494,10 @@ function SettingsView({
         {transferError && <div className="simple-alert">{transferError}</div>}
         {transfer ? (
           <div className="transfer-result">
+            <QrCode
+              value={createSessionTransferLink(transfer.code)}
+              label="Kod QR do przeniesienia sesji"
+            />
             <strong>{transfer.code}</strong>
             <span>
               Ważny do{" "}
@@ -1293,6 +1516,10 @@ function SettingsView({
               <Icon name="copy" size={16} />
               {copied ? "Skopiowano" : "Kopiuj kod"}
             </button>
+            <p className="transfer-help">
+              Zeskanuj kod QR drugim urządzeniem. Kod tekstowy pozostaje
+              awaryjną opcją.
+            </p>
           </div>
         ) : (
           <button
@@ -1408,6 +1635,10 @@ function InviteModal({
           <div className="simple-alert">{error}</div>
         ) : link ? (
           <div className="invite-link">
+            <QrCode value={link} label="Kod QR zaproszenia do planu" />
+            <p className="invite-help">
+              Zeskanuj kod QR aparatem telefonu, aby otworzyć zaproszenie.
+            </p>
             <input value={link} readOnly aria-label="Link zaproszenia" />
             <button
               className="main-button"
