@@ -400,7 +400,7 @@ button {
 }
 
 .simple-content {
-  width: min(100% - 36px, 900px);
+  width: min(calc(100% - 40px), 900px);
   margin: 0 auto;
   padding: 38px 0 80px;
 }
@@ -469,12 +469,14 @@ button {
 
 .visual-summary {
   display: grid;
+  min-width: 0;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-bottom: 14px;
 }
 
 .viz-card {
+  min-width: 0;
   min-height: 132px;
   padding: 17px;
   border: 1px solid var(--border);
@@ -572,6 +574,7 @@ button {
 
 .day-switcher {
   display: grid;
+  min-width: 0;
   align-items: center;
   grid-template-columns: 40px 1fr 40px;
   gap: 8px;
@@ -581,7 +584,7 @@ button {
 .day-switcher > button {
   display: grid;
   width: 40px;
-  height: 44px;
+  height: 54px;
   cursor: pointer;
   place-items: center;
   color: var(--muted);
@@ -597,6 +600,7 @@ button {
 
 .day-strip {
   display: grid;
+  min-width: 0;
   grid-template-columns: repeat(5, 1fr);
   gap: 6px;
 }
@@ -604,6 +608,7 @@ button {
 .day-strip button {
   position: relative;
   display: grid;
+  min-width: 0;
   min-height: 54px;
   align-content: center;
   justify-items: center;
@@ -760,7 +765,7 @@ button {
 
 .simple-readings {
   display: grid;
-  padding: 0 22px;
+  padding: 0;
 }
 
 .simple-readings > button {
@@ -769,7 +774,7 @@ button {
   align-items: center;
   grid-template-columns: auto 1fr;
   gap: 12px;
-  padding: 10px 0;
+  padding: 10px 22px;
   text-align: left;
   cursor: pointer;
   border: 0;
@@ -1143,6 +1148,7 @@ button {
 
   .day-switcher > button {
     width: 36px;
+    height: 48px;
   }
 
   .day-strip {
