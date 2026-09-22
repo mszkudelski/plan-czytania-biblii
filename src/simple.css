@@ -75,6 +75,12 @@ button {
   color: inherit;
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .simple-loader {
   display: grid;
   min-height: 100vh;
@@ -438,6 +444,46 @@ button {
   align-items: center;
   justify-self: end;
   gap: 10px;
+}
+
+.refresh-button {
+  display: inline-flex;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px;
+  cursor: pointer;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--paper);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.refresh-button:hover {
+  color: var(--green);
+}
+
+.refresh-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.refresh-button:disabled svg {
+  animation: spin 0.9s linear infinite;
+}
+
+.sync-status {
+  margin-bottom: 16px;
+  padding: 11px 13px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--subtle);
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .simple-header > .simple-avatar {
@@ -1452,6 +1498,15 @@ button {
   .mobile-tabs button.active {
     color: var(--green);
     background: var(--soft-green);
+  }
+
+  .refresh-button {
+    width: 38px;
+    padding: 0;
+  }
+
+  .refresh-button span {
+    display: none;
   }
 
   .install-app-card {
