@@ -30,10 +30,13 @@ const SESSION_COOKIE = "plan-czytania-session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 const TRANSFER_TTL_MS = 10 * 60 * 1000;
 const TRANSFER_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-const store = getStore({
-  name: "plan-czytania-biblii-groups",
-  consistency: "strong",
-});
+
+function groupStore() {
+  return getStore({
+    name: "plan-czytania-biblii-groups",
+    consistency: "strong",
+  });
+}
 
 function json(
   data: unknown,
@@ -216,6 +219,7 @@ async function authenticate(
 }
 
 async function storedGroup(groupId: string) {
+  const store = groupStore();
   const group = await store.get(keyFor(groupId), {
     type: "json",
     consistency: "strong",
@@ -224,6 +228,7 @@ async function storedGroup(groupId: string) {
 }
 
 async function createGroup(request: Request) {
+  const store = groupStore();
   const body = (await request.json()) as {
     name?: unknown;
     ownerName?: unknown;
@@ -333,6 +338,7 @@ function clearSession() {
 }
 
 async function createSessionTransfer(request: Request) {
+  const store = groupStore();
   const credentials = cleanCredentials(await request.json());
   if (!credentials) return error("Nieprawidłowa sesja.", 400);
   const group = await storedGroup(credentials.groupId);
@@ -372,6 +378,7 @@ async function createSessionTransfer(request: Request) {
 }
 
 async function redeemSessionTransfer(request: Request) {
+  const store = groupStore();
   const body = (await request.json()) as { code?: unknown };
   const code = cleanTransferCode(body.code);
   if (code.length !== 8) return error("Kod ma nieprawidłowy format.", 400);
@@ -432,6 +439,7 @@ async function updateStoredGroup(
   groupId: string,
   updater: (group: StoredGroup) => Promise<Response | void>,
 ) {
+  const store = groupStore();
   const key = keyFor(groupId);
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const entry = await store.getWithMetadata(key, {
