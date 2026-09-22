@@ -15,6 +15,7 @@ import {
 } from "./local-store";
 
 const CREDENTIALS_KEY = "plan-czytania-biblii-credentials";
+type Session = { group: Group; credentials: Credentials };
 
 export class ApiError extends Error {
   constructor(
@@ -66,7 +67,17 @@ export function saveCredentials(credentials: Credentials) {
 
 export function loadCredentials(): Credentials | null {
   try {
-    return JSON.parse(localStorage.getItem(CREDENTIALS_KEY) ?? "null");
+    const value = JSON.parse(localStorage.getItem(CREDENTIALS_KEY) ?? "null");
+    if (
+      !value ||
+      typeof value !== "object" ||
+      typeof value.groupId !== "string" ||
+      typeof value.memberId !== "string" ||
+      typeof value.token !== "string"
+    ) {
+      return null;
+    }
+    return value as Credentials;
   } catch {
     return null;
   }
@@ -86,9 +97,11 @@ export async function restoreSession() {
   }
 }
 
-export async function saveSession(credentials: Credentials) {
-  if (useLocalOnly()) return;
-  await request("/session", {
+export async function saveSession(credentials: Credentials): Promise<Session> {
+  if (useLocalOnly()) {
+    return { group: localGetGroup(credentials.groupId), credentials };
+  }
+  return request<Session>("/session", {
     method: "POST",
     body: JSON.stringify(credentials),
   });

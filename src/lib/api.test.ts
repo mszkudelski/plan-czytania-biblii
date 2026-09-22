@@ -81,7 +81,10 @@ describe("remote session API", () => {
       .mockResolvedValueOnce(jsonResponse({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await saveSession(credentials);
+    await expect(saveSession(credentials)).resolves.toEqual({
+      group,
+      credentials,
+    });
     await clearSession();
 
     expect(fetchMock).toHaveBeenNthCalledWith(

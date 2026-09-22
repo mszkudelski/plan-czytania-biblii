@@ -271,15 +271,12 @@ export default function SimpleApp() {
     let cancelled = false;
     setLoading(true);
     setError("");
-    getGroup(credentials.groupId)
-      .then((groupData) => {
+    saveSession(credentials)
+      .then((session) => {
         if (cancelled) return;
-        const hasAccess = groupData.members.some(
-          (member) => member.id === credentials.memberId,
-        );
-        if (!hasAccess) throw new Error("Brak dostępu.");
-        setGroup(groupData);
-        void saveSession(credentials).catch(() => undefined);
+        saveCredentials(session.credentials);
+        setCredentials(session.credentials);
+        setGroup(session.group);
         if (joinInvite) {
           setJoinInvite(null);
           if (window.location.hash) {
