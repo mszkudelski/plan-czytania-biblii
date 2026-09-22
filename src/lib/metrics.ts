@@ -30,29 +30,16 @@ export function getMemberMetrics(
   const expectedDays = group.planDays.filter((day) => day.date <= today);
   const expectedSegments = expectedDays.flatMap((day) => day.segments).length;
   const completedSegments = allSegments.filter((segment) => completed[segment.id]).length;
-  const completedExpectedSegments = expectedDays
-    .flatMap((day) => day.segments)
-    .filter((segment) => completed[segment.id]).length;
-  const averageSegments =
-    group.planDays.length > 0 ? allSegments.length / group.planDays.length : 1;
-  const paceDays = Math.round(
-    (completedExpectedSegments +
-      allSegments.filter(
-        (segment) =>
-          completed[segment.id] &&
-          !expectedDays.some((day) =>
-            day.segments.some((expected) => expected.id === segment.id),
-          ),
-      ).length -
-      expectedSegments) /
-      averageSegments,
-  );
 
   const completedDays = group.planDays.filter(
     (day) =>
       day.segments.length > 0 &&
       day.segments.every((segment) => completed[segment.id]),
   ).length;
+  const expectedDayCount = expectedDays.filter(
+    (day) => day.segments.length > 0,
+  ).length;
+  const paceDays = completedDays - expectedDayCount;
 
   return {
     completedSegments,
