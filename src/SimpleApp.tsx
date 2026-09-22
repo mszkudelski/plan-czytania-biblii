@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -25,6 +26,7 @@ import {
 } from "./lib/api";
 import { parsePlanCsv, SAMPLE_CSV } from "./lib/csv";
 import { createJoinLink, readJoinFromHash } from "./lib/invite";
+import { isIosSafariBrowser, isStandaloneApp } from "./lib/install";
 import {
   calculateProgressPercent,
   formatProgressPercent,
@@ -61,7 +63,9 @@ type IconName =
   | "moon"
   | "sun"
   | "left"
-  | "right";
+  | "right"
+  | "install"
+  | "share";
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -126,6 +130,18 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     ),
     left: <path d="m15 18-6-6 6-6" />,
     right: <path d="m9 18 6-6-6-6" />,
+    install: (
+      <>
+        <path d="M12 3v12M7 10l5 5 5-5" />
+        <path d="M5 21h14a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2" />
+      </>
+    ),
+    share: (
+      <>
+        <path d="M12 3v12M8 7l4-4 4 4" />
+        <path d="M5 10H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1" />
+      </>
+    ),
   };
 
   return (
@@ -163,6 +179,7 @@ export default function SimpleApp() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const skipSessionRestore = useRef(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -171,6 +188,11 @@ export default function SimpleApp() {
 
   useEffect(() => {
     if (!credentials) {
+      if (skipSessionRestore.current) {
+        skipSessionRestore.current = false;
+        setLoading(false);
+        return;
+      }
       if (joinInvite) {
         setLoading(false);
         return;
@@ -257,8 +279,10 @@ export default function SimpleApp() {
     joinInvite && credentials?.groupId === joinInvite.groupId,
   );
 
+  let content: React.ReactNode;
+
   if (joinInvite && !canResumeInvite) {
-    return (
+    content = (
       <JoinSetup
         invite={joinInvite}
         onJoined={enter}
@@ -266,12 +290,10 @@ export default function SimpleApp() {
         onThemeChange={setTheme}
       />
     );
-  }
-
-  if (loading) return <div className="simple-loader">Wczytywanie…</div>;
-
-  if (credentials && group) {
-    return (
+  } else if (loading) {
+    content = <div className="simple-loader">Wczytywanie…</div>;
+  } else if (credentials && group) {
+    content = (
       <Dashboard
         credentials={credentials}
         group={group}
@@ -279,18 +301,17 @@ export default function SimpleApp() {
         onCredentialsChange={changeCredentials}
         theme={theme}
         onThemeChange={setTheme}
-        onLeave={() => {
+        onLeave={async () => {
+          skipSessionRestore.current = true;
+          await clearSession().catch(() => undefined);
           clearCredentials();
-          void clearSession().catch(() => undefined);
           setCredentials(null);
           setGroup(null);
         }}
       />
     );
-  }
-
-  if (credentials) {
-    return (
+  } else if (credentials) {
+    content = (
       <SessionRecovery
         error={error}
         onRetry={() => setRetry((current) => current + 1)}
@@ -304,16 +325,150 @@ export default function SimpleApp() {
         onThemeChange={setTheme}
       />
     );
+  } else {
+    content = (
+      <Setup
+        onCreated={enter}
+        onRecovered={enter}
+        error={error}
+        theme={theme}
+        onThemeChange={setTheme}
+      />
+    );
   }
 
   return (
-    <Setup
-      onCreated={enter}
-      onRecovered={enter}
-      error={error}
-      theme={theme}
-      onThemeChange={setTheme}
-    />
+    <>
+      <InstallApp />
+      {content}
+    </>
+  );
+}
+
+type InstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
+
+function InstallApp() {
+  const [promptEvent, setPromptEvent] = useState<InstallPromptEvent | null>(
+    null,
+  );
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
+  const [installed, setInstalled] = useState(() =>
+    isStandaloneApp(
+      window.matchMedia("(display-mode: standalone)").matches,
+      (navigator as Navigator & { standalone?: boolean }).standalone === true,
+    ),
+  );
+  const iosSafari = isIosSafariBrowser(
+    navigator.userAgent,
+    navigator.platform,
+    navigator.maxTouchPoints,
+  );
+
+  useEffect(() => {
+    function rememberPrompt(event: Event) {
+      event.preventDefault();
+      setPromptEvent(event as InstallPromptEvent);
+    }
+
+    function markInstalled() {
+      setInstalled(true);
+      setPromptEvent(null);
+      setInstructionsOpen(false);
+    }
+
+    window.addEventListener("beforeinstallprompt", rememberPrompt);
+    window.addEventListener("appinstalled", markInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", rememberPrompt);
+      window.removeEventListener("appinstalled", markInstalled);
+    };
+  }, []);
+
+  if (installed || (!promptEvent && !iosSafari)) return null;
+
+  async function install() {
+    if (!promptEvent) {
+      setInstructionsOpen(true);
+      return;
+    }
+
+    await promptEvent.prompt();
+    const choice = await promptEvent.userChoice;
+    setPromptEvent(null);
+    if (choice.outcome === "accepted") setInstalled(true);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="install-app-trigger"
+        onClick={() => void install()}
+      >
+        <Icon name="install" size={18} />
+        Zainstaluj
+      </button>
+
+      {instructionsOpen && (
+        <div
+          className="simple-modal-bg"
+          onMouseDown={() => setInstructionsOpen(false)}
+        >
+          <section
+            className="simple-modal install-instructions"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="install-instructions-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              className="icon-button"
+              onClick={() => setInstructionsOpen(false)}
+              aria-label="Zamknij"
+            >
+              <Icon name="close" />
+            </button>
+            <h2 id="install-instructions-title">Zainstaluj na iPhonie</h2>
+            <ol className="install-steps">
+              <li>
+                <span>1</span>
+                <p>
+                  W Safari stuknij <strong>Udostępnij</strong>{" "}
+                  <span className="inline-share-icon">
+                    <Icon name="share" size={18} />
+                  </span>
+                </p>
+              </li>
+              <li>
+                <span>2</span>
+                <p>
+                  Przewiń listę i wybierz{" "}
+                  <strong>Dodaj do ekranu początkowego</strong>.
+                </p>
+              </li>
+              <li>
+                <span>3</span>
+                <p>Włącz opcję <strong>Otwórz jako aplikację webową</strong>.</p>
+              </li>
+              <li>
+                <span>4</span>
+                <p>Stuknij <strong>Dodaj</strong> w prawym górnym rogu.</p>
+              </li>
+            </ol>
+            <button
+              type="button"
+              className="main-button"
+              onClick={() => setInstructionsOpen(false)}
+            >
+              Gotowe
+            </button>
+          </section>
+        </div>
+      )}
+    </>
   );
 }
 
