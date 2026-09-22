@@ -30,6 +30,7 @@ import {
   createJoinLink,
   createSessionTransferLink,
   parseJoinLink,
+  parseSessionTransfer,
   readJoinFromHash,
   readSessionTransferFromHash,
 } from "./lib/invite";
@@ -38,6 +39,7 @@ import {
   isMobileDevice,
   isStandaloneApp,
 } from "./lib/install";
+import QrScanner from "qr-scanner";
 import {
   calculateProgressPercent,
   formatProgressPercent,
@@ -713,6 +715,7 @@ function TransferSetup({
   const [code, setCode] = useState(initialCode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
   const submittedCode = useRef("");
 
   const redeem = useCallback(
@@ -749,6 +752,19 @@ function TransferSetup({
     void redeem(code);
   }
 
+  const handleScan = useCallback(
+    (value: string) => {
+      const scannedCode = parseSessionTransfer(value);
+      if (!scannedCode) {
+        setError("Ten kod QR nie zawiera kodu przeniesienia sesji.");
+        return;
+      }
+      setScannerOpen(false);
+      void redeem(scannedCode);
+    },
+    [redeem],
+  );
+
   return (
     <main className="setup-page">
       <div className="setup-box join-box">
@@ -759,10 +775,28 @@ function TransferSetup({
         <h1>Przenieś sesję</h1>
         <p className="setup-description">
           Zeskanuj kod QR wyświetlony na urządzeniu, na którym działa Twój
-          plan. Możesz też wkleić kod ręcznie.
+          plan. Otwórz aparat albo wklej kod ręcznie.
         </p>
+        {scannerOpen && (
+          <TransferQrScanner
+            onScan={handleScan}
+            onClose={() => setScannerOpen(false)}
+          />
+        )}
         <form onSubmit={submit}>
           {error && <div className="simple-alert">{error}</div>}
+          {!scannerOpen && (
+            <button
+              type="button"
+              className="scanner-button"
+              onClick={() => {
+                setError("");
+                setScannerOpen(true);
+              }}
+            >
+              Otwórz aparat i zeskanuj kod QR
+            </button>
+          )}
           <Field label="Kod przeniesienia">
             <input
               value={code}
@@ -785,6 +819,60 @@ function TransferSetup({
         </form>
       </div>
     </main>
+  );
+}
+
+function TransferQrScanner({
+  onScan,
+  onClose,
+}: {
+  onScan: (value: string) => void;
+  onClose: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [scannerError, setScannerError] = useState("");
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+
+    const scanner = new QrScanner(
+      videoRef.current,
+      (result) => onScan(result.data),
+      {
+        preferredCamera: "environment",
+        highlightScanRegion: true,
+        highlightCodeOutline: true,
+        returnDetailedScanResult: true,
+        onDecodeError: () => {},
+      },
+    );
+
+    void scanner.start().catch((caught: unknown) => {
+      setScannerError(
+        caught instanceof DOMException && caught.name === "NotAllowedError"
+          ? "Aparat jest zablokowany. Zezwól przeglądarce na dostęp do aparatu i spróbuj ponownie."
+          : "Nie udało się uruchomić aparatu. Możesz wpisać kod ręcznie.",
+      );
+    });
+
+    return () => {
+      scanner.destroy();
+    };
+  }, [onScan]);
+
+  return (
+    <div className="qr-scanner">
+      <div className="qr-scanner-frame">
+        <video ref={videoRef} muted playsInline />
+      </div>
+      <p className="qr-scanner-help">
+        Skieruj aparat na kod QR wyświetlony na drugim urządzeniu.
+      </p>
+      {scannerError && <div className="simple-alert">{scannerError}</div>}
+      <button type="button" className="link-button" onClick={onClose}>
+        Zamknij aparat
+      </button>
+    </div>
   );
 }
 

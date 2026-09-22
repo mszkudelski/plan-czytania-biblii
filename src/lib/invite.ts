@@ -54,9 +54,21 @@ export function createSessionTransferLink(code: string) {
   return `${window.location.origin}${window.location.pathname}#transfer=${code}`;
 }
 
+export function parseSessionTransfer(value: string): string | null {
+  const directCode = value.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  if (directCode.length === 8) return directCode;
+
+  try {
+    const url = new URL(value, window.location.origin);
+    const match = url.hash.match(/^#transfer=([A-Za-z0-9-]+)$/i);
+    if (!match) return null;
+    const code = match[1].replace(/[^A-Z0-9]/gi, "").toUpperCase();
+    return code.length === 8 ? code : null;
+  } catch {
+    return null;
+  }
+}
+
 export function readSessionTransferFromHash(): string | null {
-  const match = window.location.hash.match(/^#transfer=([A-Za-z0-9-]+)$/i);
-  if (!match) return null;
-  const code = match[1].replace(/[^A-Z0-9]/gi, "").toUpperCase();
-  return code.length === 8 ? code : null;
+  return parseSessionTransfer(window.location.hash);
 }

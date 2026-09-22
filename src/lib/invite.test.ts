@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createSessionTransferLink,
   parseJoinLink,
+  parseSessionTransfer,
   readSessionTransferFromHash,
 } from "./invite";
 
@@ -50,5 +51,17 @@ describe("invite and transfer links", () => {
     expect(createSessionTransferLink("ABCD-EFGH")).toBe(
       "https://plan-czytania.netlify.app/#transfer=ABCD-EFGH",
     );
+  });
+
+  it("reads a transfer code from a scanned QR link or raw code", () => {
+    expect(
+      parseSessionTransfer(
+        "https://plan-czytania.netlify.app/#transfer=ABCD-EFGH",
+      ),
+    ).toBe("ABCDEFGH");
+    expect(parseSessionTransfer("abcd-efgh")).toBe("ABCDEFGH");
+    expect(
+      parseSessionTransfer("https://example.com/#join=not-a-transfer"),
+    ).toBeNull();
   });
 });

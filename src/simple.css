@@ -221,6 +221,54 @@ button {
   gap: 20px;
 }
 
+.scanner-button {
+  min-height: 44px;
+  padding: 0 16px;
+  cursor: pointer;
+  color: var(--green);
+  border: 1px solid var(--green);
+  border-radius: 9px;
+  background: var(--soft-green);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.scanner-button:hover,
+.scanner-button:focus-visible {
+  color: #fff;
+  outline: none;
+  background: var(--green-button);
+}
+
+.qr-scanner {
+  display: grid;
+  gap: 12px;
+  margin: -8px 0 4px;
+}
+
+.qr-scanner-frame {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border: 1px solid var(--green);
+  border-radius: 12px;
+  background: #000;
+}
+
+.qr-scanner-frame video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.qr-scanner-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
