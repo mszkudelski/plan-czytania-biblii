@@ -958,6 +958,7 @@ function JoinEntrySetup({
 }) {
   const [link, setLink] = useState("");
   const [error, setError] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -968,6 +969,16 @@ function JoinEntrySetup({
     }
     onJoinInvite(invite);
   }
+
+  const handleScan = useCallback((value: string) => {
+    const invite = parseJoinLink(value);
+    if (!invite) {
+      setError("Ten kod QR nie zawiera zaproszenia do planu.");
+      return;
+    }
+    setScannerOpen(false);
+    onJoinInvite(invite);
+  }, [onJoinInvite]);
 
   return (
     <main className="setup-page">
@@ -981,8 +992,26 @@ function JoinEntrySetup({
           Zeskanuj kod QR zaproszenia aparatem telefonu albo wklej otrzymany
           link.
         </p>
+        {scannerOpen && (
+          <TransferQrScanner
+            onScan={handleScan}
+            onClose={() => setScannerOpen(false)}
+          />
+        )}
         <form onSubmit={submit}>
           {error && <div className="simple-alert">{error}</div>}
+          {!scannerOpen && (
+            <button
+              type="button"
+              className="scanner-button"
+              onClick={() => {
+                setError("");
+                setScannerOpen(true);
+              }}
+            >
+              Otwórz aparat i zeskanuj kod QR
+            </button>
+          )}
           <Field label="Link zaproszenia">
             <input
               value={link}
