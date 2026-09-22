@@ -9,13 +9,18 @@ import {
 import {
   ApiError,
   clearCredentials,
+  clearSession,
   createGroup,
+  createSessionTransfer,
   ensureInvite,
   getGroup,
   joinGroup,
   loadCredentials,
+  redeemSessionTransfer,
   removeMember,
   saveCredentials,
+  saveSession,
+  restoreSession,
   updateProgress,
 } from "./lib/api";
 import { parsePlanCsv, SAMPLE_CSV } from "./lib/csv";
@@ -155,12 +160,7 @@ export default function SimpleApp() {
     loadCredentials(),
   );
   const [group, setGroup] = useState<Group | null>(null);
-  const [loading, setLoading] = useState(
-    Boolean(
-      credentials &&
-        (!joinInvite || credentials.groupId === joinInvite.groupId),
-    ),
-  );
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
 
@@ -171,8 +171,31 @@ export default function SimpleApp() {
 
   useEffect(() => {
     if (!credentials) {
-      setLoading(false);
-      return;
+      if (joinInvite) {
+        setLoading(false);
+        return;
+      }
+      let cancelled = false;
+      setLoading(true);
+      setError("");
+      restoreSession()
+        .then((session) => {
+          if (cancelled || !session) return;
+          saveCredentials(session.credentials);
+          setCredentials(session.credentials);
+          setGroup(session.group);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setError("Nie udało się sprawdzić zapisanej sesji.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
     }
     if (joinInvite && credentials.groupId !== joinInvite.groupId) {
       setLoading(false);
@@ -189,6 +212,7 @@ export default function SimpleApp() {
         );
         if (!hasAccess) throw new Error("Brak dostępu.");
         setGroup(groupData);
+        void saveSession(credentials).catch(() => undefined);
         if (joinInvite) {
           setJoinInvite(null);
           if (window.location.hash) {
@@ -257,6 +281,7 @@ export default function SimpleApp() {
         onThemeChange={setTheme}
         onLeave={() => {
           clearCredentials();
+          void clearSession().catch(() => undefined);
           setCredentials(null);
           setGroup(null);
         }}
@@ -284,6 +309,7 @@ export default function SimpleApp() {
   return (
     <Setup
       onCreated={enter}
+      onRecovered={enter}
       error={error}
       theme={theme}
       onThemeChange={setTheme}
@@ -411,13 +437,87 @@ function JoinSetup({
   );
 }
 
+function TransferSetup({
+  onRecovered,
+  onBack,
+  theme,
+  onThemeChange,
+}: {
+  onRecovered: (group: Group, credentials: Credentials) => void;
+  onBack: () => void;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const result = await redeemSessionTransfer(code);
+      onRecovered(result.group, result.credentials);
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError && caught.status === 410
+          ? "Kod wygasł. Utwórz nowy kod w Safari."
+          : "Kod jest nieprawidłowy lub został już wykorzystany.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="setup-page">
+      <div className="setup-box join-box">
+        <div className="setup-top">
+          <Brand />
+          <ThemeToggle theme={theme} onChange={onThemeChange} />
+        </div>
+        <h1>Przenieś sesję</h1>
+        <p className="setup-description">
+          W Safari otwórz działający plan, przejdź do Ustawień i utwórz kod
+          przeniesienia. Kod jest ważny przez 10 minut.
+        </p>
+        <form onSubmit={submit}>
+          {error && <div className="simple-alert">{error}</div>}
+          <Field label="Kod przeniesienia">
+            <input
+              value={code}
+              onChange={(event) => setCode(event.target.value.toUpperCase())}
+              autoCapitalize="characters"
+              autoCorrect="off"
+              inputMode="text"
+              maxLength={9}
+              placeholder="ABCD-EFGH"
+              autoFocus
+              required
+            />
+          </Field>
+          <button className="main-button" disabled={busy || code.length < 8}>
+            {busy ? "Przenoszenie…" : "Przenieś plan"}
+          </button>
+          <button type="button" className="link-button" onClick={onBack}>
+            Wróć do tworzenia planu
+          </button>
+        </form>
+      </div>
+    </main>
+  );
+}
+
 function Setup({
   onCreated,
+  onRecovered,
   error: initialError,
   theme,
   onThemeChange,
 }: {
   onCreated: (group: Group, credentials: Credentials) => void;
+  onRecovered: (group: Group, credentials: Credentials) => void;
   error: string;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
@@ -432,6 +532,7 @@ function Setup({
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
+  const [transferOpen, setTransferOpen] = useState(false);
   const rows = useMemo(() => parsePlanCsv(csvText), [csvText]);
 
   function readFile(file?: File) {
@@ -481,6 +582,17 @@ function Setup({
     }
   }
 
+  if (transferOpen) {
+    return (
+      <TransferSetup
+        onRecovered={onRecovered}
+        onBack={() => setTransferOpen(false)}
+        theme={theme}
+        onThemeChange={onThemeChange}
+      />
+    );
+  }
+
   return (
     <main className="setup-page">
       <div className="setup-box">
@@ -489,6 +601,16 @@ function Setup({
           <ThemeToggle theme={theme} onChange={onThemeChange} />
         </div>
         <h1>Utwórz plan</h1>
+        <div className="setup-transfer-prompt">
+          <span>Masz już plan otwarty w Safari?</span>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => setTransferOpen(true)}
+          >
+            Przenieś istniejącą sesję
+          </button>
+        </div>
         <form onSubmit={submit}>
           {error && <div className="simple-alert">{error}</div>}
           <div className="form-row">
@@ -711,7 +833,12 @@ function Dashboard({
           />
         )}
         {tab === "settings" && (
-          <SettingsView group={group} member={member} onLeave={onLeave} />
+          <SettingsView
+            credentials={credentials}
+            group={group}
+            member={member}
+            onLeave={onLeave}
+          />
         )}
       </main>
 
@@ -930,10 +1057,12 @@ function GroupView({
 }
 
 function SettingsView({
+  credentials,
   group,
   member,
   onLeave,
 }: {
+  credentials: Credentials;
   group: Group;
   member: Member;
   onLeave: () => void;
@@ -941,6 +1070,27 @@ function SettingsView({
   const startDate = group.planDays[0]?.date ?? group.startDate;
   const endDate = group.planDays.at(-1)?.date ?? group.startDate;
   const frequency = formatFrequency(group.frequency);
+  const [transfer, setTransfer] = useState<{
+    code: string;
+    expiresAt: string;
+  } | null>(null);
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferError, setTransferError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  async function prepareTransfer() {
+    setTransferBusy(true);
+    setTransferError("");
+    setCopied(false);
+    try {
+      setTransfer(await createSessionTransfer(credentials));
+    } catch {
+      setTransferError("Nie udało się utworzyć kodu przeniesienia.");
+    } finally {
+      setTransferBusy(false);
+    }
+  }
+
   return (
     <>
       <PageTitle title="Ustawienia" />
@@ -960,6 +1110,47 @@ function SettingsView({
           value={formatPolishDate(endDate, "shortYear")}
         />
         <Setting label="Dni czytania" value={frequency} />
+      </section>
+      <h2 className="settings-heading">Aplikacja na iPhone</h2>
+      <section className="settings-card transfer-card">
+        <p>
+          Utwórz jednorazowy kod, a następnie wpisz go w aplikacji otwieranej z
+          ekranu początkowego. Kod jest ważny przez 10 minut.
+        </p>
+        {transferError && <div className="simple-alert">{transferError}</div>}
+        {transfer ? (
+          <div className="transfer-result">
+            <strong>{transfer.code}</strong>
+            <span>
+              Ważny do{" "}
+              {new Intl.DateTimeFormat("pl-PL", {
+                hour: "2-digit",
+                minute: "2-digit",
+              }).format(new Date(transfer.expiresAt))}
+            </span>
+            <button
+              className="small-button"
+              onClick={async () => {
+                await copyText(transfer.code);
+                setCopied(true);
+              }}
+            >
+              <Icon name="copy" size={16} />
+              {copied ? "Skopiowano" : "Kopiuj kod"}
+            </button>
+          </div>
+        ) : (
+          <button
+            className="main-button"
+            disabled={transferBusy}
+            onClick={prepareTransfer}
+          >
+            {transferBusy ? "Tworzenie…" : "Utwórz kod przeniesienia"}
+          </button>
+        )}
+      </section>
+      <h2 className="settings-heading">Konto</h2>
+      <section className="settings-card">
         <button className="logout-button" onClick={onLeave}>
           <Icon name="logout" size={18} /> Wyloguj
         </button>

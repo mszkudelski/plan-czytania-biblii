@@ -17,19 +17,35 @@ type StoredGroup = Omit<Group, "members"> & {
   members: StoredMember[];
   inviteTokenHash?: string;
 };
+type SessionTransfer = {
+  groupId: string;
+  memberId: string;
+  inviteToken?: string;
+  expiresAt: string;
+  usedAt?: string;
+};
 
 const COLORS = ["#47634f", "#bf6f54", "#65778e", "#9a7245", "#765b7d"];
+const SESSION_COOKIE = "plan-czytania-session";
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+const TRANSFER_TTL_MS = 10 * 60 * 1000;
+const TRANSFER_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const store = getStore({
   name: "plan-czytania-biblii-groups",
   consistency: "strong",
 });
 
-function json(data: unknown, status = 200) {
+function json(
+  data: unknown,
+  status = 200,
+  headers?: Record<string, string>,
+) {
   return Response.json(data, {
     status,
     headers: {
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
+      ...headers,
     },
   });
 }
@@ -42,8 +58,30 @@ function keyFor(groupId: string) {
   return `group-${groupId}`;
 }
 
+function transferKey(code: string) {
+  return hashToken(code).then((hash) => `session-transfer-${hash}`);
+}
+
 function randomToken() {
   return `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
+}
+
+function randomTransferCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  return Array.from(
+    bytes,
+    (byte) => TRANSFER_CODE_ALPHABET[byte % TRANSFER_CODE_ALPHABET.length],
+  ).join("");
+}
+
+function formatTransferCode(code: string) {
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
+function cleanTransferCode(value: unknown) {
+  return typeof value === "string"
+    ? value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8)
+    : "";
 }
 
 async function hashToken(token: string) {
@@ -74,6 +112,46 @@ function publicGroup(group: StoredGroup): Group {
 
 function cleanText(value: unknown, maxLength = 80) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function cleanCredentials(value: unknown): Credentials | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<Credentials>;
+  const groupId = cleanText(candidate.groupId, 100);
+  const memberId = cleanText(candidate.memberId, 100);
+  const token = cleanText(candidate.token, 200);
+  const inviteToken = cleanText(candidate.inviteToken, 200);
+  if (!groupId || !memberId || !token) return null;
+  return {
+    groupId,
+    memberId,
+    token,
+    ...(inviteToken ? { inviteToken } : {}),
+  };
+}
+
+function sessionCookie(credentials: Credentials) {
+  const value = encodeURIComponent(JSON.stringify(credentials));
+  return `${SESSION_COOKIE}=${value}; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function clearedSessionCookie() {
+  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function credentialsFromCookie(request: Request) {
+  const cookie = request.headers.get("cookie") ?? "";
+  const encoded = cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${SESSION_COOKIE}=`))
+    ?.slice(SESSION_COOKIE.length + 1);
+  if (!encoded) return null;
+  try {
+    return cleanCredentials(JSON.parse(decodeURIComponent(encoded)));
+  } catch {
+    return null;
+  }
 }
 
 function tokenHashes(member: StoredMember) {
@@ -137,6 +215,14 @@ async function authenticate(
   return tokenHashes(member).includes(candidateHash) ? member : null;
 }
 
+async function storedGroup(groupId: string) {
+  const group = await store.get(keyFor(groupId), {
+    type: "json",
+    consistency: "strong",
+  });
+  return (group as StoredGroup | null) ?? null;
+}
+
 async function createGroup(request: Request) {
   const body = (await request.json()) as {
     name?: unknown;
@@ -195,22 +281,151 @@ async function createGroup(request: Request) {
   });
   if (!result.modified) return error("Spróbuj ponownie.", 409);
 
+  const credentials = { groupId, memberId, token, inviteToken };
   return json(
-    {
-      group: publicGroup(group),
-      credentials: { groupId, memberId, token, inviteToken },
-    },
+    { group: publicGroup(group), credentials },
     201,
+    { "set-cookie": sessionCookie(credentials) },
   );
 }
 
 async function getGroup(groupId: string) {
-  const group = await store.get(keyFor(groupId), {
+  const group = await storedGroup(groupId);
+  if (!group) return error("Nie znaleziono grupy.", 404);
+  return json(publicGroup(group));
+}
+
+async function saveSession(request: Request) {
+  const credentials = cleanCredentials(await request.json());
+  if (!credentials) return error("Nieprawidłowa sesja.", 400);
+  const group = await storedGroup(credentials.groupId);
+  if (!group) return error("Nie znaleziono grupy.", 404);
+  if (!(await authenticate(group, credentials))) {
+    return error("Sesja wygasła.", 401);
+  }
+  return json(
+    { group: publicGroup(group), credentials },
+    200,
+    { "set-cookie": sessionCookie(credentials) },
+  );
+}
+
+async function restoreSession(request: Request) {
+  const credentials = credentialsFromCookie(request);
+  if (!credentials) return error("Brak zapisanej sesji.", 401);
+  const group = await storedGroup(credentials.groupId);
+  if (!group || !(await authenticate(group, credentials))) {
+    return json(
+      { error: "Sesja wygasła." },
+      401,
+      { "set-cookie": clearedSessionCookie() },
+    );
+  }
+  return json({ group: publicGroup(group), credentials });
+}
+
+function clearSession() {
+  return json(
+    { ok: true },
+    200,
+    { "set-cookie": clearedSessionCookie() },
+  );
+}
+
+async function createSessionTransfer(request: Request) {
+  const credentials = cleanCredentials(await request.json());
+  if (!credentials) return error("Nieprawidłowa sesja.", 400);
+  const group = await storedGroup(credentials.groupId);
+  if (!group) return error("Nie znaleziono grupy.", 404);
+  const member = await authenticate(group, credentials);
+  if (!member) return error("Sesja wygasła.", 401);
+
+  let inviteToken: string | undefined;
+  if (
+    member.isAdmin &&
+    credentials.inviteToken &&
+    group.inviteTokenHash &&
+    (await hashToken(credentials.inviteToken)) === group.inviteTokenHash
+  ) {
+    inviteToken = credentials.inviteToken;
+  }
+
+  const expiresAt = new Date(Date.now() + TRANSFER_TTL_MS).toISOString();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const code = randomTransferCode();
+    const transfer: SessionTransfer = {
+      groupId: credentials.groupId,
+      memberId: credentials.memberId,
+      ...(inviteToken ? { inviteToken } : {}),
+      expiresAt,
+    };
+    const result = await store.set(
+      await transferKey(code),
+      JSON.stringify(transfer),
+      { onlyIfNew: true },
+    );
+    if (result.modified) {
+      return json({ code: formatTransferCode(code), expiresAt }, 201);
+    }
+  }
+  return error("Nie udało się utworzyć kodu. Spróbuj ponownie.", 409);
+}
+
+async function redeemSessionTransfer(request: Request) {
+  const body = (await request.json()) as { code?: unknown };
+  const code = cleanTransferCode(body.code);
+  if (code.length !== 8) return error("Kod ma nieprawidłowy format.", 400);
+
+  const key = await transferKey(code);
+  const entry = await store.getWithMetadata(key, {
     type: "json",
     consistency: "strong",
   });
-  if (!group) return error("Nie znaleziono grupy.", 404);
-  return json(publicGroup(group as StoredGroup));
+  if (!entry) return error("Kod jest nieprawidłowy lub wygasł.", 404);
+  const transfer = entry.data as SessionTransfer;
+  if (transfer.usedAt || Date.parse(transfer.expiresAt) <= Date.now()) {
+    return error("Kod jest nieprawidłowy lub wygasł.", 410);
+  }
+
+  const claimed = await store.set(
+    key,
+    JSON.stringify({ ...transfer, usedAt: new Date().toISOString() }),
+    { onlyIfMatch: entry.etag },
+  );
+  if (!claimed.modified) return error("Kod został już wykorzystany.", 409);
+
+  let credentials: Credentials | null = null;
+  const response = await updateStoredGroup(
+    transfer.groupId,
+    async (group) => {
+      const member = group.members.find(
+        (candidate) => candidate.id === transfer.memberId,
+      );
+      if (!member) return error("Użytkownik nie ma już dostępu.", 403);
+      const token = randomToken();
+      member.tokenHashes = [
+        ...tokenHashes(member),
+        await hashToken(token),
+      ];
+      delete member.tokenHash;
+      credentials = {
+        groupId: transfer.groupId,
+        memberId: transfer.memberId,
+        token,
+        ...(transfer.inviteToken
+          ? { inviteToken: transfer.inviteToken }
+          : {}),
+      };
+    },
+  );
+
+  if (response.status !== 200 || !credentials) return response;
+  const group = (await response.json()) as Group;
+  return json(
+    { group, credentials },
+    201,
+    { "set-cookie": sessionCookie(credentials) },
+  );
 }
 
 async function updateStoredGroup(
@@ -290,7 +505,11 @@ async function ensureInvite(request: Request, groupId: string) {
   });
 
   if (response.status !== 200 || !inviteCredentials) return response;
-  return json(inviteCredentials);
+  return json(
+    inviteCredentials,
+    200,
+    { "set-cookie": sessionCookie(inviteCredentials) },
+  );
 }
 
 async function joinGroup(request: Request, groupId: string) {
@@ -348,7 +567,11 @@ async function joinGroup(request: Request, groupId: string) {
 
   if (response.status !== 200 || !createdCredentials) return response;
   const group = (await response.json()) as Group;
-  return json({ group, credentials: createdCredentials }, 201);
+  return json(
+    { group, credentials: createdCredentials },
+    201,
+    { "set-cookie": sessionCookie(createdCredentials) },
+  );
 }
 
 async function removeMember(
@@ -386,6 +609,36 @@ export default async (request: Request) => {
 
     if (request.method === "POST" && route.length === 1 && route[0] === "groups") {
       return createGroup(request);
+    }
+    if (request.method === "GET" && route.length === 1 && route[0] === "session") {
+      return restoreSession(request);
+    }
+    if (request.method === "POST" && route.length === 1 && route[0] === "session") {
+      return saveSession(request);
+    }
+    if (
+      request.method === "DELETE" &&
+      route.length === 1 &&
+      route[0] === "session"
+    ) {
+      return clearSession();
+    }
+    if (
+      request.method === "POST" &&
+      route.length === 2 &&
+      route[0] === "session" &&
+      route[1] === "transfers"
+    ) {
+      return createSessionTransfer(request);
+    }
+    if (
+      request.method === "POST" &&
+      route.length === 3 &&
+      route[0] === "session" &&
+      route[1] === "transfers" &&
+      route[2] === "redeem"
+    ) {
+      return redeemSessionTransfer(request);
     }
     if (
       request.method === "GET" &&

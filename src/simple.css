@@ -151,6 +151,29 @@ button {
   letter-spacing: -0.04em;
 }
 
+.setup-description {
+  margin: -10px 0 24px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.setup-transfer-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: -12px 0 24px;
+  padding: 13px 15px;
+  border-radius: 9px;
+  background: var(--soft-green);
+}
+
+.setup-transfer-prompt span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .setup-box form {
   display: grid;
   gap: 20px;
@@ -1009,6 +1032,40 @@ button {
   font-weight: 700;
 }
 
+.transfer-card {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.transfer-card > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.transfer-card > .main-button {
+  justify-self: start;
+}
+
+.transfer-result {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.transfer-result > strong {
+  color: var(--green);
+  font-size: 1.45rem;
+  letter-spacing: 0.12em;
+}
+
+.transfer-result > span {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
 .empty-state {
   padding: 70px 20px;
   text-align: center;
@@ -1183,6 +1240,11 @@ button {
 
   .form-row {
     grid-template-columns: 1fr;
+  }
+
+  .setup-transfer-prompt {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .day-strip button {

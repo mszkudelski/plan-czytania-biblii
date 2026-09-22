@@ -29,6 +29,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...options,
+    credentials: "same-origin",
     headers: {
       "content-type": "application/json",
       ...options?.headers,
@@ -73,6 +74,52 @@ export function loadCredentials(): Credentials | null {
 
 export function clearCredentials() {
   localStorage.removeItem(CREDENTIALS_KEY);
+}
+
+export async function restoreSession() {
+  if (useLocalOnly()) return null;
+  try {
+    return await request<{ group: Group; credentials: Credentials }>("/session");
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) return null;
+    throw error;
+  }
+}
+
+export async function saveSession(credentials: Credentials) {
+  if (useLocalOnly()) return;
+  await request("/session", {
+    method: "POST",
+    body: JSON.stringify(credentials),
+  });
+}
+
+export async function clearSession() {
+  if (useLocalOnly()) return;
+  await request("/session", { method: "DELETE" });
+}
+
+export async function createSessionTransfer(credentials: Credentials) {
+  if (useLocalOnly()) {
+    throw new Error("Przenoszenie sesji jest dostępne po wdrożeniu aplikacji.");
+  }
+  return request<{ code: string; expiresAt: string }>("/session/transfers", {
+    method: "POST",
+    body: JSON.stringify(credentials),
+  });
+}
+
+export async function redeemSessionTransfer(code: string) {
+  if (useLocalOnly()) {
+    throw new Error("Przenoszenie sesji jest dostępne po wdrożeniu aplikacji.");
+  }
+  return request<{ group: Group; credentials: Credentials }>(
+    "/session/transfers/redeem",
+    {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    },
+  );
 }
 
 export async function createGroup(input: {
