@@ -338,6 +338,55 @@ button {
   font-weight: 700;
 }
 
+.csv-ai-help {
+  display: grid;
+  gap: 10px;
+  padding: 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--subtle);
+}
+
+.csv-ai-help-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.csv-ai-help details {
+  font-size: 0.72rem;
+}
+
+.csv-ai-help summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--green);
+  font-weight: 700;
+}
+
+.csv-prompt-box {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.csv-prompt-box pre {
+  max-height: 280px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--field);
+  font: 0.68rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.csv-prompt-box .small-button {
+  justify-self: start;
+}
+
 .simple-segmented {
   display: grid;
   height: 44px;
