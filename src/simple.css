@@ -120,6 +120,137 @@ button {
   place-items: center;
 }
 
+.landing-page {
+  min-height: 100vh;
+  padding: 24px;
+  background: radial-gradient(circle at 50% 0%, var(--soft-green), transparent 34%), var(--bg);
+}
+
+.landing-shell {
+  width: min(100%, 980px);
+  margin: 0 auto;
+}
+
+.landing-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.landing-hero {
+  max-width: 760px;
+  margin: 100px auto 82px;
+  text-align: center;
+}
+
+.landing-eyebrow {
+  margin-bottom: 18px;
+  color: var(--green);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.landing-hero h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(2.4rem, 6vw, 4.8rem);
+  line-height: 0.98;
+  letter-spacing: -0.065em;
+}
+
+.landing-hero > p {
+  max-width: 610px;
+  margin: 24px auto 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.landing-hero .simple-alert {
+  max-width: 500px;
+  margin: 20px auto 0;
+  text-align: left;
+}
+
+.landing-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 30px;
+}
+
+.landing-primary {
+  min-width: 160px;
+}
+
+.landing-secondary {
+  min-height: 44px;
+  padding: 0 18px;
+  cursor: pointer;
+  color: var(--green);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--paper);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.landing-secondary:hover,
+.landing-secondary:focus-visible {
+  border-color: var(--green);
+  outline: none;
+  background: var(--soft-green);
+}
+
+.landing-transfer {
+  margin-top: 16px;
+  font-weight: 600;
+}
+
+.landing-features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.landing-features article {
+  padding: 24px 26px;
+}
+
+.landing-features article + article {
+  border-left: 1px solid var(--border);
+}
+
+.landing-features span {
+  color: var(--green);
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+
+.landing-features strong {
+  display: block;
+  margin-top: 14px;
+  font-size: 0.9rem;
+}
+
+.landing-features p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.landing-footer {
+  margin: 22px 0 0;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.66rem;
+}
+
 .setup-box {
   width: min(100%, 620px);
   padding: 34px;
@@ -342,6 +473,55 @@ button {
   background: none;
   font-size: 0.7rem;
   font-weight: 700;
+}
+
+.csv-ai-help {
+  display: grid;
+  gap: 10px;
+  padding: 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--subtle);
+}
+
+.csv-ai-help-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.csv-ai-help details {
+  font-size: 0.72rem;
+}
+
+.csv-ai-help summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--green);
+  font-weight: 700;
+}
+
+.csv-prompt-box {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.csv-prompt-box pre {
+  max-height: 280px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--field);
+  font: 0.68rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.csv-prompt-box .small-button {
+  justify-self: start;
 }
 
 .simple-segmented {
@@ -1559,6 +1739,45 @@ button {
 }
 
 @media (max-width: 520px) {
+  .landing-page {
+    padding: 18px;
+  }
+
+  .landing-hero {
+    margin: 70px auto 58px;
+  }
+
+  .landing-hero h1 {
+    font-size: clamp(2.35rem, 12vw, 3.5rem);
+  }
+
+  .landing-hero > p {
+    font-size: 0.86rem;
+  }
+
+  .landing-actions {
+    display: grid;
+  }
+
+  .landing-primary,
+  .landing-secondary {
+    width: 100%;
+  }
+
+  .landing-features {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-features article + article {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .landing-features article {
+    padding: 20px;
+  }
+
+
   .setup-page {
     padding: 0;
     place-items: start;
