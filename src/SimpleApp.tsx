@@ -1246,7 +1246,7 @@ function Setup({
             </Field>
           </div>
 
-          <Field label="Plan czytania">
+          <Field label="Plan CSV">
             <label className="simple-upload">
               <input
                 type="file"
@@ -1255,13 +1255,9 @@ function Setup({
                   readFile(event.target.files?.[0])
                 }
               />
-              <span>{rows.length ? fileName : "Wybierz plik z planem"}</span>
+              <span>{rows.length ? fileName : "Wybierz plik CSV"}</span>
               {rows.length > 0 && <b>{rows.length} dni</b>}
             </label>
-            <p className="field-help">
-              Wybierz plik z planem czytania. Może to być plik CSV, czyli
-              zwykła tabela zapisana np. z Excela lub Arkuszy Google.
-            </p>
             {!rows.length && (
               <button
                 className="link-button"
@@ -1271,7 +1267,7 @@ function Setup({
                   setFileName("plan-przykładowy.csv");
                 }}
               >
-                Nie masz pliku? Użyj przykładowego planu
+                Użyj przykładu
               </button>
             )}
           </Field>
