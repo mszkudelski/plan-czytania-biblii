@@ -936,7 +936,7 @@ function JoinEntrySetup({
   );
 }
 
-function SetupChoices({
+function LandingPage({
   error,
   onChoose,
   theme,
@@ -948,49 +948,55 @@ function SetupChoices({
   onThemeChange: (theme: Theme) => void;
 }) {
   return (
-    <main className="setup-page">
-      <div className="setup-box setup-choice-box">
-        <div className="setup-top">
+    <main className="landing-page">
+      <div className="landing-shell">
+        <header className="landing-header">
           <Brand />
           <ThemeToggle theme={theme} onChange={onThemeChange} />
-        </div>
-        <h1>Witaj</h1>
-        {error && <div className="simple-alert">{error}</div>}
-        <p className="setup-description">
-          Wybierz, jak chcesz rozpocząć korzystanie z planu czytania.
+        </header>
+
+        <section className="landing-hero">
+          <div className="landing-eyebrow">Dla Ciebie, rodziny i grupy</div>
+          <h1>Plan czytania Biblii,<br />który łatwo trzymać.</h1>
+          <p>
+            Ustal plan, czytaj każdego dnia i zaznaczaj postęp.
+            Zaproś innych i każdy śledzi swoje czytanie w jednym miejscu.
+          </p>
+          {error && <div className="simple-alert">{error}</div>}
+          <div className="landing-actions">
+            <button type="button" className="main-button landing-primary" onClick={() => onChoose("create")}>
+              Utwórz plan
+            </button>
+            <button type="button" className="landing-secondary" onClick={() => onChoose("join")}>
+              Dołącz do istniejącego planu
+            </button>
+          </div>
+          <button type="button" className="link-button landing-transfer" onClick={() => onChoose("transfer")}>
+            Mam już plan na innym urządzeniu → przenieś sesję
+          </button>
+        </section>
+
+        <section className="landing-features" aria-label="Najważniejsze funkcje">
+          <article>
+            <span>01</span>
+            <strong>Twój plan</strong>
+            <p>Wgraj własny plan czytania i ustaw dni, w które chcesz czytać.</p>
+          </article>
+          <article>
+            <span>02</span>
+            <strong>Twój postęp</strong>
+            <p>Zaznaczaj przeczytane fragmenty i od razu widzisz, gdzie jesteś.</p>
+          </article>
+          <article>
+            <span>03</span>
+            <strong>Wspólne czytanie</strong>
+            <p>Zaproś rodzinę lub grupę. Każda osoba ma własny postęp.</p>
+          </article>
+        </section>
+
+        <p className="landing-footer">
+          Bez konta e-mail. Zacznij od własnego planu lub dołącz przez zaproszenie.
         </p>
-        <div className="setup-choice-list">
-          <button
-            type="button"
-            className="setup-choice"
-            onClick={() => onChoose("transfer")}
-          >
-            <strong>Przenieś sesję z innego urządzenia</strong>
-            <span>
-              Zeskanuj kod QR z działającego planu i otwórz go tutaj.
-            </span>
-          </button>
-          <button
-            type="button"
-            className="setup-choice"
-            onClick={() => onChoose("create")}
-          >
-            <strong>Utwórz nowy plan</strong>
-            <span>
-              Stwórz plan, dodaj własny harmonogram i zaproś inne osoby.
-            </span>
-          </button>
-          <button
-            type="button"
-            className="setup-choice"
-            onClick={() => onChoose("join")}
-          >
-            <strong>Dołącz do planu</strong>
-            <span>
-              Zeskanuj kod QR zaproszenia albo wklej otrzymany link.
-            </span>
-          </button>
-        </div>
       </div>
     </main>
   );
@@ -1097,7 +1103,7 @@ function Setup({
 
   if (view === "choices") {
     return (
-      <SetupChoices
+      <LandingPage
         error={error}
         onChoose={setView}
         theme={theme}
