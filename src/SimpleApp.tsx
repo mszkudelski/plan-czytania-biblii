@@ -1174,6 +1174,61 @@ function Setup({
               </button>
             )}
           </Field>
+          <section className="csv-ai-help">
+            <div className="csv-ai-help-header">
+              <div>
+                <strong>Nie masz jeszcze planu?</strong>
+                <p>Poproś AI o przygotowanie tabeli do wgrania do aplikacji.</p>
+              </div>
+            </div>
+            <details>
+              <summary>Zobacz przykładowy prompt</summary>
+              <div className="csv-prompt-box">
+                <pre>{`Przygotuj dla mnie plan czytania Biblii w formacie CSV.
+
+Chcę czytać:
+- [np. całą Biblię w rok / Ewangelię Jana w 30 dni]
+- [np. 5 dni w tygodniu]
+- po kilka fragmentów dziennie
+
+Użyj dokładnie tych kolumn:
+Dzień;Stary Testament;Nowy Testament;Psalm
+
+Zasady:
+- jeden wiersz = jeden dzień czytania,
+- wpisuj konkretne fragmenty, np. Rdz 1–3, Mt 1, Ps 1,
+- nie dodawaj pustych wierszy,
+- używaj średnika (;) jako separatora,
+- odpowiedź zwróć wyłącznie jako CSV, bez komentarza, bez nagłówka Markdown i bez bloku kodu.`}</pre>
+                <button
+                  type="button"
+                  className="small-button"
+                  onClick={() =>
+                    void copyText(
+                      `Przygotuj dla mnie plan czytania Biblii w formacie CSV.
+
+Chcę czytać:
+- [np. całą Biblię w rok / Ewangelię Jana w 30 dni]
+- [np. 5 dni w tygodniu]
+- po kilka fragmentów dziennie
+
+Użyj dokładnie tych kolumn:
+Dzień;Stary Testament;Nowy Testament;Psalm
+
+Zasady:
+- jeden wiersz = jeden dzień czytania,
+- wpisuj konkretne fragmenty, np. Rdz 1–3, Mt 1, Ps 1,
+- nie dodawaj pustych wierszy,
+- używaj średnika (;) jako separatora,
+- odpowiedź zwróć wyłącznie jako CSV, bez komentarza, bez nagłówka Markdown i bez bloku kodu.`,
+                    )
+                  }
+                >
+                  Kopiuj prompt
+                </button>
+              </div>
+            </details>
+          </section>
 
           <div className="form-row">
             <Field label="Start">
