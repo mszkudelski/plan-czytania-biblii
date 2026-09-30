@@ -1,32 +1,29 @@
-import type { Group, PlanDay } from "../types";
-
-export type RecoveryDay = { date: string; days: PlanDay[] };
+import type { Group } from "../types";
 
 export function getOverdueDays(group: Group, memberId: string, today: string) {
   const progress = group.progress[memberId] ?? {};
   return group.planDays.filter(day => day.date < today && day.segments.some(segment => !progress[segment.id]));
 }
 
-// A personal overlay: original dates, segment IDs and group data stay intact.
-export function buildRecoveryPlan(group: Group, memberId: string, started: string, today: string): RecoveryDay[] {
+export function splitReadingChapters(label: string): string[] {
+  const match = label.match(/^(.+?)\s+(\d+)(?:\s*[–-]\s*(\d+))?$/);
+  if (!match) return [label];
+  const start = Number(match[2]);
+  const end = Number(match[3] ?? match[2]);
+  if (end < start || end - start > 150) return [label];
+  return Array.from({ length: end - start + 1 }, (_, index) => `${match[1]} ${start + index}`);
+}
+
+export type RecoveryReading = { segmentId: string; label: string; originalDate: string; chapterIndex: number; chapterCount: number };
+export function getRecoveryReading(group: Group, memberId: string, today: string, readChapters: Record<string, number>): RecoveryReading | undefined {
   const progress = group.progress[memberId] ?? {};
-  const backlog = group.planDays.filter(day => day.date < started && day.segments.some(segment => !progress[segment.id]));
-  const allowed = group.frequency.kind === "daily" ? [0, 1, 2, 3, 4, 5, 6]
-    : group.frequency.kind === "weekdays" ? [1, 2, 3, 4, 5] : group.frequency.days;
-  if (!allowed.some(day => day >= 0 && day <= 6)) return [];
-  const cursor = new Date(`${today}T12:00:00`);
-  const result: RecoveryDay[] = [];
-  let extra = 0;
-  while (true) {
-    const date = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
-    if (allowed.includes(cursor.getDay())) {
-      const scheduled = group.planDays.filter(day => day.date >= started && day.date <= date && day.segments.some(segment => !progress[segment.id]) && !result.some(slot => slot.days.includes(day)));
-      const overdue = backlog[extra++];
-      const days = [...(overdue ? [overdue] : []), ...scheduled];
-      if (days.length) result.push({ date, days });
-      else if (extra >= backlog.length && !group.planDays.some(day => day.date > date && day.segments.some(segment => !progress[segment.id]))) break;
+  for (const day of getOverdueDays(group, memberId, today)) {
+    for (const segment of day.segments) {
+      if (progress[segment.id]) continue;
+      const chapters = splitReadingChapters(segment.label);
+      const chapterIndex = readChapters[segment.id] ?? 0;
+      if (chapterIndex >= chapters.length) continue;
+      return { segmentId: segment.id, label: chapters[chapterIndex], originalDate: day.date, chapterIndex, chapterCount: chapters.length };
     }
-    cursor.setDate(cursor.getDate() + 1);
   }
-  return result;
 }

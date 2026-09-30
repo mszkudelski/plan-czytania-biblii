@@ -1,4 +1,4 @@
-import { buildRecoveryPlan, getOverdueDays } from "./lib/recovery";
+import { getRecoveryReading, getOverdueDays, type RecoveryReading } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1453,7 +1453,7 @@ function TodayView({
   group: Group;
   member: Member;
   busySegment: string;
-  onToggle: (segmentId: string) => void;
+  onToggle: (segmentId: string) => Promise<void>;
 }) {
   const metrics = getMemberMetrics(group, member.id);
   const nextDay = getNextDay(group, member.id);
@@ -1467,7 +1467,34 @@ function TodayView({
   const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
   const today = todayIso();
   const overdue = getOverdueDays(group, member.id, today);
-  const recovery = recoveryStart ? buildRecoveryPlan(group, member.id, recoveryStart, today) : [];
+  const chapterKey = `${recoveryKey}:chapters`;
+  const dailyKey = `${recoveryKey}:${today}`;
+  const [readChapters, setReadChapters] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem(chapterKey) ?? "{}"); } catch { return {}; }
+  });
+  const [dailyReading, setDailyReading] = useState<{ reading: RecoveryReading; completed: boolean } | null>(() => {
+    try { return JSON.parse(localStorage.getItem(dailyKey) ?? "null"); } catch { return null; }
+  });
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
+  const extra = dailyReading?.reading ?? getRecoveryReading(group, member.id, today, readChapters);
+  const extraComplete = Boolean(dailyReading?.completed || (extra && progress[extra.segmentId]));
+  const scheduledToday = group.planDays.filter(day => day.date === today);
+  async function completeExtra() {
+    if (!extra || extraComplete) return;
+    setRecoveryBusy(true);
+    setRecoveryError("");
+    try {
+      if (extra.chapterIndex + 1 === extra.chapterCount && !progress[extra.segmentId]) await onToggle(extra.segmentId);
+      const chapters = { ...readChapters, [extra.segmentId]: extra.chapterIndex + 1 };
+      localStorage.setItem(chapterKey, JSON.stringify(chapters));
+      setReadChapters(chapters);
+      const reading = { reading: extra, completed: true };
+      localStorage.setItem(dailyKey, JSON.stringify(reading));
+      setDailyReading(reading);
+    } catch { setRecoveryError("Nie udało się zapisać. Spróbuj ponownie."); }
+    finally { setRecoveryBusy(false); }
+  }
   function changeRecovery(start: string) {
     if (start) localStorage.setItem(recoveryKey, start);
     else localStorage.removeItem(recoveryKey);
@@ -1485,27 +1512,40 @@ function TodayView({
       {(overdue.length > 2 || recoveryStart) && (
         <section className="recovery-card">
           <h2>Plan nadrabiania</h2>
-          <p>Opcjonalnie dodaj jeden zaległy dzień do każdego kolejnego dnia czytania. To Twój osobisty harmonogram — plan grupy pozostaje bez zmian.</p>
+          <p>Dzisiejsze czytanie i jeden dodatkowy rozdział zaległości. Mały krok każdego dnia — we własnym tempie.</p>
           {recoveryStart ? (
             <>
-              <p>{overdue.length ? `Pozostało zaległych dni: ${overdue.length}.` : "Zaległości nadrobione! Możesz wrócić do zwykłego planu."}</p>
-              <button className="small-button" onClick={() => changeRecovery("")}>Wyłącz nadrabianie</button>
-              {recovery.map((slot, index) => (
-                <div key={slot.date} className="recovery-slot">
-                  <h3>{formatPolishDate(slot.date)}{index === 0 ? " · Najbliższe czytanie" : ""}</h3>
-                  {slot.days.map(day => (
-                    <DayCard key={day.id} day={day} progress={progress} busySegment={busySegment} onToggle={onToggle} />
-                  ))}
-                </div>
-              ))}
+              <button className="small-button" onClick={() => changeRecovery("")}>Wróć do zwykłego czytania</button>
+              <div className="recovery-today">
+                <h3>Na dziś · {formatPolishDate(today)}</h3>
+                <p>Zwykła porcja z planu grupy</p>
+                {scheduledToday.length ? scheduledToday.map(day => (
+                  <DayCard key={day.id} day={day} progress={progress} busySegment={busySegment} onToggle={onToggle} />
+                )) : <p>Na dziś nie ma zaplanowanego czytania. Możesz zrobić tylko mały krok nadrabiania.</p>}
+              </div>
+              <div className="recovery-extra">
+                <span className="recovery-badge">Mały krok · +1 rozdział</span>
+                {extra ? (
+                  <>
+                    <h3>{extra.label}</h3>
+                    <p>Zaległość z {formatPolishDate(extra.originalDate, "shortYear")} — dziś nadrabiasz tylko tę część.</p>
+                    <button className="main-button" disabled={recoveryBusy || extraComplete} onClick={completeExtra}>
+                      {extraComplete ? "Na dziś nadrobione ✓" : recoveryBusy ? "Zapisywanie…" : "Przeczytane"}
+                    </button>
+                    {extraComplete && <p>Kolejny mały krok jutro. Nie musisz dziś nadrabiać więcej.</p>}
+                  </>
+                ) : <p>Zaległości nadrobione! Możesz wrócić do zwykłego czytania.</p>}
+                {recoveryError && <p role="alert">{recoveryError}</p>}
+              </div>
+              <p>Plan grupy pozostaje bez zmian. Przy fragmentach obejmujących kilka rozdziałów częściowe nadrabianie zapamiętujemy w tej przeglądarce; cały fragment trafi do postępu po ostatnim rozdziale.</p>
             </>
           ) : (
-            <button className="main-button" onClick={() => changeRecovery(today)}>Włącz plan nadrabiania</button>
+            <button className="main-button" onClick={() => changeRecovery(today)}>Włącz łagodne nadrabianie</button>
           )}
-          <p>Wybór jest zapamiętany dla Ciebie w tej przeglądarce. Daty na kartach wskazują oryginalny plan.</p>
         </section>
       )}
-      {selectedDay ? (
+      {!recoveryStart && (selectedDay ? (
+
         <>
           <DayCard
             day={selectedDay}
@@ -1525,7 +1565,7 @@ function TodayView({
           <Icon name="check" size={28} />
           <h2>Plan ukończony</h2>
         </div>
-      )}
+      ))}
     </>
   );
 }
@@ -1804,7 +1844,7 @@ function DayCard({
   day: PlanDay;
   progress: Record<string, string>;
   busySegment: string;
-  onToggle: (segmentId: string) => void;
+  onToggle: (segmentId: string) => Promise<void>;
 }) {
   const completed = day.segments.filter((segment) => progress[segment.id]).length;
   const complete = completed === day.segments.length;
