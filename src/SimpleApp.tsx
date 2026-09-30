@@ -1,3 +1,4 @@
+import { buildRecoveryPlan, getOverdueDays } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1453,6 +1454,17 @@ function TodayView({
     : Math.max(0, group.planDays.length - 1);
   const [selectedIndex, setSelectedIndex] = useState(Math.max(0, initialIndex));
   const selectedDay = group.planDays[selectedIndex];
+  const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
+  const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
+  const today = todayIso();
+  const overdue = getOverdueDays(group, member.id, today);
+  const recovery = recoveryStart ? buildRecoveryPlan(group, member.id, recoveryStart, today) : [];
+  function changeRecovery(start: string) {
+    if (start) localStorage.setItem(recoveryKey, start);
+    else localStorage.removeItem(recoveryKey);
+    setRecoveryStart(start);
+  }
+
 
   return (
     <>
@@ -1461,6 +1473,29 @@ function TodayView({
         <ProgressDonut percent={metrics.progressPercent} />
         <BacklogCard pace={metrics.paceDays} />
       </section>
+      {(overdue.length > 2 || recoveryStart) && (
+        <section className="settings-card recovery-card">
+          <h2>Plan nadrabiania</h2>
+          <p>Opcjonalnie dodaj jeden zaległy dzień do każdego kolejnego dnia czytania. To Twój osobisty harmonogram — plan grupy pozostaje bez zmian.</p>
+          {recoveryStart ? (
+            <>
+              <p>{overdue.length ? `Pozostało zaległych dni: ${overdue.length}.` : "Zaległości nadrobione! Możesz wrócić do zwykłego planu."}</p>
+              <button className="small-button" onClick={() => changeRecovery("")}>Wyłącz nadrabianie</button>
+              {recovery.slice(0, 7).map((slot, index) => (
+                <div key={slot.date} className="recovery-slot">
+                  <h3>{formatPolishDate(slot.date)}{index === 0 ? " · Najbliższe czytanie" : ""}</h3>
+                  {slot.days.map(day => (
+                    <DayCard key={day.id} day={day} progress={progress} busySegment={busySegment} onToggle={onToggle} />
+                  ))}
+                </div>
+              ))}
+            </>
+          ) : (
+            <button className="main-button" onClick={() => changeRecovery(today)}>Włącz plan nadrabiania</button>
+          )}
+          <p>Wybór jest zapamiętany dla Ciebie w tej przeglądarce. Daty na kartach wskazują oryginalny plan.</p>
+        </section>
+      )}
       {selectedDay ? (
         <>
           <DayCard
