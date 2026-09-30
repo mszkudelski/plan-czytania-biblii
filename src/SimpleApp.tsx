@@ -1474,14 +1474,14 @@ function TodayView({
         <BacklogCard pace={metrics.paceDays} />
       </section>
       {(overdue.length > 2 || recoveryStart) && (
-        <section className="settings-card recovery-card">
+        <section className="recovery-card">
           <h2>Plan nadrabiania</h2>
           <p>Opcjonalnie dodaj jeden zaległy dzień do każdego kolejnego dnia czytania. To Twój osobisty harmonogram — plan grupy pozostaje bez zmian.</p>
           {recoveryStart ? (
             <>
               <p>{overdue.length ? `Pozostało zaległych dni: ${overdue.length}.` : "Zaległości nadrobione! Możesz wrócić do zwykłego planu."}</p>
               <button className="small-button" onClick={() => changeRecovery("")}>Wyłącz nadrabianie</button>
-              {recovery.slice(0, 7).map((slot, index) => (
+              {recovery.map((slot, index) => (
                 <div key={slot.date} className="recovery-slot">
                   <h3>{formatPolishDate(slot.date)}{index === 0 ? " · Najbliższe czytanie" : ""}</h3>
                   {slot.days.map(day => (
@@ -1536,7 +1536,7 @@ function PlanView({
   const endDate = group.planDays.at(-1)?.date ?? group.startDate;
   return (
     <>
-      <PageTitle title="Plan" meta={`${group.planDays.length} dni`} />
+      <PageTitle title="Plan" meta={`${group.planDays.length} dni · plan grupy`} />
       <section className="plan-dates">
         <div>
           <span>Start</span>

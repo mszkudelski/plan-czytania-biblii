@@ -1749,7 +1749,11 @@ button {
   }
 }
 
-.recovery-card { margin-bottom: 24px; }
+.recovery-card { margin-bottom: 24px; padding: 24px; border: 1px solid var(--border); border-radius: 13px; background: var(--paper); min-width: 0; }
+.recovery-card h2 { margin: 0 0 12px; font-size: 1.2rem; }
+.recovery-card > p { color: var(--muted); margin: 12px 0 18px; }
+.recovery-card > button { max-width: 100%; }
+@media (max-width: 600px) { .recovery-card { padding: 16px; } }
 .recovery-card p { line-height: 1.6; }
 .recovery-slot { margin-top: 24px; }
 .recovery-slot h3 { font-size: 16px; margin-bottom: 12px; }

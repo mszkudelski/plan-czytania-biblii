@@ -17,7 +17,7 @@ export function buildRecoveryPlan(group: Group, memberId: string, started: strin
   const cursor = new Date(`${today}T12:00:00`);
   const result: RecoveryDay[] = [];
   let extra = 0;
-  while (result.length < Math.max(7, backlog.length)) {
+  while (true) {
     const date = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
     if (allowed.includes(cursor.getDay())) {
       const scheduled = group.planDays.filter(day => day.date >= started && day.date <= date && day.segments.some(segment => !progress[segment.id]) && !result.some(slot => slot.days.includes(day)));

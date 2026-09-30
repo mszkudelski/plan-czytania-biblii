@@ -31,3 +31,12 @@ it("handles completed plans and invalid custom frequency", () => {
   const g = fixture(); g.frequency = {kind: "custom", days: []};
   expect(buildRecoveryPlan(g, "a", "2026-09-04", "2026-09-04")).toEqual([]);
 });
+
+it("shows the whole personal schedule beyond seven days without truncating the group", () => {
+  const g = fixture();
+  const plan = buildRecoveryPlan(g, "a", "2026-09-04", "2026-09-04");
+  expect(plan.length).toBeGreaterThan(7);
+  expect(plan.at(-1)?.date).toBe("2026-09-12");
+  expect(plan.flatMap(slot => slot.days)).toHaveLength(12);
+  expect(g.planDays).toHaveLength(12);
+});
