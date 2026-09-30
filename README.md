@@ -110,3 +110,16 @@ To pragmatyczny model dla zaufanej, prywatnej grupy:
 Nazwy osób i zbiorczy postęp są widoczne dla każdego, kto zna niezgadywalny
 identyfikator grupy. Dla publicznej aplikacji o większej skali kolejnym krokiem
 powinno być logowanie e-mail/OAuth i relacyjna baza danych.
+
+## Plan podstawowy
+
+Przycisk „Użyj planu podstawowego · 365 dni” wybiera plan Roberta Murraya
+M’Cheyne’a (Daily Bread, 1842): 4 fragmenty dziennie, Stary Testament raz,
+Nowy Testament i Psalmy dwa razy. Wybór ustawia codzienną częstotliwość.
+365 dni czytania jest liczonych od wybranej daty startu. Istniejące grupy
+nie są migrowane ani nadpisywane.
+
+Źródło harmonogramu: https://github.com/khornberg/readingplans/blob/master/mcheyne.json
+Opis planu: https://www.mcheyne.app/
+Nazwy ksiąg dostosowano do polskich skrótów. Plik do pobrania: `/plan-podstawowy.csv`.
+Stary adres `/plan-przykladowy.csv` pozostaje zgodny i udostępnia ten sam roczny plan.

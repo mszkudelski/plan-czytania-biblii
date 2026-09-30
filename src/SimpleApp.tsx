@@ -25,7 +25,8 @@ import {
   restoreSession,
   updateProgress,
 } from "./lib/api";
-import { parsePlanCsv, SAMPLE_CSV } from "./lib/csv";
+import { parsePlanCsv } from "./lib/csv";
+import { BASIC_PLAN_CSV } from "./lib/basic-plan";
 import QRCode from "qrcode";
 import {
   createJoinLink,
@@ -1173,13 +1174,21 @@ function Setup({
                 className="link-button"
                 type="button"
                 onClick={() => {
-                  setCsvText(SAMPLE_CSV);
-                  setFileName("plan-przykładowy.csv");
+                  setCsvText(BASIC_PLAN_CSV);
+                  setFrequencyKind("daily");
+                  setFileName("Plan podstawowy · M’Cheyne · 365 dni");
                 }}
               >
-                Nie masz pliku? Użyj przykładowego planu
+                Użyj planu podstawowego · 365 dni
               </button>
             )}
+            <p className="field-help">
+              Plan podstawowy M’Cheyne’a: 4 fragmenty dziennie przez 365 dni.
+              Stary Testament raz, Nowy Testament i Psalmy dwa razy.
+              Możesz zacząć w dowolnym dniu. Przy czytaniu codziennym trwa rok;
+              przy rzadszym harmonogramie potrwa dłużej.{" "}
+              <a href="https://www.mcheyne.app/" target="_blank" rel="noreferrer">O planie</a>
+            </p>
           </Field>
           <section className="csv-ai-help">
             <div className="csv-ai-help-header">
