@@ -1,3 +1,4 @@
+import { buildRecoveryPlan, getOverdueDays } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1037,7 +1038,7 @@ function JoinEntrySetup({
   );
 }
 
-function SetupChoices({
+function LandingPage({
   error,
   onChoose,
   theme,
@@ -1049,49 +1050,55 @@ function SetupChoices({
   onThemeChange: (theme: Theme) => void;
 }) {
   return (
-    <main className="setup-page">
-      <div className="setup-box setup-choice-box">
-        <div className="setup-top">
+    <main className="landing-page">
+      <div className="landing-shell">
+        <header className="landing-header">
           <Brand />
           <ThemeToggle theme={theme} onChange={onThemeChange} />
-        </div>
-        <h1>Witaj</h1>
-        {error && <div className="simple-alert">{error}</div>}
-        <p className="setup-description">
-          Wybierz, jak chcesz rozpocząć korzystanie z planu czytania.
+        </header>
+
+        <section className="landing-hero">
+          <div className="landing-eyebrow">Dla Ciebie, rodziny i grupy</div>
+          <h1>Plan czytania Biblii,<br />który łatwo trzymać.</h1>
+          <p>
+            Ustal plan, czytaj każdego dnia i zaznaczaj postęp.
+            Zaproś innych i każdy śledzi swoje czytanie w jednym miejscu.
+          </p>
+          {error && <div className="simple-alert">{error}</div>}
+          <div className="landing-actions">
+            <button type="button" className="main-button landing-primary" onClick={() => onChoose("create")}>
+              Utwórz plan
+            </button>
+            <button type="button" className="landing-secondary" onClick={() => onChoose("join")}>
+              Dołącz do istniejącego planu
+            </button>
+          </div>
+          <button type="button" className="link-button landing-transfer" onClick={() => onChoose("transfer")}>
+            Mam już plan na innym urządzeniu → przenieś sesję
+          </button>
+        </section>
+
+        <section className="landing-features" aria-label="Najważniejsze funkcje">
+          <article>
+            <span>01</span>
+            <strong>Twój plan</strong>
+            <p>Wgraj własny plan czytania i ustaw dni, w które chcesz czytać.</p>
+          </article>
+          <article>
+            <span>02</span>
+            <strong>Twój postęp</strong>
+            <p>Zaznaczaj przeczytane fragmenty i od razu widzisz, gdzie jesteś.</p>
+          </article>
+          <article>
+            <span>03</span>
+            <strong>Wspólne czytanie</strong>
+            <p>Zaproś rodzinę lub grupę. Każda osoba ma własny postęp.</p>
+          </article>
+        </section>
+
+        <p className="landing-footer">
+          Bez konta e-mail. Zacznij od własnego planu lub dołącz przez zaproszenie.
         </p>
-        <div className="setup-choice-list">
-          <button
-            type="button"
-            className="setup-choice"
-            onClick={() => onChoose("transfer")}
-          >
-            <strong>Przenieś sesję z innego urządzenia</strong>
-            <span>
-              Zeskanuj kod QR z działającego planu i otwórz go tutaj.
-            </span>
-          </button>
-          <button
-            type="button"
-            className="setup-choice"
-            onClick={() => onChoose("create")}
-          >
-            <strong>Utwórz nowy plan</strong>
-            <span>
-              Stwórz plan, dodaj własny harmonogram i zaproś inne osoby.
-            </span>
-          </button>
-          <button
-            type="button"
-            className="setup-choice"
-            onClick={() => onChoose("join")}
-          >
-            <strong>Dołącz do planu</strong>
-            <span>
-              Zeskanuj kod QR zaproszenia albo wklej otrzymany link.
-            </span>
-          </button>
-        </div>
       </div>
     </main>
   );
@@ -1198,7 +1205,7 @@ function Setup({
 
   if (view === "choices") {
     return (
-      <SetupChoices
+      <LandingPage
         error={error}
         onChoose={setView}
         theme={theme}
@@ -1246,7 +1253,7 @@ function Setup({
             </Field>
           </div>
 
-          <Field label="Plan CSV">
+          <Field label="Plan czytania">
             <label className="simple-upload">
               <input
                 type="file"
@@ -1255,9 +1262,13 @@ function Setup({
                   readFile(event.target.files?.[0])
                 }
               />
-              <span>{rows.length ? fileName : "Wybierz plik CSV"}</span>
+              <span>{rows.length ? fileName : "Wybierz plik z planem"}</span>
               {rows.length > 0 && <b>{rows.length} dni</b>}
             </label>
+            <p className="field-help">
+              Wybierz plik z planem czytania. Może to być plik CSV, czyli
+              zwykła tabela zapisana np. z Excela lub Arkuszy Google.
+            </p>
             {!rows.length && (
               <button
                 className="link-button"
@@ -1267,10 +1278,65 @@ function Setup({
                   setFileName("plan-przykładowy.csv");
                 }}
               >
-                Użyj przykładu
+                Nie masz pliku? Użyj przykładowego planu
               </button>
             )}
           </Field>
+          <section className="csv-ai-help">
+            <div className="csv-ai-help-header">
+              <div>
+                <strong>Nie masz jeszcze planu?</strong>
+                <p>Poproś AI o przygotowanie tabeli do wgrania do aplikacji.</p>
+              </div>
+            </div>
+            <details>
+              <summary>Zobacz przykładowy prompt</summary>
+              <div className="csv-prompt-box">
+                <pre>{`Przygotuj dla mnie plan czytania Biblii w formacie CSV.
+
+Chcę czytać:
+- [np. całą Biblię w rok / Ewangelię Jana w 30 dni]
+- [np. 5 dni w tygodniu]
+- po kilka fragmentów dziennie
+
+Użyj dokładnie tych kolumn:
+Dzień;Stary Testament;Nowy Testament;Psalm
+
+Zasady:
+- jeden wiersz = jeden dzień czytania,
+- wpisuj konkretne fragmenty, np. Rdz 1–3, Mt 1, Ps 1,
+- nie dodawaj pustych wierszy,
+- używaj średnika (;) jako separatora,
+- odpowiedź zwróć wyłącznie jako CSV, bez komentarza, bez nagłówka Markdown i bez bloku kodu.`}</pre>
+                <button
+                  type="button"
+                  className="small-button"
+                  onClick={() =>
+                    void copyText(
+                      `Przygotuj dla mnie plan czytania Biblii w formacie CSV.
+
+Chcę czytać:
+- [np. całą Biblię w rok / Ewangelię Jana w 30 dni]
+- [np. 5 dni w tygodniu]
+- po kilka fragmentów dziennie
+
+Użyj dokładnie tych kolumn:
+Dzień;Stary Testament;Nowy Testament;Psalm
+
+Zasady:
+- jeden wiersz = jeden dzień czytania,
+- wpisuj konkretne fragmenty, np. Rdz 1–3, Mt 1, Ps 1,
+- nie dodawaj pustych wierszy,
+- używaj średnika (;) jako separatora,
+- odpowiedź zwróć wyłącznie jako CSV, bez komentarza, bez nagłówka Markdown i bez bloku kodu.`,
+                    )
+                  }
+                >
+                  Kopiuj prompt
+                </button>
+              </div>
+            </details>
+          </section>
 
           <div className="form-row">
             <Field label="Start">
@@ -1511,6 +1577,17 @@ function TodayView({
     : Math.max(0, group.planDays.length - 1);
   const [selectedIndex, setSelectedIndex] = useState(Math.max(0, initialIndex));
   const selectedDay = group.planDays[selectedIndex];
+  const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
+  const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
+  const today = todayIso();
+  const overdue = getOverdueDays(group, member.id, today);
+  const recovery = recoveryStart ? buildRecoveryPlan(group, member.id, recoveryStart, today) : [];
+  function changeRecovery(start: string) {
+    if (start) localStorage.setItem(recoveryKey, start);
+    else localStorage.removeItem(recoveryKey);
+    setRecoveryStart(start);
+  }
+
 
   return (
     <>
@@ -1519,6 +1596,29 @@ function TodayView({
         <ProgressDonut percent={metrics.progressPercent} />
         <BacklogCard pace={metrics.paceDays} />
       </section>
+      {(overdue.length > 2 || recoveryStart) && (
+        <section className="settings-card recovery-card">
+          <h2>Plan nadrabiania</h2>
+          <p>Opcjonalnie dodaj jeden zaległy dzień do każdego kolejnego dnia czytania. To Twój osobisty harmonogram — plan grupy pozostaje bez zmian.</p>
+          {recoveryStart ? (
+            <>
+              <p>{overdue.length ? `Pozostało zaległych dni: ${overdue.length}.` : "Zaległości nadrobione! Możesz wrócić do zwykłego planu."}</p>
+              <button className="small-button" onClick={() => changeRecovery("")}>Wyłącz nadrabianie</button>
+              {recovery.slice(0, 7).map((slot, index) => (
+                <div key={slot.date} className="recovery-slot">
+                  <h3>{formatPolishDate(slot.date)}{index === 0 ? " · Najbliższe czytanie" : ""}</h3>
+                  {slot.days.map(day => (
+                    <DayCard key={day.id} day={day} progress={progress} busySegment={busySegment} onToggle={onToggle} />
+                  ))}
+                </div>
+              ))}
+            </>
+          ) : (
+            <button className="main-button" onClick={() => changeRecovery(today)}>Włącz plan nadrabiania</button>
+          )}
+          <p>Wybór jest zapamiętany dla Ciebie w tej przeglądarce. Daty na kartach wskazują oryginalny plan.</p>
+        </section>
+      )}
       {selectedDay ? (
         <>
           <DayCard
