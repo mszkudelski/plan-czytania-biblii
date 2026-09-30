@@ -27,3 +27,11 @@ it("handles chapter ranges and verse excerpts without inventing references", () 
 it("has no extra reading before the plan starts", () => {
   expect(getRecoveryReading(fixture(), 'a', '2026-08-30', {})).toBeUndefined();
 });
+it("keeps the extra chapter after the base day instead of duplicating its readings", () => {
+  const g = fixture();
+  const reading = getRecoveryReading(g, 'a', '2026-09-10', {}, 'day-1');
+  expect(reading?.segmentId).toBe('day-2-segment-1');
+  expect(reading?.label).toBe('Rdz 1');
+  expect(reading?.originalDate).toBe('2026-09-02');
+  expect(getRecoveryReading(g, 'a', '2026-09-10', {'day-2-segment-1': 1}, 'day-1')?.label).toBe('Rdz 2');
+});

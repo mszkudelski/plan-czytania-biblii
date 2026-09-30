@@ -1,4 +1,4 @@
-import { getRecoveryReading, getOverdueDays, type RecoveryReading } from "./lib/recovery";
+import { getRecoveryReading, getOverdueDays, splitReadingChapters, type RecoveryReading } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1468,7 +1468,11 @@ function TodayView({
   const today = todayIso();
   const overdue = getOverdueDays(group, member.id, today);
   const chapterKey = `${recoveryKey}:chapters`;
-  const dailyKey = `${recoveryKey}:${today}`;
+  const dailyKey = `${recoveryKey}:ordered:${today}`;
+  const [recoveryDayId] = useState(() => localStorage.getItem(`${dailyKey}:day`) ?? nextDay?.id ?? "");
+  useEffect(() => {
+    if (recoveryStart && recoveryDayId) localStorage.setItem(`${dailyKey}:day`, recoveryDayId);
+  }, [dailyKey, recoveryStart, recoveryDayId]);
   const [readChapters, setReadChapters] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem(chapterKey) ?? "{}"); } catch { return {}; }
   });
@@ -1477,11 +1481,20 @@ function TodayView({
   });
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [recoveryError, setRecoveryError] = useState("");
-  const extra = dailyReading?.reading ?? getRecoveryReading(group, member.id, today, readChapters);
+  const originalRecoveryDay = group.planDays.find(day => day.id === recoveryDayId);
+  const recoveryDay = originalRecoveryDay ? {
+    ...originalRecoveryDay,
+    segments: originalRecoveryDay.segments.map(segment => {
+      const consumed = readChapters[segment.id] ?? 0;
+      const remaining = splitReadingChapters(segment.label).slice(consumed);
+      return { ...segment, label: !progress[segment.id] && consumed && remaining.length ? remaining.join(" · ") : segment.label };
+    }),
+  } : undefined;
+  const baseComplete = Boolean(recoveryDay && recoveryDay.segments.every(segment => progress[segment.id]));
+  const extra = dailyReading?.reading ?? getRecoveryReading(group, member.id, today, readChapters, recoveryDayId);
   const extraComplete = Boolean(dailyReading?.completed || (extra && progress[extra.segmentId]));
-  const scheduledToday = group.planDays.filter(day => day.date === today);
   async function completeExtra() {
-    if (!extra || extraComplete) return;
+    if (!extra || extraComplete || !baseComplete) return;
     setRecoveryBusy(true);
     setRecoveryError("");
     try {
@@ -1512,29 +1525,30 @@ function TodayView({
       {(overdue.length > 2 || recoveryStart) && (
         <section className="recovery-card">
           <h2>Plan nadrabiania</h2>
-          <p>Dzisiejsze czytanie i jeden dodatkowy rozdział zaległości. Mały krok każdego dnia — we własnym tempie.</p>
+          <p>Kontynuuj od pierwszego nieprzeczytanego miejsca. Jedna porcja planu i jeden dodatkowy rozdział — zawsze w kolejności, bez przeskakiwania zaległości.</p>
           {recoveryStart ? (
             <>
               <button className="small-button" onClick={() => changeRecovery("")}>Wróć do zwykłego czytania</button>
               <div className="recovery-today">
                 <h3>Na dziś · {formatPolishDate(today)}</h3>
-                <p>Zwykła porcja z planu grupy</p>
-                {scheduledToday.length ? scheduledToday.map(day => (
-                  <DayCard key={day.id} day={day} progress={progress} busySegment={busySegment} onToggle={onToggle} />
-                )) : <p>Na dziś nie ma zaplanowanego czytania. Możesz zrobić tylko mały krok nadrabiania.</p>}
+                <p>Pierwsza nieprzeczytana porcja. Data na karcie pochodzi z oryginalnego planu.</p>
+                {recoveryDay ? (
+                  <DayCard day={recoveryDay} progress={progress} busySegment={busySegment} onToggle={onToggle} />
+                ) : <p>Plan ukończony.</p>}
               </div>
               <div className="recovery-extra">
                 <span className="recovery-badge">Mały krok · +1 rozdział</span>
                 {extra ? (
                   <>
                     <h3>{extra.label}</h3>
-                    <p>Zaległość z {formatPolishDate(extra.originalDate, "shortYear")} — dziś nadrabiasz tylko tę część.</p>
-                    <button className="main-button" disabled={recoveryBusy || extraComplete} onClick={completeExtra}>
+                    <p>Kolejny fragment w kolejności planu, z {formatPolishDate(extra.originalDate, "shortYear")}.</p>
+                    {!baseComplete && <p>Najpierw dokończ porcję powyżej, potem dodatkowy rozdział.</p>}
+                    <button className="main-button" disabled={recoveryBusy || extraComplete || !baseComplete} onClick={completeExtra}>
                       {extraComplete ? "Na dziś nadrobione ✓" : recoveryBusy ? "Zapisywanie…" : "Przeczytane"}
                     </button>
                     {extraComplete && <p>Kolejny mały krok jutro. Nie musisz dziś nadrabiać więcej.</p>}
                   </>
-                ) : <p>Zaległości nadrobione! Możesz wrócić do zwykłego czytania.</p>}
+                ) : <p>Nie ma kolejnego zaległego rozdziału. Dokończ porcję powyżej i wróć do zwykłego czytania.</p>}
                 {recoveryError && <p role="alert">{recoveryError}</p>}
               </div>
               <p>Plan grupy pozostaje bez zmian. Przy fragmentach obejmujących kilka rozdziałów częściowe nadrabianie zapamiętujemy w tej przeglądarce; cały fragment trafi do postępu po ostatnim rozdziale.</p>

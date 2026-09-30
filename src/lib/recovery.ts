@@ -15,9 +15,10 @@ export function splitReadingChapters(label: string): string[] {
 }
 
 export type RecoveryReading = { segmentId: string; label: string; originalDate: string; chapterIndex: number; chapterCount: number };
-export function getRecoveryReading(group: Group, memberId: string, today: string, readChapters: Record<string, number>): RecoveryReading | undefined {
+export function getRecoveryReading(group: Group, memberId: string, today: string, readChapters: Record<string, number>, afterDayId?: string): RecoveryReading | undefined {
   const progress = group.progress[memberId] ?? {};
-  for (const day of getOverdueDays(group, memberId, today)) {
+  const afterIndex = afterDayId ? group.planDays.findIndex(day => day.id === afterDayId) : -1;
+  for (const day of getOverdueDays(group, memberId, today).filter(day => group.planDays.indexOf(day) > afterIndex)) {
     for (const segment of day.segments) {
       if (progress[segment.id]) continue;
       const chapters = splitReadingChapters(segment.label);
