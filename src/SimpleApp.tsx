@@ -1,4 +1,4 @@
-import { getRecoveryReading, getOverdueDays, splitReadingChapters, type RecoveryReading } from "./lib/recovery";
+import { getRecoveryDay, getRecoveryReading, getOverdueDays, splitReadingChapters, type RecoveryReading } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1399,6 +1399,7 @@ function Dashboard({
       <main className="simple-content">
         {tab === "today" && (
           <TodayView
+            key={`${group.id}:${member.id}:${todayIso()}`}
             group={group}
             member={member}
             busySegment={busySegment}
@@ -1469,10 +1470,16 @@ function TodayView({
   const overdue = getOverdueDays(group, member.id, today);
   const chapterKey = `${recoveryKey}:chapters`;
   const dailyKey = `${recoveryKey}:ordered:${today}`;
-  const [recoveryDayId] = useState(() => localStorage.getItem(`${dailyKey}:day`) ?? nextDay?.id ?? "");
+  const [recoveryDayAnchor, setRecoveryDayAnchor] = useState(() =>
+    recoveryStart ? localStorage.getItem(`${dailyKey}:day`) ?? "" : "",
+  );
+  const originalRecoveryDay = getRecoveryDay(group, member.id, recoveryDayAnchor);
+  const recoveryDayId = originalRecoveryDay?.id ?? "";
   useEffect(() => {
-    if (recoveryStart && recoveryDayId) localStorage.setItem(`${dailyKey}:day`, recoveryDayId);
-  }, [dailyKey, recoveryStart, recoveryDayId]);
+    if (!recoveryStart || !recoveryDayId) return;
+    localStorage.setItem(`${dailyKey}:day`, recoveryDayId);
+    if (recoveryDayAnchor !== recoveryDayId) setRecoveryDayAnchor(recoveryDayId);
+  }, [dailyKey, recoveryStart, recoveryDayId, recoveryDayAnchor]);
   const [readChapters, setReadChapters] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem(chapterKey) ?? "{}"); } catch { return {}; }
   });
@@ -1481,7 +1488,6 @@ function TodayView({
   });
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [recoveryError, setRecoveryError] = useState("");
-  const originalRecoveryDay = group.planDays.find(day => day.id === recoveryDayId);
   const recoveryDay = originalRecoveryDay ? {
     ...originalRecoveryDay,
     segments: originalRecoveryDay.segments.map(segment => {
@@ -1509,8 +1515,13 @@ function TodayView({
     finally { setRecoveryBusy(false); }
   }
   function changeRecovery(start: string) {
-    if (start) localStorage.setItem(recoveryKey, start);
-    else localStorage.removeItem(recoveryKey);
+    if (start) {
+      // Activation uses the latest progress, even if this view was opened earlier.
+      setRecoveryDayAnchor(getNextDay(group, member.id)?.id ?? "");
+      localStorage.setItem(recoveryKey, start);
+    } else {
+      localStorage.removeItem(recoveryKey);
+    }
     setRecoveryStart(start);
   }
 

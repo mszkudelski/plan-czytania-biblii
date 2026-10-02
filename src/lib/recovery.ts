@@ -1,4 +1,21 @@
 import type { Group } from "../types";
+import { getNextDay } from "./metrics";
+
+export function getRecoveryDay(
+  group: Group,
+  memberId: string,
+  savedDayId = "",
+) {
+  const nextDay = getNextDay(group, memberId);
+  const savedIndex = group.planDays.findIndex(day => day.id === savedDayId);
+  if (savedIndex < 0) return nextDay;
+
+  // Keep today's completed portion visible, but never skip an earlier unread day.
+  const nextIndex = nextDay ? group.planDays.indexOf(nextDay) : -1;
+  return nextIndex >= 0 && nextIndex < savedIndex
+    ? nextDay
+    : group.planDays[savedIndex];
+}
 
 export function getOverdueDays(group: Group, memberId: string, today: string) {
   const progress = group.progress[memberId] ?? {};

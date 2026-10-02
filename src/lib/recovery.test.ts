@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { getOverdueDays, getRecoveryReading, splitReadingChapters } from "./recovery";
+import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters } from "./recovery";
 import { buildSchedule } from "./schedule";
 import type { Group } from "../types";
 function fixture(): Group {
@@ -34,4 +34,44 @@ it("keeps the extra chapter after the base day instead of duplicating its readin
   expect(reading?.label).toBe('Rdz 1');
   expect(reading?.originalDate).toBe('2026-09-02');
   expect(getRecoveryReading(g, 'a', '2026-09-10', {'day-2-segment-1': 1}, 'day-1')?.label).toBe('Rdz 2');
+});
+
+it("starts recovery at the member's first unread day regardless of calendar date", () => {
+  const g = fixture();
+  g.progress.a["day-1-segment-1"] = "done";
+  g.progress.a["day-2-segment-1"] = "done";
+  expect(getRecoveryDay(g, "a")?.id).toBe("day-3");
+  expect(getRecoveryDay(g, "b")?.id).toBe("day-1");
+});
+it("repairs a saved recovery day that would skip unread progress", () => {
+  const g = fixture();
+  g.progress.a["day-1-segment-1"] = "done";
+  expect(getRecoveryDay(g, "a", "day-10")?.id).toBe("day-2");
+  expect(getRecoveryDay(g, "a", "missing-day")?.id).toBe("day-2");
+});
+it("includes a partially completed day before a later saved day", () => {
+  const g = fixture();
+  g.planDays[0].segments.push({
+    id: "day-1-segment-2", label: "Mt 1", section: "Nowy Testament",
+  });
+  g.progress.a["day-1-segment-1"] = "done";
+  expect(getRecoveryDay(g, "a", "day-10")?.id).toBe("day-1");
+});
+it("keeps today's finished portion as the anchor for its extra chapter", () => {
+  const g = fixture();
+  g.progress.a["day-1-segment-1"] = "done";
+  const base = getRecoveryDay(g, "a", "day-1");
+  expect(base?.id).toBe("day-1");
+  expect(getRecoveryReading(g, "a", "2026-09-10", {}, base?.id)?.segmentId)
+    .toBe("day-2-segment-1");
+  // On a new day there is no saved anchor, so continue at the actual progress.
+  expect(getRecoveryDay(g, "a")?.id).toBe("day-2");
+});
+it("reflects refreshed progress and has no base reading after completion", () => {
+  const g = fixture();
+  expect(getRecoveryDay(g, "a")?.id).toBe("day-1");
+  for (const day of g.planDays) {
+    for (const segment of day.segments) g.progress.a[segment.id] = "done";
+  }
+  expect(getRecoveryDay(g, "a")).toBeUndefined();
 });
