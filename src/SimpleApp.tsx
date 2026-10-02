@@ -1499,16 +1499,23 @@ function TodayView({
   const baseComplete = Boolean(recoveryDay && recoveryDay.segments.every(segment => progress[segment.id]));
   const extra = dailyReading?.reading ?? getRecoveryReading(group, member.id, today, readChapters, recoveryDayId);
   const extraComplete = Boolean(dailyReading?.completed || (extra && progress[extra.segmentId]));
-  async function completeExtra() {
-    if (!extra || extraComplete || !baseComplete) return;
+  async function toggleExtra() {
+    if (!extra || recoveryBusy || (!extraComplete && !baseComplete)) return;
     setRecoveryBusy(true);
     setRecoveryError("");
     try {
-      if (extra.chapterIndex + 1 === extra.chapterCount && !progress[extra.segmentId]) await onToggle(extra.segmentId);
-      const chapters = { ...readChapters, [extra.segmentId]: extra.chapterIndex + 1 };
+      const completed = !extraComplete;
+      const segmentCompleted = completed && extra.chapterIndex + 1 === extra.chapterCount;
+      if (Boolean(progress[extra.segmentId]) !== segmentCompleted) {
+        await onToggle(extra.segmentId);
+      }
+      const chapters = {
+        ...readChapters,
+        [extra.segmentId]: extra.chapterIndex + (completed ? 1 : 0),
+      };
       localStorage.setItem(chapterKey, JSON.stringify(chapters));
       setReadChapters(chapters);
-      const reading = { reading: extra, completed: true };
+      const reading = { reading: extra, completed };
       localStorage.setItem(dailyKey, JSON.stringify(reading));
       setDailyReading(reading);
     } catch { setRecoveryError("Nie udało się zapisać. Spróbuj ponownie."); }
@@ -1534,43 +1541,54 @@ function TodayView({
         <BacklogCard pace={metrics.paceDays} />
       </section>
       {(overdue.length > 2 || recoveryStart) && (
-        <section className="recovery-card">
-          <h2>Plan nadrabiania</h2>
-          <p>Kontynuuj od pierwszego nieprzeczytanego miejsca. Jedna porcja planu i jeden dodatkowy rozdział — zawsze w kolejności, bez przeskakiwania zaległości.</p>
-          {recoveryStart ? (
-            <>
-              <button className="small-button" onClick={() => changeRecovery("")}>Wróć do zwykłego czytania</button>
-              <div className="recovery-today">
-                <h3>Na dziś · {formatPolishDate(today)}</h3>
-                <p>Pierwsza nieprzeczytana porcja. Data na karcie pochodzi z oryginalnego planu.</p>
-                {recoveryDay ? (
-                  <DayCard day={recoveryDay} progress={progress} busySegment={busySegment} onToggle={onToggle} />
-                ) : <p>Plan ukończony.</p>}
-              </div>
-              <div className="recovery-extra">
-                <span className="recovery-badge">Mały krok · +1 rozdział</span>
-                {extra ? (
-                  <>
-                    <h3>{extra.label}</h3>
-                    <p>Kolejny fragment w kolejności planu, z {formatPolishDate(extra.originalDate, "shortYear")}.</p>
-                    {!baseComplete && <p>Najpierw dokończ porcję powyżej, potem dodatkowy rozdział.</p>}
-                    <button className="main-button" disabled={recoveryBusy || extraComplete || !baseComplete} onClick={completeExtra}>
-                      {extraComplete ? "Na dziś nadrobione ✓" : recoveryBusy ? "Zapisywanie…" : "Przeczytane"}
-                    </button>
-                    {extraComplete && <p>Kolejny mały krok jutro. Nie musisz dziś nadrabiać więcej.</p>}
-                  </>
-                ) : <p>Nie ma kolejnego zaległego rozdziału. Dokończ porcję powyżej i wróć do zwykłego czytania.</p>}
-                {recoveryError && <p role="alert">{recoveryError}</p>}
-              </div>
-              <p>Plan grupy pozostaje bez zmian. Przy fragmentach obejmujących kilka rozdziałów częściowe nadrabianie zapamiętujemy w tej przeglądarce; cały fragment trafi do postępu po ostatnim rozdziale.</p>
-            </>
-          ) : (
-            <button className="main-button" onClick={() => changeRecovery(today)}>Włącz łagodne nadrabianie</button>
-          )}
+        <section className="recovery-control" aria-labelledby="recovery-title">
+          <div className="recovery-control-line">
+            <h2 id="recovery-title">
+              Plan nadrabiania
+              {recoveryStart && <span className="recovery-status">Włączony</span>}
+            </h2>
+            <button
+              type="button"
+              className={recoveryStart ? "link-button" : "small-button"}
+              onClick={() => changeRecovery(recoveryStart ? "" : today)}
+              aria-label={recoveryStart ? "Wyłącz plan nadrabiania" : "Włącz plan nadrabiania"}
+            >
+              {recoveryStart ? "Wyłącz" : "Włącz plan"}
+            </button>
+          </div>
+          <details className="recovery-details">
+            <summary>Jak to działa?</summary>
+            <p>
+              Czytasz od pierwszego nieukończonego miejsca w swoim planie.
+              Po zwykłej porcji odznaczasz jeden dodatkowy rozdział, oznaczony
+              plusem na dole listy. Kolejny mały krok pojawi się jutro.
+              Plan grupy pozostaje bez zmian.
+            </p>
+          </details>
         </section>
       )}
-      {!recoveryStart && (selectedDay ? (
-
+      {recoveryStart ? (
+        recoveryDay ? (
+          <DayCard
+            day={recoveryDay}
+            displayDate={today}
+            progress={progress}
+            busySegment={busySegment}
+            onToggle={onToggle}
+            extraReading={extra ? {
+              reading: extra,
+              completed: extraComplete,
+              disabled: recoveryBusy || Boolean(busySegment) || (!baseComplete && !extraComplete),
+              onToggle: toggleExtra,
+            } : undefined}
+          />
+        ) : (
+          <div className="empty-state">
+            <Icon name="check" size={28} />
+            <h2>Plan ukończony</h2>
+          </div>
+        )
+      ) : selectedDay ? (
         <>
           <DayCard
             day={selectedDay}
@@ -1590,7 +1608,10 @@ function TodayView({
           <Icon name="check" size={28} />
           <h2>Plan ukończony</h2>
         </div>
-      ))}
+      )}
+      {recoveryStart && recoveryError && (
+        <p className="recovery-error" role="alert">{recoveryError}</p>
+      )}
     </>
   );
 }
@@ -1862,47 +1883,101 @@ function SettingsView({
 
 function DayCard({
   day,
+  displayDate,
   progress,
   busySegment,
   onToggle,
+  extraReading,
 }: {
   day: PlanDay;
+  displayDate?: string;
   progress: Record<string, string>;
   busySegment: string;
   onToggle: (segmentId: string) => Promise<void>;
+  extraReading?: {
+    reading: RecoveryReading;
+    completed: boolean;
+    disabled: boolean;
+    onToggle: () => Promise<void>;
+  };
 }) {
-  const completed = day.segments.filter((segment) => progress[segment.id]).length;
-  const complete = completed === day.segments.length;
+  const completed = day.segments.filter((segment) => progress[segment.id]).length
+    + (extraReading?.completed ? 1 : 0);
+  const total = day.segments.length + (extraReading ? 1 : 0);
+  const complete = completed === total;
   return (
     <section className={`simple-day ${complete ? "is-complete" : ""}`}>
       <header>
-        <strong>{formatPolishDate(day.date)}</strong>
-        <b>
-          {completed}/{day.segments.length}
-        </b>
+        <strong>{formatPolishDate(displayDate ?? day.date)}</strong>
+        <b>{completed}/{total}</b>
       </header>
       <div className="simple-readings">
-        {day.segments.map((segment) => {
-          const checked = Boolean(progress[segment.id]);
-          return (
-            <button
-              key={segment.id}
-              className={checked ? "checked" : ""}
-              disabled={busySegment === segment.id}
-              onClick={() => onToggle(segment.id)}
-            >
-              <span className="simple-checkbox">
-                {checked && <Icon name="check" size={16} />}
-              </span>
-              <span>
-                <small>{segment.section}</small>
-                <strong>{segment.label}</strong>
-              </span>
-            </button>
-          );
-        })}
+        {day.segments.map((segment) => (
+          <ReadingRow
+            key={segment.id}
+            label={segment.label}
+            section={segment.section}
+            completed={Boolean(progress[segment.id])}
+            disabled={busySegment === segment.id}
+            onToggle={() => onToggle(segment.id)}
+          />
+        ))}
+        {extraReading && (
+          <ReadingRow
+            label={extraReading.reading.label}
+            section="Nadrabianie"
+            completed={extraReading.completed}
+            disabled={extraReading.disabled}
+            onToggle={extraReading.onToggle}
+            isExtra
+          />
+        )}
       </div>
     </section>
+  );
+}
+
+function ReadingRow({
+  label,
+  section,
+  completed,
+  disabled,
+  onToggle,
+  isExtra = false,
+}: {
+  label: string;
+  section: string;
+  completed: boolean;
+  disabled: boolean;
+  onToggle: () => Promise<void>;
+  isExtra?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`${completed ? "checked" : ""} ${isExtra ? "reading-extra" : ""}`}
+      disabled={disabled}
+      onClick={onToggle}
+      aria-pressed={completed}
+      title={isExtra && disabled && !completed
+        ? "Najpierw dokończ fragmenty powyżej."
+        : undefined}
+    >
+      <span className="simple-checkbox">
+        {completed && <Icon name="check" size={16} />}
+      </span>
+      <span>
+        <small>
+          {isExtra ? (
+            <span className="reading-extra-label">
+              <Icon name="plus" size={12} />
+              {section} · 1 rozdział
+            </span>
+          ) : section}
+        </small>
+        <strong>{label}</strong>
+      </span>
+    </button>
   );
 }
 
