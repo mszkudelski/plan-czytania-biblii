@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "netlify:dev": "netlify dev"
+    "netlify:dev": "netlify dev",
+    "prebuild": "node scripts/build-info.mjs",
+    "test:e2e": "npm --prefix e2e test"
   },
   "dependencies": {
     "@netlify/blobs": "^10.0.10",

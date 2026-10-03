@@ -1,0 +1,90 @@
+import { expect } from '@playwright/test';
+export const NOW = new Date();
+NOW.setUTCHours(12, 0, 0, 0);
+export const TODAY = NOW.toISOString().slice(0, 10);
+const dateBefore = offset => new Date(NOW.getTime() - offset * 86400000).toISOString().slice(0, 10);
+export function inputPlan(suffix = 'browser', multiChapter = false) {
+  return {
+    name: 'E2E ' + (process.env.GITHUB_RUN_ID ?? 'local') + ' ' + suffix + ' ' + crypto.randomUUID().slice(0, 8),
+    ownerName: 'Tester E2E',
+    startDate: dateBefore(7),
+    frequency: { kind: 'daily', days: [0, 1, 2, 3, 4, 5, 6] },
+    planDays: [
+      { id: 'd0', index: 0, date: dateBefore(7), title: 'Dzień 1', segments: [
+        { id: 's0', label: 'Rdz 1', section: 'Stary Testament' },
+        { id: 's1', label: 'Mt 1', section: 'Nowy Testament' },
+      ] },
+      { id: 'd1', index: 1, date: dateBefore(6), title: 'Dzień 2', segments: [
+        { id: 's2', label: multiChapter ? 'Rdz 2-3' : 'Rdz 2', section: 'Stary Testament' },
+      ] },
+      { id: 'd2', index: 2, date: dateBefore(5), title: 'Dzień 3', segments: [
+        { id: 's3', label: 'Rdz 4', section: 'Stary Testament' },
+      ] },
+      { id: 'd3', index: 3, date: dateBefore(4), title: 'Dzień 4', segments: [
+        { id: 's4', label: 'Rdz 5', section: 'Stary Testament' },
+      ] },
+      { id: 'd4', index: 4, date: dateBefore(3), title: 'Dzień 5', segments: [
+        { id: 's5', label: 'Rdz 6', section: 'Stary Testament' },
+      ] },
+    ],
+  };
+}
+export async function createPlan(request, suffix, multiChapter = false) {
+  const response = await request.post('/api/groups', { data: inputPlan(suffix, multiChapter) });
+  expect(response.status()).toBe(201);
+  const session = await response.json();
+  expect(session.group.name).toMatch(/^E2E /);
+  expect(session.group.members).toHaveLength(1);
+  return session;
+}
+export const progressPath = session => '/api/groups/' + session.group.id + '/progress';
+export async function saveProgress(request, session, segmentId, completed = true) {
+  const response = await request.post(progressPath(session), {
+    data: { ...session.credentials, segmentId, completed },
+  });
+  expect(response.status()).toBe(200);
+  return response.json();
+}
+export async function readGroup(request, session) {
+  const response = await request.get('/api/groups/' + session.group.id);
+  expect(response.status()).toBe(200);
+  return response.json();
+}
+export async function expectSaved(request, session, expectedIds) {
+  await expect.poll(async () => {
+    const group = await readGroup(request, session);
+    return Object.keys(group.progress[session.credentials.memberId] ?? {}).sort();
+  }).toEqual([...expectedIds].sort());
+}
+export async function openPlan(page, session, cache = {}) {
+  await page.clock.install({ time: NOW });
+  await page.addInitScript(({ credentials, cache }) => {
+    localStorage.setItem('plan-czytania-biblii-credentials', JSON.stringify(credentials));
+    // Seed once; reload must use the application's persisted state.
+    if (!sessionStorage.getItem('e2e-cache-seeded')) {
+      for (const [key, value] of Object.entries(cache)) localStorage.setItem(key, value);
+      sessionStorage.setItem('e2e-cache-seeded', 'yes');
+    }
+  }, { credentials: session.credentials, cache });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+}
+export const reading = (page, label) => page.locator('.simple-readings button').filter({
+  has: page.locator('strong', { hasText: new RegExp('^' + label.replace(/[.*+?^$\{\}()|[\]\\]/g, '\\$&') + '$') }),
+});
+export const extraReading = page => page.locator('.simple-readings button.reading-extra');
+export const tab = (page, name) => page.locator('nav:visible').getByRole('button', { name, exact: true });
+export const recoveryKey = session => 'reading-recovery:' + session.group.id + ':' + session.credentials.memberId;
+// Hold a request BEFORE sending it; after release it uses the real backend.
+export async function holdNextProgress(page, session) {
+  let release;
+  let entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  await page.route('**' + progressPath(session), async route => {
+    entered();
+    await gate;
+    await route.continue();
+  }, { times: 1 });
+  return { started, release };
+}
