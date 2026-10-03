@@ -1541,21 +1541,14 @@ function TodayView({
         <BacklogCard pace={metrics.paceDays} />
       </section>
       {(overdue.length > 2 || recoveryStart) && (
-        <section className="recovery-control" aria-labelledby="recovery-title">
-          <div className="recovery-control-line">
-            <h2 id="recovery-title">
-              Plan nadrabiania
-              {recoveryStart && <span className="recovery-status">Włączony</span>}
-            </h2>
-            <button
-              type="button"
-              className={recoveryStart ? "link-button" : "small-button"}
-              onClick={() => changeRecovery(recoveryStart ? "" : today)}
-              aria-label={recoveryStart ? "Wyłącz plan nadrabiania" : "Włącz plan nadrabiania"}
-            >
-              {recoveryStart ? "Wyłącz" : "Włącz plan"}
-            </button>
-          </div>
+        <section className="recovery-control" aria-label="Plan nadrabiania">
+          <button
+            type="button"
+            className={recoveryStart ? "link-button" : "small-button"}
+            onClick={() => changeRecovery(recoveryStart ? "" : today)}
+          >
+            {recoveryStart ? "Wyłącz plan nadrabiania" : "Włącz plan nadrabiania"}
+          </button>
           <details className="recovery-details">
             <summary>Jak to działa?</summary>
             <p>
