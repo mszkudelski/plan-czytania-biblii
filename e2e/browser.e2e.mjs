@@ -297,3 +297,61 @@ test('recovery navigation respects partial chapters and reload returns to today'
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
   await expectSaved(request, session, ['s0', 's1']);
 });
+
+test('standard completed day stays visible until the next day is selected', async ({ page, request }) => {
+  const session = await createPlan(request, 'standard-completed-day');
+  await openPlan(page, session);
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await expectSaved(request, session, ['s0', 's1']);
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.simple-day header b')).toHaveText('2/2');
+  await expect(page.locator('.day-strip button').nth(0)).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
+  await reading(page, 'Rdz 2').click();
+  await expectSaved(request, session, ['s0', 's1', 's2']);
+  await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.day-strip button').nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+
+  await page.locator('.day-strip button').nth(0).click();
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('completed recovery portion keeps its one extra and advances only through day navigation', async ({ page, request }) => {
+  const session = await createPlan(request, 'recovery-completed-day');
+  await openPlan(page, session);
+  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await expect(extraReading(page)).toBeEnabled();
+  await extraReading(page).click();
+  await expectSaved(request, session, ['s0', 's1', 's2']);
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.simple-day header b')).toHaveText('3/3');
+  await expect(page.locator('.day-strip button').nth(0)).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  // This day was completed by the extra chapter; browsing still follows plan order.
+  await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
+  await expect(extraReading(page)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  await reading(page, 'Rdz 4').click();
+  await expectSaved(request, session, ['s0', 's1', 's2', 's3']);
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.day-strip button').nth(2)).toHaveAttribute('aria-pressed', 'true');
+
+  await page.locator('.day-strip button').nth(0).click();
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(key => localStorage.getItem(key), recoveryKey(session) + ':ordered:' + TODAY + ':day')).toBe('d0');
+});
