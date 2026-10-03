@@ -221,3 +221,71 @@ test('recovery advances at midnight without reloading the page', async ({ page, 
   await expect(extraReading(page)).toContainText('Rdz 4');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
 });
+
+test('enabling recovery preserves day navigation and returns to the current portion', async ({ page, request }) => {
+  const session = await createPlan(request, 'recovery-navigation');
+  await openPlan(page, session);
+  const switcher = page.locator('.day-switcher');
+  const dates = switcher.locator('.day-strip button');
+  await expect(switcher).toBeVisible();
+  await dates.nth(4).click();
+  await expect(reading(page, 'Rdz 6')).toBeVisible();
+
+  // Enabling recovery still starts at personal progress, even when browsing ahead.
+  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await expect(switcher).toBeVisible();
+  await expect(dates).toHaveCount(5);
+  await expect(dates.nth(0)).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Rdz 1')).toBeVisible();
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(page.getByRole('button', { name: 'Poprzedni dzień', exact: true })).toBeDisabled();
+
+  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await expect(reading(page, 'Rdz 2')).toBeVisible();
+  await expect(extraReading(page)).toHaveCount(0);
+  await reading(page, 'Rdz 2').click();
+  await expectSaved(request, session, ['s2']);
+
+  await page.getByRole('button', { name: 'Poprzedni dzień', exact: true }).click();
+  await expect(reading(page, 'Rdz 1')).toBeVisible();
+  await expect(reading(page, 'Mt 1')).toBeVisible();
+  await expect(extraReading(page)).toContainText('Rdz 4');
+  await expect(extraReading(page)).toBeDisabled();
+
+  // Clicking a date also works and does not move the saved daily recovery anchor.
+  await dates.nth(4).click();
+  await expect(reading(page, 'Rdz 6')).toBeVisible();
+  await expect(extraReading(page)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Następny dzień', exact: true })).toBeDisabled();
+  expect(await page.evaluate(key => localStorage.getItem(key), recoveryKey(session) + ':ordered:' + TODAY + ':day')).toBe('d0');
+  await page.getByRole('button', { name: 'Wyłącz plan nadrabiania' }).click();
+  await expect(reading(page, 'Rdz 6')).toBeVisible();
+  await expect(switcher).toBeVisible();
+  await expectSaved(request, session, ['s2']);
+});
+
+test('recovery navigation respects partial chapters and reload returns to today', async ({ page, request }) => {
+  const session = await createPlan(request, 'recovery-navigation-partial', true);
+  await openPlan(page, session);
+  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await expectSaved(request, session, ['s0', 's1']);
+  await extraReading(page).click();
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await expect(reading(page, 'Rdz 3')).toBeVisible();
+  await expect(extraReading(page)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Poprzedni dzień', exact: true }).click();
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+
+  await page.locator('.day-strip button').nth(4).click();
+  await expect(reading(page, 'Rdz 6')).toBeVisible();
+  await page.reload();
+  await expect(page.locator('.day-switcher')).toBeVisible();
+  await expect(reading(page, 'Rdz 1')).toBeVisible();
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  await expectSaved(request, session, ['s0', 's1']);
+});
