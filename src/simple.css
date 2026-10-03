@@ -1805,7 +1805,7 @@ button {
   opacity: 0.65;
 }
 
-.recovery-error {
+.progress-error {
   margin: 12px 0 0;
   color: var(--danger);
   font-size: 0.8rem;

@@ -50,6 +50,7 @@ import {
   getPaceTone,
 } from "./lib/metrics";
 import { cleanPersonName } from "./lib/name";
+import { createOptimisticProgressQueue } from "./lib/optimistic-progress";
 import { buildSchedule, formatPolishDate, todayIso } from "./lib/schedule";
 import type {
   Credentials,
@@ -353,6 +354,7 @@ export default function SimpleApp() {
   } else if (credentials && group) {
     content = (
       <Dashboard
+        key={`${credentials.groupId}:${credentials.memberId}:${credentials.token}`}
         credentials={credentials}
         group={group}
         setGroup={setGroup}
@@ -1323,13 +1325,35 @@ function Dashboard({
 }) {
   const [tab, setTab] = useState<Tab>("today");
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [busySegment, setBusySegment] = useState("");
+  const [visibleGroup, setVisibleGroup] = useState(group);
+  const [progressError, setProgressError] = useState("");
+  const [progressQueue] = useState(() => createOptimisticProgressQueue({
+    group,
+    memberId: credentials.memberId,
+    save: (segmentId, completed) => updateProgress(credentials, segmentId, completed),
+    onChange: setVisibleGroup,
+    onSave: setGroup,
+    onError: () => setProgressError("Nie udało się zapisać zmiany. Spróbuj ponownie."),
+  }));
+  const renderedRevision = progressQueue.revision;
+
+  useEffect(() => {
+    progressQueue.setActive(true);
+    return () => progressQueue.setActive(false);
+  }, [progressQueue]);
+
+  useEffect(() => {
+    progressQueue.replaceGroup(group, renderedRevision);
+  }, [group, progressQueue]);
   const [busyMember, setBusyMember] = useState("");
 
   useEffect(() => {
     if (tab !== "group") return;
+    let cancelled = false;
+    const requestRevision = progressQueue.revision;
     getGroup(credentials.groupId)
       .then((groupData) => {
+        if (cancelled) return;
         const hasAccess = groupData.members.some(
           (person) => person.id === credentials.memberId,
         );
@@ -1337,24 +1361,17 @@ function Dashboard({
           onLeave();
           return;
         }
-        setGroup(groupData);
+        setGroup(progressQueue.replaceGroup(groupData, requestRevision));
       })
       .catch(() => undefined);
-  }, [credentials.groupId, credentials.memberId, setGroup, tab]);
+    return () => { cancelled = true; };
+  }, [credentials.groupId, credentials.memberId, progressQueue, setGroup, tab]);
 
-  const member = group.members.find((item) => item.id === credentials.memberId);
+  const member = visibleGroup.members.find((item) => item.id === credentials.memberId);
   if (!member) return null;
-  const memberId = member.id;
-
-  async function toggle(segmentId: string) {
-    const current = group.progress[memberId] ?? {};
-    const completed = !current[segmentId];
-    setBusySegment(segmentId);
-    try {
-      setGroup(await updateProgress(credentials, segmentId, completed));
-    } finally {
-      setBusySegment("");
-    }
+  function toggle(segmentId: string) {
+    setProgressError("");
+    return progressQueue.toggle(segmentId);
   }
 
   async function remove(person: Member) {
@@ -1363,8 +1380,10 @@ function Dashboard({
     );
     if (!confirmed) return;
     setBusyMember(person.id);
+    const requestRevision = progressQueue.revision;
     try {
-      setGroup(await removeMember(credentials, person.id));
+      const nextGroup = await removeMember(credentials, person.id);
+      setGroup(progressQueue.replaceGroup(nextGroup, requestRevision));
     } catch {
       window.alert("Nie udało się usunąć osoby.");
     } finally {
@@ -1397,21 +1416,23 @@ function Dashboard({
       </header>
 
       <main className="simple-content">
+        {progressError && <p className="progress-error" role="alert">{progressError}</p>}
         {tab === "today" && (
           <TodayView
             key={`${group.id}:${member.id}:${todayIso()}`}
-            group={group}
+            group={visibleGroup}
             member={member}
-            busySegment={busySegment}
             onToggle={toggle}
+            onError={setProgressError}
+            onWaitForSegments={progressQueue.waitForSegments}
           />
         )}
         {tab === "plan" && (
-          <PlanView group={group} member={member} />
+          <PlanView group={visibleGroup} member={member} />
         )}
         {tab === "group" && (
           <GroupView
-            group={group}
+            group={visibleGroup}
             member={member}
             onInvite={() => setInviteOpen(true)}
             onRemove={remove}
@@ -1421,7 +1442,7 @@ function Dashboard({
         {tab === "settings" && (
           <SettingsView
             credentials={credentials}
-            group={group}
+            group={visibleGroup}
             member={member}
             onLeave={onLeave}
           />
@@ -1448,13 +1469,15 @@ function Dashboard({
 function TodayView({
   group,
   member,
-  busySegment,
   onToggle,
+  onError,
+  onWaitForSegments,
 }: {
   group: Group;
   member: Member;
-  busySegment: string;
   onToggle: (segmentId: string) => Promise<void>;
+  onError: (message: string) => void;
+  onWaitForSegments: (segmentIds: string[]) => Promise<void>;
 }) {
   const metrics = getMemberMetrics(group, member.id);
   const nextDay = getNextDay(group, member.id);
@@ -1487,7 +1510,6 @@ function TodayView({
     try { return JSON.parse(localStorage.getItem(dailyKey) ?? "null"); } catch { return null; }
   });
   const [recoveryBusy, setRecoveryBusy] = useState(false);
-  const [recoveryError, setRecoveryError] = useState("");
   const recoveryDay = originalRecoveryDay ? {
     ...originalRecoveryDay,
     segments: originalRecoveryDay.segments.map(segment => {
@@ -1501,25 +1523,44 @@ function TodayView({
   const extraComplete = Boolean(dailyReading?.completed || (extra && progress[extra.segmentId]));
   async function toggleExtra() {
     if (!extra || recoveryBusy || (!extraComplete && !baseComplete)) return;
+    const previousChapters = readChapters;
+    const previousReading = dailyReading;
+    const previousChapterStorage = localStorage.getItem(chapterKey);
+    const previousDailyStorage = localStorage.getItem(dailyKey);
+    const completed = !extraComplete;
+    const segmentCompleted = completed && extra.chapterIndex + 1 === extra.chapterCount;
+    const chapters = {
+      ...readChapters,
+      [extra.segmentId]: extra.chapterIndex + (completed ? 1 : 0),
+    };
+    const reading = { reading: extra, completed };
     setRecoveryBusy(true);
-    setRecoveryError("");
+    onError("");
     try {
-      const completed = !extraComplete;
-      const segmentCompleted = completed && extra.chapterIndex + 1 === extra.chapterCount;
+      // Show the chapter immediately, including the final chapter saved by the API.
+      setReadChapters(chapters);
+      setDailyReading(reading);
+      localStorage.setItem(chapterKey, JSON.stringify(chapters));
+      localStorage.setItem(dailyKey, JSON.stringify(reading));
+      if (completed && recoveryDay) {
+        await onWaitForSegments(recoveryDay.segments.map(segment => segment.id));
+      }
       if (Boolean(progress[extra.segmentId]) !== segmentCompleted) {
         await onToggle(extra.segmentId);
       }
-      const chapters = {
-        ...readChapters,
-        [extra.segmentId]: extra.chapterIndex + (completed ? 1 : 0),
-      };
-      localStorage.setItem(chapterKey, JSON.stringify(chapters));
-      setReadChapters(chapters);
-      const reading = { reading: extra, completed };
-      localStorage.setItem(dailyKey, JSON.stringify(reading));
-      setDailyReading(reading);
-    } catch { setRecoveryError("Nie udało się zapisać. Spróbuj ponownie."); }
-    finally { setRecoveryBusy(false); }
+    } catch {
+      setReadChapters(previousChapters);
+      setDailyReading(previousReading);
+      try {
+        if (previousChapterStorage === null) localStorage.removeItem(chapterKey);
+        else localStorage.setItem(chapterKey, previousChapterStorage);
+        if (previousDailyStorage === null) localStorage.removeItem(dailyKey);
+        else localStorage.setItem(dailyKey, previousDailyStorage);
+      } catch { /* The visible state still rolls back if browser storage is unavailable. */ }
+      onError("Nie udało się zapisać zmiany. Spróbuj ponownie.");
+    } finally {
+      setRecoveryBusy(false);
+    }
   }
   function changeRecovery(start: string) {
     if (start) {
@@ -1566,12 +1607,11 @@ function TodayView({
             day={recoveryDay}
             displayDate={today}
             progress={progress}
-            busySegment={busySegment}
             onToggle={onToggle}
             extraReading={extra ? {
               reading: extra,
               completed: extraComplete,
-              disabled: recoveryBusy || Boolean(busySegment) || (!baseComplete && !extraComplete),
+              disabled: recoveryBusy || (!baseComplete && !extraComplete),
               onToggle: toggleExtra,
             } : undefined}
           />
@@ -1586,7 +1626,6 @@ function TodayView({
           <DayCard
             day={selectedDay}
             progress={progress}
-            busySegment={busySegment}
             onToggle={onToggle}
           />
           <DaySwitcher
@@ -1601,9 +1640,6 @@ function TodayView({
           <Icon name="check" size={28} />
           <h2>Plan ukończony</h2>
         </div>
-      )}
-      {recoveryStart && recoveryError && (
-        <p className="recovery-error" role="alert">{recoveryError}</p>
       )}
     </>
   );
@@ -1878,14 +1914,12 @@ function DayCard({
   day,
   displayDate,
   progress,
-  busySegment,
   onToggle,
   extraReading,
 }: {
   day: PlanDay;
   displayDate?: string;
   progress: Record<string, string>;
-  busySegment: string;
   onToggle: (segmentId: string) => Promise<void>;
   extraReading?: {
     reading: RecoveryReading;
@@ -1911,7 +1945,7 @@ function DayCard({
             label={segment.label}
             section={segment.section}
             completed={Boolean(progress[segment.id])}
-            disabled={busySegment === segment.id}
+            disabled={false}
             onToggle={() => onToggle(segment.id)}
           />
         ))}
@@ -1950,7 +1984,7 @@ function ReadingRow({
       type="button"
       className={`${completed ? "checked" : ""} ${isExtra ? "reading-extra" : ""}`}
       disabled={disabled}
-      onClick={onToggle}
+      onClick={() => { void onToggle().catch(() => undefined); }}
       aria-pressed={completed}
       title={isExtra && disabled && !completed
         ? "Najpierw dokończ fragmenty powyżej."
