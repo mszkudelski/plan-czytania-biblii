@@ -28,3 +28,5 @@ For every relevant change, maintain these tests and run the complete unit/build/
 The workflow provides a stable **Required CI** check which fails unless both Unit tests and build and E2E with real backend pass. Configure Settings > Rules > Rulesets for develop and main, enable Require status checks to pass, select **Required CI**, and require the branch to be up to date. A reviewable REST ruleset payload is in ../.github/required-ci.ruleset.json.
 
 Adding a workflow does not enable branch protection. The connected GitHub integration cannot edit administrative settings; an administrator must apply that ruleset once.
+
+Progress writes use an immutable log per operation, instead of replacing the full group blob. Reads merge the log with existing progress; legacy plans need no migration. Independent concurrent writes do not overwrite one another. Repeated writes to the same reading use the latest server timestamp (ties use the operation UUID). The log is currently not compacted.

@@ -34,6 +34,10 @@ export async function createPlan(request, suffix, multiChapter = false) {
   expect(response.status()).toBe(201);
   const session = await response.json();
   expect(session.group.name).toMatch(/^E2E /);
+  // Group IDs are public; never attach the credentials to a report.
+  (await import('@playwright/test')).test.info().annotations.push({
+    type: 'test-plan', description: session.group.id,
+  });
   expect(session.group.members).toHaveLength(1);
   return session;
 }

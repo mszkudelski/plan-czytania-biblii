@@ -40,14 +40,17 @@ test('concurrent writes preserve both members and different segments', async ({ 
   });
   expect(join.status()).toBe(201);
   const member = await join.json();
-  // The writes really race through the Blobs compare-and-swap path.
-  await Promise.all([
-    saveProgress(request, owner, 's0'),
-    saveProgress(request, owner, 's1'),
-    saveProgress(request, member, 's2'),
-  ]);
-  await expectSaved(request, owner, ['s0', 's1']);
-  await expectSaved(request, member, ['s2']);
+  // Repeat actual races; a single execution did not reliably expose lost writes.
+  for (let round = 0; round < 6; round++) {
+    const completed = round % 2 === 0;
+    await Promise.all([
+      saveProgress(request, owner, 's0', completed),
+      saveProgress(request, owner, 's1', completed),
+      saveProgress(request, member, 's2', completed),
+    ]);
+    await expectSaved(request, owner, completed ? ['s0', 's1'] : []);
+    await expectSaved(request, member, completed ? ['s2'] : []);
+  }
 });
 
 test('join, duplicate names, permissions and removed member access', async ({ request }) => {
