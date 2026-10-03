@@ -1,6 +1,6 @@
 # E2E with the deployed backend
 
-These Playwright tests create separate E2E reading plans via the real Netlify API, use Netlify Blobs, verify persisted progress through independent GET requests, and reload the browser. API tests also run on the develop deployment in CI. They never use the application's localhost fallback.
+These Playwright tests create separate E2E reading plans via the real Netlify API, use Netlify Blobs, verify persisted progress through independent GET requests, and reload the browser. Pull requests run against their exact preview commit; pushes to develop run the entire browser and API suite against that develop commit. An outdated develop deployment is not used to assess a newer PR. They never use the application's localhost fallback.
 
 Install and run:
 

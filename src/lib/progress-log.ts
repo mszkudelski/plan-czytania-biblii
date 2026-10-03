@@ -11,7 +11,7 @@ export function progressLogKey(
   segmentIndex: number,
   completed: boolean,
   timestamp = Date.now(),
-  nonce = crypto.randomUUID(),
+  nonce: string = crypto.randomUUID(),
 ) {
   return `${progressLogPrefix(groupId)}${memberId}/${segmentIndex}/${String(timestamp).padStart(13, "0")}-${nonce}/${completed ? "1" : "0"}`;
 }

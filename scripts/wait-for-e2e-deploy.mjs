@@ -9,9 +9,11 @@ while (Date.now() < deadline) {
   if (!response.ok) throw new Error('GitHub status lookup failed: ' + response.status);
   const { statuses } = await response.json();
   const deployment = statuses.find(status =>
-    /^netlify\/plan-czytania\/(deploy-preview|branch-deploy)$/.test(status.context) &&
-    status.state === 'success');
-  if (deployment) {
+    /^netlify\/plan-czytania\/(deploy-preview|branch-deploy)$/.test(status.context));
+  if (deployment && ['failure', 'error'].includes(deployment.state)) {
+    throw new Error('Netlify deployment failed for the tested commit.');
+  }
+  if (deployment?.state === 'success') {
     const target = new URL(deployment.target_url);
     let baseURL;
     if (/^(deploy-preview-\d+|develop)--plan-czytania\.netlify\.app$/.test(target.hostname)) {

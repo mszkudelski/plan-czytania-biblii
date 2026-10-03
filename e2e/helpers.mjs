@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 export const NOW = new Date();
 NOW.setUTCHours(12, 0, 0, 0);
 export const TODAY = NOW.toISOString().slice(0, 10);
@@ -35,7 +35,7 @@ export async function createPlan(request, suffix, multiChapter = false) {
   const session = await response.json();
   expect(session.group.name).toMatch(/^E2E /);
   // Group IDs are public; never attach the credentials to a report.
-  (await import('@playwright/test')).test.info().annotations.push({
+  test.info().annotations.push({
     type: 'test-plan', description: session.group.id,
   });
   expect(session.group.members).toHaveLength(1);

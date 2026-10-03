@@ -50,11 +50,6 @@ jobs:
         env:
           E2E_BASE_URL: ${{ steps.deploy.outputs.base_url }}
         run: npm run test:e2e
-      - name: API smoke tests on develop
-        if: ${{ !cancelled() }}
-        env:
-          E2E_BASE_URL: https://develop--plan-czytania.netlify.app
-        run: npm --prefix e2e test -- backend.e2e.mjs --reporter=line
       - uses: actions/upload-artifact@v4
         if: always()
         with:
