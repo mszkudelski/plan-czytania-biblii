@@ -205,6 +205,12 @@ test('completed plan has no future recovery extra', async ({ page, request }) =>
   await openPlan(page, session, { [recoveryKey(session)]: TODAY });
   await expect(page.getByRole('heading', { name: 'Plan ukończony' })).toBeVisible();
   await expect(extraReading(page)).toHaveCount(0);
+  await expect(page.locator('.day-switcher')).toBeVisible();
+  await page.getByRole('button', { name: 'Poprzedni dzień', exact: true }).click();
+  await expect(reading(page, 'Rdz 5')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('.day-strip button').last().click();
+  await expect(reading(page, 'Rdz 6')).toHaveAttribute('aria-pressed', 'true');
+  await expect(extraReading(page)).toHaveCount(0);
 });
 
 test('recovery advances at midnight without reloading the page', async ({ page, request }) => {
@@ -262,9 +268,11 @@ test('enabling recovery preserves day navigation and returns to the current port
   await expect(reading(page, 'Rdz 6')).toBeVisible();
   await expect(switcher).toBeVisible();
   await expectSaved(request, session, ['s2']);
+  expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
 });
 
 test('recovery navigation respects partial chapters and reload returns to today', async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   const session = await createPlan(request, 'recovery-navigation-partial', true);
   await openPlan(page, session);
   await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();

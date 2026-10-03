@@ -1509,6 +1509,7 @@ function TodayView({
     : Math.max(0, group.planDays.length - 1);
   const [selectedIndex, setSelectedIndex] = useState(Math.max(0, initialIndex));
   const selectedDay = group.planDays[selectedIndex];
+  const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
   const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
   const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
   const today = todayIso();
@@ -1532,14 +1533,35 @@ function TodayView({
     try { return JSON.parse(localStorage.getItem(dailyKey) ?? "null"); } catch { return null; }
   });
   const [recoveryBusy, setRecoveryBusy] = useState(false);
-  const recoveryDay = originalRecoveryDay ? {
-    ...originalRecoveryDay,
-    segments: originalRecoveryDay.segments.map(segment => {
-      const consumed = readChapters[segment.id] ?? 0;
-      const remaining = splitReadingChapters(segment.label).slice(consumed);
-      return { ...segment, label: !progress[segment.id] && consumed && remaining.length ? remaining.join(" · ") : segment.label };
-    }),
-  } : undefined;
+  function remainingRecoveryDay(day: PlanDay): PlanDay {
+    return {
+      ...day,
+      segments: day.segments.map(segment => {
+        const consumed = readChapters[segment.id] ?? 0;
+        const remaining = splitReadingChapters(segment.label).slice(consumed);
+        return { ...segment, label: !progress[segment.id] && consumed && remaining.length ? remaining.join(" · ") : segment.label };
+      }),
+    };
+  }
+  const recoveryDay = originalRecoveryDay ? remainingRecoveryDay(originalRecoveryDay) : undefined;
+  const browsedRecoveryIndex = group.planDays.findIndex(day => day.id === browsedRecoveryDayId);
+  const recoveryDayIndex = group.planDays.findIndex(day => day.id === recoveryDayId);
+  const displayedIndex = recoveryStart
+    ? (browsedRecoveryIndex >= 0 ? browsedRecoveryIndex : Math.max(0, recoveryDayIndex >= 0 ? recoveryDayIndex : initialIndex))
+    : selectedIndex;
+  const displayedDay = recoveryStart
+    ? (browsedRecoveryIndex >= 0 ? remainingRecoveryDay(group.planDays[browsedRecoveryIndex]) : recoveryDay)
+    : selectedDay;
+  const isRecoveryPortion = Boolean(recoveryStart && displayedDay && displayedDay.id === recoveryDayId);
+  function selectDay(index: number) {
+    if (!recoveryStart) {
+      setSelectedIndex(index);
+      return;
+    }
+    // Browsing does not change the daily recovery anchor or its extra reading.
+    const day = group.planDays[index];
+    if (day) setBrowsedRecoveryDayId(day.id === recoveryDayId ? null : day.id);
+  }
   const baseComplete = Boolean(recoveryDay && recoveryDay.segments.every(segment => progress[segment.id]));
   const validDailyReading = validateDailyRecoveryReading(
     group, member.id, today, readChapters, recoveryDayId, dailyReading,
@@ -1596,9 +1618,12 @@ function TodayView({
   function changeRecovery(start: string) {
     if (start) {
       // Activation uses the latest progress, even if this view was opened earlier.
+      setBrowsedRecoveryDayId(null);
       setRecoveryDayAnchor(getNextDay(group, member.id)?.id ?? "");
       localStorage.setItem(recoveryKey, start);
     } else {
+      setSelectedIndex(displayedIndex);
+      setBrowsedRecoveryDayId(null);
       localStorage.removeItem(recoveryKey);
     }
     setRecoveryStart(start);
@@ -1632,45 +1657,32 @@ function TodayView({
           </details>
         </section>
       )}
-      {recoveryStart ? (
-        recoveryDay ? (
-          <DayCard
-            day={recoveryDay}
-            displayDate={today}
-            progress={progress}
-            onToggle={onToggle}
-            extraReading={extra ? {
-              reading: extra,
-              completed: extraComplete,
-              disabled: recoveryBusy || (!baseComplete && !extraComplete),
-              onToggle: toggleExtra,
-            } : undefined}
-          />
-        ) : (
-          <div className="empty-state">
-            <Icon name="check" size={28} />
-            <h2>Plan ukończony</h2>
-          </div>
-        )
-      ) : selectedDay ? (
-        <>
-          <DayCard
-            day={selectedDay}
-            progress={progress}
-            onToggle={onToggle}
-          />
-          <DaySwitcher
-            days={group.planDays}
-            progress={progress}
-            selectedIndex={selectedIndex}
-            onChange={setSelectedIndex}
-          />
-        </>
+      {displayedDay ? (
+        <DayCard
+          day={displayedDay}
+          displayDate={isRecoveryPortion ? today : undefined}
+          progress={progress}
+          onToggle={onToggle}
+          extraReading={isRecoveryPortion && extra ? {
+            reading: extra,
+            completed: extraComplete,
+            disabled: recoveryBusy || (!baseComplete && !extraComplete),
+            onToggle: toggleExtra,
+          } : undefined}
+        />
       ) : (
         <div className="empty-state">
           <Icon name="check" size={28} />
           <h2>Plan ukończony</h2>
         </div>
+      )}
+      {group.planDays.length > 0 && (
+        <DaySwitcher
+          days={group.planDays}
+          progress={progress}
+          selectedIndex={displayedIndex}
+          onChange={selectDay}
+        />
       )}
     </>
   );
@@ -2232,6 +2244,7 @@ function DaySwitcher({
           return (
             <button
               key={day.id}
+              aria-pressed={index === selectedIndex}
               className={`${index === selectedIndex ? "active" : ""} ${
                 complete ? "complete" : ""
               }`}
