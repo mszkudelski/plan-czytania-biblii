@@ -176,7 +176,7 @@ test('stale recovery anchor and unfinished extra cannot skip earlier progress', 
     [key]: TODAY,
     [key + ':ordered:' + TODAY + ':day']: 'd3',
     [key + ':ordered:' + TODAY]: JSON.stringify({
-      reading: { segmentId: 's5', dayId: 'd4', label: 'Rdz 6', chapterIndex: 0, chapterCount: 1 },
+      reading: { segmentId: 's5', originalDate: session.group.planDays[4].date, label: 'Rdz 6', chapterIndex: 0, chapterCount: 1 },
       completed: false,
     }),
   });
@@ -205,4 +205,19 @@ test('completed plan has no future recovery extra', async ({ page, request }) =>
   await openPlan(page, session, { [recoveryKey(session)]: TODAY });
   await expect(page.getByRole('heading', { name: 'Plan ukończony' })).toBeVisible();
   await expect(extraReading(page)).toHaveCount(0);
+});
+
+test('recovery advances at midnight without reloading the page', async ({ page, request }) => {
+  const session = await createPlan(request, 'midnight', true);
+  await openPlan(page, session);
+  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await expectSaved(request, session, ['s0', 's1']);
+  await extraReading(page).click();
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  await page.clock.fastForward('12:00:01');
+  await expect(reading(page, 'Rdz 3')).toBeVisible();
+  await expect(extraReading(page)).toContainText('Rdz 4');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
 });

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters } from "./recovery";
+import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading } from "./recovery";
 import { buildSchedule } from "./schedule";
 import type { Group } from "../types";
 function fixture(): Group {
@@ -74,4 +74,32 @@ it("reflects refreshed progress and has no base reading after completion", () =>
     for (const segment of day.segments) g.progress.a[segment.id] = "done";
   }
   expect(getRecoveryDay(g, "a")).toBeUndefined();
+});
+
+it("ignores null, array and invalid chapter-cache values", () => {
+  expect(parseReadChapters("null")).toEqual({});
+  expect(parseReadChapters("[]")).toEqual({});
+  expect(parseReadChapters("{broken")).toEqual({});
+  expect(parseReadChapters('{"valid":1,"negative":-1,"fraction":0.5,"text":"2"}')).toEqual({ valid: 1 });
+});
+it("rejects a cached extra that skips earlier incomplete segments", () => {
+  const g = fixture();
+  const reading = { segmentId: "day-10-segment-1", label: "Rdz 1", originalDate: "2026-09-10", chapterIndex: 0, chapterCount: 3 };
+  expect(validateDailyRecoveryReading(g, "a", "2026-09-12", {}, "day-1", { reading, completed: false })).toBeNull();
+});
+it("keeps the same completed extra visible after its backend segment is saved", () => {
+  const g = fixture();
+  g.progress.a["day-1-segment-1"] = "done";
+  g.progress.a["day-2-segment-1"] = "done";
+  const reading = { segmentId: "day-2-segment-1", label: "Rdz 3", originalDate: "2026-09-02", chapterIndex: 2, chapterCount: 3 };
+  expect(validateDailyRecoveryReading(g, "a", "2026-09-12", {}, "day-1", { reading, completed: true }))
+    .toEqual({ reading, completed: true });
+});
+it("rejects malformed saved readings and those inside the current base day", () => {
+  const g = fixture();
+  for (const saved of [null, {}, { reading: null, completed: true }, { reading: {}, completed: true }]) {
+    expect(validateDailyRecoveryReading(g, "a", "2026-09-12", {}, "day-1", saved)).toBeNull();
+  }
+  const reading = { segmentId: "day-1-segment-1", label: "Rdz 1", originalDate: "2026-09-01", chapterIndex: 0, chapterCount: 3 };
+  expect(validateDailyRecoveryReading(g, "a", "2026-09-12", {}, "day-1", { reading, completed: false })).toBeNull();
 });

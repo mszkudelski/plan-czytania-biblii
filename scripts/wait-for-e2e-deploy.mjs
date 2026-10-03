@@ -25,6 +25,7 @@ while (Date.now() < deadline) {
         const info = await fetch(baseURL + '/build-info.json', { cache: 'no-store' }).then(r => r.json());
         // Reject stale aliases, production deploys and previews from another commit.
         if (info.commit === E2E_COMMIT && ['deploy-preview', 'branch-deploy'].includes(info.context)) {
+          if (/^[a-f0-9]{24}$/.test(info.deployId)) baseURL = 'https://' + info.deployId + '--plan-czytania.netlify.app';
           appendFileSync(GITHUB_OUTPUT, 'base_url=' + baseURL + '\n');
           console.log('Testing deployment of commit ' + E2E_COMMIT + ': ' + baseURL);
           process.exit(0);

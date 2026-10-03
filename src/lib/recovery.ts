@@ -45,3 +45,48 @@ export function getRecoveryReading(group: Group, memberId: string, today: string
     }
   }
 }
+
+export type DailyRecoveryReading = { reading: RecoveryReading; completed: boolean };
+
+export function parseReadChapters(value: string | null): Record<string, number> {
+  try {
+    const parsed: unknown = JSON.parse(value ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, count]) =>
+      typeof count === "number" && Number.isInteger(count) && count >= 0 && count <= 151,
+    ));
+  } catch { return {}; }
+}
+
+export function validateDailyRecoveryReading(
+  group: Group,
+  memberId: string,
+  today: string,
+  readChapters: Record<string, number>,
+  afterDayId: string,
+  saved: unknown,
+): DailyRecoveryReading | null {
+  if (!saved || typeof saved !== "object") return null;
+  const candidate = saved as Partial<DailyRecoveryReading>;
+  const reading = candidate.reading;
+  if (typeof candidate.completed !== "boolean" || !reading ||
+      !Number.isInteger(reading.chapterIndex) || reading.chapterIndex < 0) return null;
+  const afterIndex = group.planDays.findIndex(day => day.id === afterDayId);
+  const progress = group.progress[memberId] ?? {};
+  // A completed extra remains visible today, but a cached future extra cannot
+  // skip any earlier unfinished segment after the corrected daily portion.
+  for (const day of group.planDays.slice(afterIndex + 1)) {
+    if (day.date >= today) continue;
+    for (const segment of day.segments) {
+      const chapters = splitReadingChapters(segment.label);
+      if (segment.id === reading.segmentId) {
+        if (reading.chapterCount !== chapters.length ||
+            reading.label !== chapters[reading.chapterIndex] ||
+            reading.originalDate !== day.date) return null;
+        return { reading, completed: candidate.completed };
+      }
+      if (!progress[segment.id] && (readChapters[segment.id] ?? 0) < chapters.length) return null;
+    }
+  }
+  return null;
+}

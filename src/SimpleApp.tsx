@@ -1,4 +1,4 @@
-import { getRecoveryDay, getRecoveryReading, getOverdueDays, splitReadingChapters, type RecoveryReading } from "./lib/recovery";
+import { getRecoveryDay, getRecoveryReading, getOverdueDays, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1324,6 +1324,7 @@ function Dashboard({
   onLeave: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("today");
+  const [today, setToday] = useState(todayIso);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [visibleGroup, setVisibleGroup] = useState(group);
   const [progressError, setProgressError] = useState("");
@@ -1345,6 +1346,27 @@ function Dashboard({
   useEffect(() => {
     progressQueue.replaceGroup(group, renderedRevision);
   }, [group, progressQueue]);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    function scheduleMidnight() {
+      const now = new Date();
+      const midnight = new Date(now);
+      midnight.setHours(24, 0, 0, 0);
+      timer = setTimeout(() => {
+        setToday(todayIso());
+        scheduleMidnight();
+      }, midnight.getTime() - now.getTime() + 50);
+    }
+    scheduleMidnight();
+    const refreshDate = () => setToday(todayIso());
+    window.addEventListener("focus", refreshDate);
+    document.addEventListener("visibilitychange", refreshDate);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", refreshDate);
+      document.removeEventListener("visibilitychange", refreshDate);
+    };
+  }, []);
   const [busyMember, setBusyMember] = useState("");
 
   useEffect(() => {
@@ -1417,16 +1439,16 @@ function Dashboard({
 
       <main className="simple-content">
         {progressError && <p className="progress-error" role="alert">{progressError}</p>}
-        {tab === "today" && (
+        <div hidden={tab !== "today"}>
           <TodayView
-            key={`${group.id}:${member.id}:${todayIso()}`}
+            key={`${group.id}:${member.id}:${today}`}
             group={visibleGroup}
             member={member}
             onToggle={toggle}
             onError={setProgressError}
             onWaitForSegments={progressQueue.waitForSegments}
           />
-        )}
+        </div>
         {tab === "plan" && (
           <PlanView group={visibleGroup} member={member} />
         )}
@@ -1503,9 +1525,9 @@ function TodayView({
     localStorage.setItem(`${dailyKey}:day`, recoveryDayId);
     if (recoveryDayAnchor !== recoveryDayId) setRecoveryDayAnchor(recoveryDayId);
   }, [dailyKey, recoveryStart, recoveryDayId, recoveryDayAnchor]);
-  const [readChapters, setReadChapters] = useState<Record<string, number>>(() => {
-    try { return JSON.parse(localStorage.getItem(chapterKey) ?? "{}"); } catch { return {}; }
-  });
+  const [readChapters, setReadChapters] = useState<Record<string, number>>(() =>
+    parseReadChapters(localStorage.getItem(chapterKey)),
+  );
   const [dailyReading, setDailyReading] = useState<{ reading: RecoveryReading; completed: boolean } | null>(() => {
     try { return JSON.parse(localStorage.getItem(dailyKey) ?? "null"); } catch { return null; }
   });
@@ -1519,8 +1541,17 @@ function TodayView({
     }),
   } : undefined;
   const baseComplete = Boolean(recoveryDay && recoveryDay.segments.every(segment => progress[segment.id]));
-  const extra = dailyReading?.reading ?? getRecoveryReading(group, member.id, today, readChapters, recoveryDayId);
-  const extraComplete = Boolean(dailyReading?.completed || (extra && progress[extra.segmentId]));
+  const validDailyReading = validateDailyRecoveryReading(
+    group, member.id, today, readChapters, recoveryDayId, dailyReading,
+  );
+  useEffect(() => {
+    if (dailyReading && !validDailyReading) {
+      setDailyReading(null);
+      localStorage.removeItem(dailyKey);
+    }
+  }, [dailyKey, dailyReading, Boolean(validDailyReading)]);
+  const extra = validDailyReading?.reading ?? getRecoveryReading(group, member.id, today, readChapters, recoveryDayId);
+  const extraComplete = Boolean(validDailyReading?.completed || (extra && progress[extra.segmentId]));
   async function toggleExtra() {
     if (!extra || recoveryBusy || (!extraComplete && !baseComplete)) return;
     const previousChapters = readChapters;

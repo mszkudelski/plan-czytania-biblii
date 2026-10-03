@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [develop, main]
   push:
-    branches: [develop, 'fix/**', 'feat/**', 'ci/**']
+    branches: [develop]
   workflow_dispatch:
 permissions:
   contents: read
@@ -51,6 +51,7 @@ jobs:
           E2E_BASE_URL: ${{ steps.deploy.outputs.base_url }}
         run: npm run test:e2e
       - name: API smoke tests on develop
+        if: ${{ !cancelled() }}
         env:
           E2E_BASE_URL: https://develop--plan-czytania.netlify.app
         run: npm --prefix e2e test -- backend.e2e.mjs --reporter=line
