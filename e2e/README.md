@@ -25,6 +25,13 @@ For every relevant change, maintain these tests and run the complete unit/build/
 
 ## Required GitHub check
 
+Notification coverage: saved hour and time zone through the deployed API,
+reload, disable, denied permission, iOS install guidance, mobile layout,
+input/endpoint validation and per-member/device privacy. Synthetic push
+subscriptions are created only in preview scope and deleted in finally blocks;
+these tests do not claim delivery through a browser push provider. Scheduler
+timing, local dates, deduplication, retries and expired subscriptions have unit tests.
+
 The workflow provides a stable **Required CI** check which fails unless both Unit tests and build and E2E with real backend pass. Configure Settings > Rules > Rulesets for develop and main, enable Require status checks to pass, select **Required CI**, and require the branch to be up to date. A reviewable REST ruleset payload is in ../.github/required-ci.ruleset.json.
 
 Adding a workflow does not enable branch protection. The connected GitHub integration cannot edit administrative settings; an administrator must apply that ruleset once.

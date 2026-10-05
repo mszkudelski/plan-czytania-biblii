@@ -1,4 +1,4 @@
-const CACHE_NAME = "plan-biblii-shell-v2";
+const CACHE_NAME = "plan-biblii-shell-v3";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -7,6 +7,34 @@ const APP_SHELL = [
   "/icons/icon-512.png",
   "/icons/apple-touch-icon.png",
 ];
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try { payload = event.data?.json() ?? {}; } catch { /* Display a safe default. */ }
+  event.waitUntil(self.registration.showNotification(
+    typeof payload.title === "string" ? payload.title : "Czytanie Biblii",
+    {
+      body: typeof payload.body === "string" ? payload.body : "Czas na dzisiejsze czytanie.",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: typeof payload.tag === "string" ? payload.tag : "reading-reminder",
+      data: { url: "/" },
+    },
+  ));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const existing = windows.find(client => new URL(client.url).origin === self.location.origin);
+    if (existing) {
+      await existing.navigate("/");
+      return existing.focus();
+    }
+    return self.clients.openWindow("/");
+  })());
+});
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

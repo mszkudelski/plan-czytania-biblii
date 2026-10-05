@@ -47,6 +47,9 @@ import {
   saveCachedGroup,
 } from "./lib/plan-cache";
 import QrScanner from "qr-scanner";
+import NotificationSettings from "./NotificationSettings";
+import { reminderDeviceId } from "./lib/push-client";
+import { notificationSettings } from "./lib/api";
 import {
   calculateProgressPercent,
   formatProgressPercent,
@@ -433,6 +436,7 @@ export default function SimpleApp() {
         onRefresh={() => setRetry((current) => current + 1)}
         onLeave={async () => {
           skipSessionRestore.current = true;
+          await notificationSettings(credentials, reminderDeviceId(), "disable").catch(() => undefined);
           await clearSession().catch(() => undefined);
           clearCachedGroup(credentials.groupId);
           clearCredentials();
@@ -2130,6 +2134,7 @@ function SettingsView({
         />
         <Setting label="Dni czytania" value={frequency} />
       </section>
+      <NotificationSettings credentials={credentials} />
       <h2 className="settings-heading">Przeniesienie sesji</h2>
       <section className="settings-card transfer-card">
         <p>

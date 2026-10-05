@@ -17,6 +17,41 @@ postęp, zaznacza fragmenty oddzielnie i widzi zaległość lub wyprzedzenie.
 - trwały zapis danych w Netlify Blobs;
 - lokalny tryb demonstracyjny oparty o `localStorage`.
 - instalowalna aplikacja PWA z cache’owaną powłoką interfejsu i obsługą offline.
+- osobiste powiadomienia push o dzisiejszym czytaniu z wyborem godziny.
+
+## Przypomnienia o czytaniu
+
+W **Ustawienia → Powiadomienia o czytaniu** wybierz godzinę i naciśnij
+**Włącz przypomnienia**, a następnie zezwól przeglądarce na powiadomienia.
+Godzina jest liczona w zapisanej strefie czasowej urządzenia, z uwzględnieniem
+czasu letniego/zimowego. Na drugim urządzeniu włącz przypomnienia osobno.
+Możesz zmienić godzinę, wysłać test albo wyłączyć przypomnienia.
+
+Na iOS/iPadOS 16.4+ dodaj aplikację do ekranu początkowego i otwórz z ikony.
+Powiadomienia wymagają HTTPS, obsługi Web Push i zgody przeglądarki.
+System urządzenia może opóźnić lub wyciszyć powiadomienie.
+
+Funkcja `reading-reminders` sprawdza przypomnienia co minutę. Wysyła wyłącznie
+nieukończone fragmenty przypisane do dzisiejszej daty w oryginalnym planie;
+lokalne części rozdziałów z trybu nadrabiania nie są synchronizowane z serwerem.
+Dni wolne i ukończone dzisiejsze czytanie są pomijane. Jedno urządzenie otrzymuje
+najwyżej jedno automatyczne przypomnienie dziennie. Wysyłka ma 15-minutowe okno
+ponowienia, a wygasłe subskrypcje są usuwane. Wylogowanie wyłącza przypomnienie
+na bieżącym urządzeniu, jeśli serwer jest dostępny.
+
+Netlify uruchamia cron wyłącznie na opublikowanym deployu produkcyjnym.
+Na `develop` i preview można sprawdzać zapis ustawień i ręczny test push;
+subskrypcje z tych środowisk są wyłączone z produkcyjnego harmonogramu.
+
+Konfiguracja Netlify (scope **Functions**, poza repozytorium):
+
+- `READING_PUSH_VAPID_PUBLIC_KEY` — publiczny klucz VAPID;
+- `READING_PUSH_VAPID_PRIVATE_KEY` — tajny klucz VAPID z tej samej pary.
+
+Parę wygeneruj jednorazowo przez `web-push.generateVAPIDKeys()` i zachowaj
+między wdrożeniami. Jej zmiana wymaga ponownego włączenia subskrypcji.
+Subskrypcje i osobiste ustawienia są przechowywane w prywatnym Netlify Blobs,
+osobno od publicznych danych grupy.
 
 ## Format CSV
 
@@ -81,8 +116,8 @@ npm run build
    - build: `npm run build`
    - katalog publikacji: `dist`
    - funkcje: `netlify/functions`
-4. Uruchom deploy. Nie są wymagane żadne zmienne środowiskowe ani ręczne
-   tworzenie bazy.
+4. Uruchom deploy. Podstawowy plan nie wymaga zmiennych środowiskowych ani
+   ręcznego tworzenia bazy. Dla powiadomień ustaw klucze VAPID opisane powyżej.
 
 Netlify automatycznie udostępnia funkcjom poświadczenia do Blobs. Dane planu są
 przechowywane między wdrożeniami w store `plan-czytania-biblii-groups`.

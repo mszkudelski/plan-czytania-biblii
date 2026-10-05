@@ -13,9 +13,27 @@ import {
   localRemoveMember,
   localUpdateProgress,
 } from "./local-store";
+import type { ReminderSettings, PushSubscriptionData } from "./notifications";
 
 const CREDENTIALS_KEY = "plan-czytania-biblii-credentials";
 type Session = { group: Group; credentials: Credentials };
+
+export function getNotificationConfig() {
+  return request<{ publicKey: string | null; scheduled: boolean }>("/notifications/config");
+}
+
+export function notificationSettings(
+  credentials: Credentials,
+  deviceId: string,
+  action: "read" | "save" | "disable" | "test",
+  settings?: ReminderSettings,
+  subscription?: PushSubscriptionData,
+) {
+  return request<ReminderSettings | null>(`/groups/${credentials.groupId}/notifications`, {
+    method: "POST",
+    body: JSON.stringify({ ...credentials, deviceId, action, settings, subscription }),
+  });
+}
 
 export class ApiError extends Error {
   constructor(

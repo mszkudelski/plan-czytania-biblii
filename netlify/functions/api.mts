@@ -1,6 +1,8 @@
 import { getStore } from "@netlify/blobs";
 import { applyProgressLog, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
-import type { Config } from "@netlify/functions";
+import type { Config, Context } from "@netlify/functions";
+import { validReminderSettings, validPushSubscription } from "../../src/lib/notifications";
+import { reminderStore, reminderKey, pushConfigured, sendReminder, type StoredReminder } from "./_shared/notifications";
 import type {
   Credentials,
   Frequency,
@@ -219,7 +221,7 @@ async function authenticate(
   return tokenHashes(member).includes(candidateHash) ? member : null;
 }
 
-async function storedGroup(groupId: string) {
+export async function storedGroup(groupId: string) {
   const store = groupStore();
   const group = await store.get(keyFor(groupId), {
     type: "json",
@@ -615,13 +617,88 @@ async function removeMember(
   });
 }
 
-export default async (request: Request) => {
+async function notifications(request: Request, groupId: string, scope: string) {
+  const value = await request.json();
+  if (!value || typeof value !== "object") return error("Nieprawidłowa operacja.");
+  const body = value as Partial<Credentials> & { deviceId?: unknown; settings?: unknown; subscription?: unknown; action?: unknown };
+  const credentials = cleanCredentials(value);
+  if (!credentials) return error("Nieprawidłowy link dostępu.", 401);
+  const group = await storedGroup(groupId);
+  if (!group) return error("Nie znaleziono grupy.", 404);
+  const member = await authenticate(group, credentials);
+  if (!member) return error("Nieprawidłowy link dostępu.", 401);
+  if (typeof body.deviceId !== "string" || !/^[a-f0-9-]{36}$/.test(body.deviceId)) {
+    return error("Nieprawidłowe urządzenie.");
+  }
+  const store = reminderStore();
+  const key = reminderKey(scope, body.deviceId, groupId, member.id);
+  const record = await store.get(key, { type: "json" }) as StoredReminder | null;
+  const ownRecord = record?.groupId === groupId && record.memberId === member.id ? record : null;
+  const publicSettings = (value: StoredReminder | null) => value ? {
+    enabled: value.enabled, time: value.time, timeZone: value.timeZone,
+  } : null;
+  if (body.action === "read") return json(publicSettings(ownRecord));
+  if (body.action === "disable") {
+    if (ownRecord) await store.delete(key);
+    return json({ enabled: false });
+  }
+  if (body.action === "save") {
+    if (!validReminderSettings(body.settings) || !body.settings.enabled || !validPushSubscription(body.subscription)) {
+      return error("Nieprawidłowa godzina, strefa czasowa lub subskrypcja powiadomień.");
+    }
+    if (!pushConfigured()) return error("Powiadomienia nie są jeszcze skonfigurowane na serwerze.", 503);
+    const reminder: StoredReminder = {
+      enabled: true, time: body.settings.time, timeZone: body.settings.timeZone,
+      deviceId: body.deviceId, groupId, memberId: member.id,
+      subscription: { endpoint: body.subscription.endpoint, keys: {
+        p256dh: body.subscription.keys.p256dh, auth: body.subscription.keys.auth,
+      } },
+      origin: new URL(request.url).origin,
+    };
+    await store.setJSON(key, reminder);
+    return json(publicSettings(reminder));
+  }
+  if (body.action === "test") {
+    if (!ownRecord?.enabled) return error("Najpierw włącz powiadomienia.", 409);
+    const rateKey = `tests/${encodeURIComponent(scope)}/${body.deviceId}/${Math.floor(Date.now() / 60000)}`;
+    const claim = await store.set(rateKey, "sent", { onlyIfNew: true });
+    if (!claim.modified) return error("Poczekaj minutę przed kolejnym testem.", 429);
+    try {
+      await sendReminder(ownRecord, {
+        title: "Powiadomienie testowe", body: `Przypomnienie o czytaniu: ${ownRecord.time} (${ownRecord.timeZone}).`,
+        tag: `reading-test-${body.deviceId}`,
+      });
+      return json({ ok: true });
+    } catch (caught) {
+      const status = (caught as { statusCode?: number }).statusCode;
+      if (status === 404 || status === 410) {
+        await store.delete(key);
+        return error("Subskrypcja wygasła. Włącz powiadomienia ponownie.", 410);
+      }
+      return error("Nie udało się wysłać powiadomienia. Spróbuj ponownie za minutę.", 503);
+    }
+  }
+  return error("Nieprawidłowa operacja.");
+}
+
+export default async (request: Request, context: Context) => {
   try {
     const url = new URL(request.url);
     const marker = url.pathname.includes("/.netlify/functions/api/")
       ? "/.netlify/functions/api/"
       : "/api/";
     const route = url.pathname.split(marker)[1]?.split("/").filter(Boolean) ?? [];
+
+    if (request.method === "GET" && route.join("/") === "notifications/config") {
+      return json({
+        publicKey: pushConfigured() ? Netlify.env.get("READING_PUSH_VAPID_PUBLIC_KEY") : null,
+        scheduled: context.deploy.context === "production",
+      });
+    }
+    if (request.method === "POST" && route.length === 3 && route[0] === "groups" && route[2] === "notifications") {
+      const scope = context.deploy.context === "production" ? "production" : url.origin;
+      return await notifications(request, route[1], scope);
+    }
 
     if (request.method === "POST" && route.length === 1 && route[0] === "groups") {
       return createGroup(request);
