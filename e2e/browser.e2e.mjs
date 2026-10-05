@@ -316,6 +316,43 @@ test('future recovery days assume prior extras without saving assumed progress',
   await expectSaved(request, session, ['s3', 's4']);
 });
 
+test('failed rapid future toggles do not restore an earlier optimistic chapter', async ({ page, request }) => {
+  const session = await createPlan(request, 'future-rapid-rejection');
+  await openPlan(page, session);
+  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  let rejected = 0;
+  page.on("response", response => {
+    if (new URL(response.url()).pathname === progressPath(session) && response.status() === 401) rejected++;
+  });
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**' + progressPath(session), async route => {
+    await gate;
+    await route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), token: 'invalid' }) });
+  }, { times: 2 });
+  try {
+    await reading(page, 'Rdz 4').click();
+    await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
+    await reading(page, 'Rdz 4').click();
+    await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  } finally { release(); }
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect.poll(() => rejected).toBe(2);
+  await expect.poll(async () => {
+    return page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? '{}').s3 ?? 0, recoveryKey(session) + ':chapters');
+  }).toBe(0);
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  await expectSaved(request, session, []);
+  await reading(page, 'Rdz 4').click();
+  await expectSaved(request, session, ['s3']);
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('.day-strip button').first().click();
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'false');
+  await expectSaved(request, session, ['s3']);
+});
+
 test('future partial ranges can be checked without completing assumed earlier chapters', async ({ page, request }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const session = await createPlan(request, 'recovery-forecast-partial', true);

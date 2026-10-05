@@ -1534,7 +1534,10 @@ function TodayView({
     parseChapterMarks(localStorage.getItem(markKey)),
   );
   const chapterState = useRef({ chapters: readChapters, marks: chapterMarks });
-  const chapterOperations = useRef<Record<string, number>>({});
+  const chapterOperations = useRef<Record<string, {
+    baseline: { chapters: Record<string, number>; marks: ReadChapterMarks };
+    pending: Array<{ indices: number[]; completed: boolean; status: "pending" | "saved" | "failed" }>;
+  }>>({});
   function writeChapters(chapters: Record<string, number>, marks: ReadChapterMarks) {
     chapterState.current = { chapters, marks };
     setReadChapters(chapters);
@@ -1631,20 +1634,53 @@ function TodayView({
     const previous = chapterState.current;
     const previousReading = dailyReading;
     const previousDailyStorage = localStorage.getItem(dailyKey);
-    const operation = (chapterOperations.current[segmentId] ?? 0) + 1;
-    chapterOperations.current[segmentId] = operation;
     const original = group.planDays.flatMap(day => day.segments).find(segment => segment.id === segmentId);
     if (!original) return;
     const count = splitReadingChapters(original.label).length;
-    // A whole saved segment means every chapter is read, including chapters
-    // omitted from this forecast row. Unchecking affects only the visible slice.
-    const startingChapters = progress[segmentId]
-      ? { ...previous.chapters, [segmentId]: count } : previous.chapters;
-    const updated = setRecoveryChapters(startingChapters, previous.marks, segmentId, indices, completed);
-    const segmentCompleted = updated.chapters[segmentId] >= count;
+    let queue = chapterOperations.current[segmentId];
+    if (!queue?.pending.length) {
+      queue = {
+        baseline: {
+          chapters: { [segmentId]: progress[segmentId] ? count : previous.chapters[segmentId] ?? 0 },
+          marks: { [segmentId]: previous.marks[segmentId] ?? [] },
+        },
+        pending: [],
+      };
+      chapterOperations.current[segmentId] = queue;
+    }
+    const operation: typeof queue.pending[number] = { indices, completed, status: "pending" };
+    queue.pending.push(operation);
+    function localSnapshot() {
+      let snapshot = queue.baseline;
+      for (const intent of queue.pending) {
+        if (intent.status !== "failed") {
+          snapshot = setRecoveryChapters(snapshot.chapters, snapshot.marks, segmentId, intent.indices, intent.completed);
+        }
+      }
+      return snapshot;
+    }
+    function publishSnapshot() {
+      const snapshot = localSnapshot();
+      const current = chapterState.current;
+      writeChapters(
+        { ...current.chapters, [segmentId]: snapshot.chapters[segmentId] },
+        { ...current.marks, [segmentId]: snapshot.marks[segmentId] },
+      );
+    }
+    function settle(status: "saved" | "failed") {
+      operation.status = status;
+      while (queue.pending.length && queue.pending[0].status !== "pending") {
+        const first = queue.pending.shift()!;
+        if (first.status === "saved") {
+          queue.baseline = setRecoveryChapters(queue.baseline.chapters, queue.baseline.marks, segmentId, first.indices, first.completed);
+        }
+      }
+      if (activeView.current) publishSnapshot();
+    }
+    const segmentCompleted = localSnapshot().chapters[segmentId] >= count;
     onError("");
     try {
-      writeChapters(updated.chapters, updated.marks);
+      publishSnapshot();
       if (dailyExtra && extra) {
         const reading = { reading: extra, completed };
         setDailyReading(reading);
@@ -1654,16 +1690,10 @@ function TodayView({
         await onWaitForSegments(displayedDay.segments.filter(segment => progress[segment.id]).map(segment => segment.id));
       }
       if (Boolean(progress[segmentId]) !== segmentCompleted) await onToggle(segmentId);
+      settle("saved");
     } catch {
-      if (!activeView.current || chapterOperations.current[segmentId] !== operation) return;
-      const current = chapterState.current;
-      const restoredChapters = { ...current.chapters };
-      const restoredMarks = { ...current.marks };
-      if (previous.chapters[segmentId] === undefined) delete restoredChapters[segmentId];
-      else restoredChapters[segmentId] = previous.chapters[segmentId];
-      if (previous.marks[segmentId] === undefined) delete restoredMarks[segmentId];
-      else restoredMarks[segmentId] = previous.marks[segmentId];
-      try { writeChapters(restoredChapters, restoredMarks); } catch { /* State still rolls back. */ }
+      try { settle("failed"); } catch { /* Visible state is restored even if storage fails. */ }
+      if (!activeView.current) return;
       if (dailyExtra) {
         setDailyReading(previousReading);
         try {
