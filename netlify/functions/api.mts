@@ -2,7 +2,7 @@ import { getStore } from "@netlify/blobs";
 import { applyProgressLog, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
 import type { Config, Context } from "@netlify/functions";
 import { validReminderSettings, validPushSubscription } from "../../src/lib/notifications";
-import { reminderStore, reminderKey, pushConfigured, sendReminder, type StoredReminder } from "./_shared/notifications";
+import { reminderStore, reminderKey, pushConfigured, missingPushConfiguration, sendReminder, type StoredReminder } from "./_shared/notifications";
 import type {
   Credentials,
   Frequency,
@@ -693,6 +693,7 @@ export default async (request: Request, context: Context) => {
       return json({
         publicKey: pushConfigured() ? Netlify.env.get("READING_PUSH_VAPID_PUBLIC_KEY") : null,
         scheduled: context.deploy.context === "production",
+        missingKeys: missingPushConfiguration(),
       });
     }
     if (request.method === "POST" && route.length === 3 && route[0] === "groups" && route[2] === "notifications") {

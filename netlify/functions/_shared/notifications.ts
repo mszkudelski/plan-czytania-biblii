@@ -22,6 +22,10 @@ export function pushConfigured() {
   return Boolean(Netlify.env.get("READING_PUSH_VAPID_PUBLIC_KEY") && Netlify.env.get("READING_PUSH_VAPID_PRIVATE_KEY"));
 }
 
+export function missingPushConfiguration() {
+  return ["READING_PUSH_VAPID_PUBLIC_KEY", "READING_PUSH_VAPID_PRIVATE_KEY"].filter(key => !Netlify.env.get(key));
+}
+
 export async function sendReminder(reminder: StoredReminder, payload: { title: string; body: string; tag: string }) {
   return webpush.sendNotification(reminder.subscription, JSON.stringify({ ...payload, url: `${reminder.origin}/` }), {
     vapidDetails: {
