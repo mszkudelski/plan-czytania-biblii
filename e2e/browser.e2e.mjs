@@ -610,6 +610,10 @@ test('unchecking a cached extra before session refresh persists the explicit unc
   await reading(page, 'Mt 1').click();
   await extraReading(page).click();
   await expectSaved(request, session, ['s0', 's1', 's2']);
+  await expect.poll(() => page.evaluate(({ key, memberId }) =>
+    Boolean(JSON.parse(localStorage.getItem(key) ?? 'null')?.group.progress[memberId]?.s2),
+    { key: 'plan-czytania-biblii-group-' + session.group.id, memberId: session.credentials.memberId },
+  )).toBe(true);
   await page.evaluate(({ key, memberId }) => {
     const cached = JSON.parse(localStorage.getItem(key));
     // Recreate an older real cache snapshot; backend still has the saved extra.
@@ -628,6 +632,10 @@ test('unchecking a cached extra before session refresh persists the explicit unc
   try {
     await page.reload();
     expect(await captured).toBe(200);
+    expect(await page.evaluate(({ key, memberId }) =>
+      Boolean(JSON.parse(localStorage.getItem(key)).group.progress[memberId].s2),
+      { key: 'plan-czytania-biblii-group-' + session.group.id, memberId: session.credentials.memberId },
+    )).toBe(false);
     await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
     await extraReading(page).click();
     await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
