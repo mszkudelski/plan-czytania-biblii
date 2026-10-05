@@ -65,7 +65,7 @@ export async function saveProgress(request, session, segmentId, completed = true
   return response.json();
 }
 export async function readGroup(request, session) {
-  const response = await request.get('/api/groups/' + session.group.id);
+  const response = await request.get('/api/groups/' + session.group.id, { timeout: 30000 });
   expect(response.status()).toBe(200);
   return response.json();
 }
@@ -76,7 +76,7 @@ export async function expectSaved(request, session, expectedIds) {
   let lastSeen = null;
   let maxReadMs = 0;
   try {
-    await expect.poll(async () => {
+    const read = async () => {
       readStarted = Date.now();
       const group = await readGroup(request, session);
       maxReadMs = Math.max(maxReadMs, Date.now() - readStarted);
@@ -84,6 +84,15 @@ export async function expectSaved(request, session, expectedIds) {
       returnedReads++;
       lastSeen = Object.keys(group.progress[session.credentials.memberId] ?? {}).sort();
       return lastSeen;
+    };
+    // Let the first real HTTP read finish within its own request deadline.
+    // The persistence assertion keeps its ten-second polling window; a failed
+    // HTTP request still fails the test, without retrying or accepting fallback.
+    const first = await read();
+    let initial = true;
+    await expect.poll(async () => {
+      if (initial) { initial = false; return first; }
+      return read();
     }).toEqual([...expectedIds].sort());
   } catch (error) {
     // Public IDs and segment IDs only; never print the session or request body.
