@@ -1,0 +1,73 @@
+name: CI
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+  workflow_dispatch:
+permissions:
+  contents: read
+  statuses: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  unit-build:
+    name: Unit tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+  e2e-backend:
+    name: E2E with real backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: npm ci --prefix e2e
+      - run: npm exec --prefix e2e -- playwright install --with-deps chromium
+      - name: Wait for the deployment of the tested commit
+        id: deploy
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          E2E_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/wait-for-e2e-deploy.mjs
+      - name: Browser and API regressions against deployed backend
+        env:
+          E2E_BASE_URL: ${{ steps.deploy.outputs.base_url }}
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7
+  required-ci:
+    name: Required CI
+    if: always()
+    needs: [unit-build, e2e-backend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every test job to pass
+        env:
+          UNIT_RESULT: ${{ needs.unit-build.result }}
+          E2E_RESULT: ${{ needs.e2e-backend.result }}
+        run: |
+          test "$UNIT_RESULT" = success
+          test "$E2E_RESULT" = success

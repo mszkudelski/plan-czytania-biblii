@@ -1,4 +1,4 @@
-import { getRecoveryReading, getOverdueDays, splitReadingChapters, type RecoveryReading } from "./lib/recovery";
+import { getRecoveryDay, getRecoveryReading, getOverdueDays, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -50,6 +50,7 @@ import {
   getPaceTone,
 } from "./lib/metrics";
 import { cleanPersonName } from "./lib/name";
+import { createOptimisticProgressQueue } from "./lib/optimistic-progress";
 import { buildSchedule, formatPolishDate, todayIso } from "./lib/schedule";
 import type {
   Credentials,
@@ -353,6 +354,7 @@ export default function SimpleApp() {
   } else if (credentials && group) {
     content = (
       <Dashboard
+        key={`${credentials.groupId}:${credentials.memberId}:${credentials.token}`}
         credentials={credentials}
         group={group}
         setGroup={setGroup}
@@ -1322,14 +1324,58 @@ function Dashboard({
   onLeave: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("today");
+  const [today, setToday] = useState(todayIso);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [busySegment, setBusySegment] = useState("");
+  const [visibleGroup, setVisibleGroup] = useState(group);
+  const [progressError, setProgressError] = useState("");
+  const [progressQueue] = useState(() => createOptimisticProgressQueue({
+    group,
+    memberId: credentials.memberId,
+    save: (segmentId, completed) => updateProgress(credentials, segmentId, completed),
+    onChange: setVisibleGroup,
+    onSave: setGroup,
+    onError: () => setProgressError("Nie udało się zapisać zmiany. Spróbuj ponownie."),
+  }));
+  const renderedRevision = progressQueue.revision;
+
+  useEffect(() => {
+    progressQueue.setActive(true);
+    return () => progressQueue.setActive(false);
+  }, [progressQueue]);
+
+  useEffect(() => {
+    progressQueue.replaceGroup(group, renderedRevision);
+  }, [group, progressQueue]);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    function scheduleMidnight() {
+      const now = new Date();
+      const midnight = new Date(now);
+      midnight.setHours(24, 0, 0, 0);
+      timer = setTimeout(() => {
+        setToday(todayIso());
+        scheduleMidnight();
+      }, midnight.getTime() - now.getTime() + 50);
+    }
+    scheduleMidnight();
+    const refreshDate = () => setToday(todayIso());
+    window.addEventListener("focus", refreshDate);
+    document.addEventListener("visibilitychange", refreshDate);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", refreshDate);
+      document.removeEventListener("visibilitychange", refreshDate);
+    };
+  }, []);
   const [busyMember, setBusyMember] = useState("");
 
   useEffect(() => {
     if (tab !== "group") return;
+    let cancelled = false;
+    const requestRevision = progressQueue.revision;
     getGroup(credentials.groupId)
       .then((groupData) => {
+        if (cancelled) return;
         const hasAccess = groupData.members.some(
           (person) => person.id === credentials.memberId,
         );
@@ -1337,24 +1383,17 @@ function Dashboard({
           onLeave();
           return;
         }
-        setGroup(groupData);
+        setGroup(progressQueue.replaceGroup(groupData, requestRevision));
       })
       .catch(() => undefined);
-  }, [credentials.groupId, credentials.memberId, setGroup, tab]);
+    return () => { cancelled = true; };
+  }, [credentials.groupId, credentials.memberId, progressQueue, setGroup, tab]);
 
-  const member = group.members.find((item) => item.id === credentials.memberId);
+  const member = visibleGroup.members.find((item) => item.id === credentials.memberId);
   if (!member) return null;
-  const memberId = member.id;
-
-  async function toggle(segmentId: string) {
-    const current = group.progress[memberId] ?? {};
-    const completed = !current[segmentId];
-    setBusySegment(segmentId);
-    try {
-      setGroup(await updateProgress(credentials, segmentId, completed));
-    } finally {
-      setBusySegment("");
-    }
+  function toggle(segmentId: string) {
+    setProgressError("");
+    return progressQueue.toggle(segmentId);
   }
 
   async function remove(person: Member) {
@@ -1363,8 +1402,10 @@ function Dashboard({
     );
     if (!confirmed) return;
     setBusyMember(person.id);
+    const requestRevision = progressQueue.revision;
     try {
-      setGroup(await removeMember(credentials, person.id));
+      const nextGroup = await removeMember(credentials, person.id);
+      setGroup(progressQueue.replaceGroup(nextGroup, requestRevision));
     } catch {
       window.alert("Nie udało się usunąć osoby.");
     } finally {
@@ -1397,20 +1438,23 @@ function Dashboard({
       </header>
 
       <main className="simple-content">
-        {tab === "today" && (
+        {progressError && <p className="progress-error" role="alert">{progressError}</p>}
+        <div hidden={tab !== "today"}>
           <TodayView
-            group={group}
+            key={`${group.id}:${member.id}:${today}`}
+            group={visibleGroup}
             member={member}
-            busySegment={busySegment}
             onToggle={toggle}
+            onError={setProgressError}
+            onWaitForSegments={progressQueue.waitForSegments}
           />
-        )}
+        </div>
         {tab === "plan" && (
-          <PlanView group={group} member={member} />
+          <PlanView group={visibleGroup} member={member} />
         )}
         {tab === "group" && (
           <GroupView
-            group={group}
+            group={visibleGroup}
             member={member}
             onInvite={() => setInviteOpen(true)}
             onRemove={remove}
@@ -1420,7 +1464,7 @@ function Dashboard({
         {tab === "settings" && (
           <SettingsView
             credentials={credentials}
-            group={group}
+            group={visibleGroup}
             member={member}
             onLeave={onLeave}
           />
@@ -1447,13 +1491,15 @@ function Dashboard({
 function TodayView({
   group,
   member,
-  busySegment,
   onToggle,
+  onError,
+  onWaitForSegments,
 }: {
   group: Group;
   member: Member;
-  busySegment: string;
   onToggle: (segmentId: string) => Promise<void>;
+  onError: (message: string) => void;
+  onWaitForSegments: (segmentIds: string[]) => Promise<void>;
 }) {
   const metrics = getMemberMetrics(group, member.id);
   const nextDay = getNextDay(group, member.id);
@@ -1463,54 +1509,123 @@ function TodayView({
     : Math.max(0, group.planDays.length - 1);
   const [selectedIndex, setSelectedIndex] = useState(Math.max(0, initialIndex));
   const selectedDay = group.planDays[selectedIndex];
+  const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
   const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
   const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
   const today = todayIso();
   const overdue = getOverdueDays(group, member.id, today);
   const chapterKey = `${recoveryKey}:chapters`;
   const dailyKey = `${recoveryKey}:ordered:${today}`;
-  const [recoveryDayId] = useState(() => localStorage.getItem(`${dailyKey}:day`) ?? nextDay?.id ?? "");
+  const [recoveryDayAnchor, setRecoveryDayAnchor] = useState(() =>
+    recoveryStart ? localStorage.getItem(`${dailyKey}:day`) ?? "" : "",
+  );
+  const originalRecoveryDay = getRecoveryDay(group, member.id, recoveryDayAnchor);
+  const recoveryDayId = originalRecoveryDay?.id ?? "";
   useEffect(() => {
-    if (recoveryStart && recoveryDayId) localStorage.setItem(`${dailyKey}:day`, recoveryDayId);
-  }, [dailyKey, recoveryStart, recoveryDayId]);
-  const [readChapters, setReadChapters] = useState<Record<string, number>>(() => {
-    try { return JSON.parse(localStorage.getItem(chapterKey) ?? "{}"); } catch { return {}; }
-  });
+    if (!recoveryStart || !recoveryDayId) return;
+    localStorage.setItem(`${dailyKey}:day`, recoveryDayId);
+    if (recoveryDayAnchor !== recoveryDayId) setRecoveryDayAnchor(recoveryDayId);
+  }, [dailyKey, recoveryStart, recoveryDayId, recoveryDayAnchor]);
+  const [readChapters, setReadChapters] = useState<Record<string, number>>(() =>
+    parseReadChapters(localStorage.getItem(chapterKey)),
+  );
   const [dailyReading, setDailyReading] = useState<{ reading: RecoveryReading; completed: boolean } | null>(() => {
     try { return JSON.parse(localStorage.getItem(dailyKey) ?? "null"); } catch { return null; }
   });
   const [recoveryBusy, setRecoveryBusy] = useState(false);
-  const [recoveryError, setRecoveryError] = useState("");
-  const originalRecoveryDay = group.planDays.find(day => day.id === recoveryDayId);
-  const recoveryDay = originalRecoveryDay ? {
-    ...originalRecoveryDay,
-    segments: originalRecoveryDay.segments.map(segment => {
-      const consumed = readChapters[segment.id] ?? 0;
-      const remaining = splitReadingChapters(segment.label).slice(consumed);
-      return { ...segment, label: !progress[segment.id] && consumed && remaining.length ? remaining.join(" · ") : segment.label };
-    }),
-  } : undefined;
+  function remainingRecoveryDay(day: PlanDay): PlanDay {
+    return {
+      ...day,
+      segments: day.segments.map(segment => {
+        const consumed = readChapters[segment.id] ?? 0;
+        const remaining = splitReadingChapters(segment.label).slice(consumed);
+        return { ...segment, label: !progress[segment.id] && consumed && remaining.length ? remaining.join(" · ") : segment.label };
+      }),
+    };
+  }
+  const recoveryDay = originalRecoveryDay ? remainingRecoveryDay(originalRecoveryDay) : undefined;
+  const browsedRecoveryIndex = group.planDays.findIndex(day => day.id === browsedRecoveryDayId);
+  const recoveryDayIndex = group.planDays.findIndex(day => day.id === recoveryDayId);
+  const displayedIndex = recoveryStart
+    ? (browsedRecoveryIndex >= 0 ? browsedRecoveryIndex : Math.max(0, recoveryDayIndex >= 0 ? recoveryDayIndex : initialIndex))
+    : selectedIndex;
+  const displayedDay = recoveryStart
+    ? (browsedRecoveryIndex >= 0 ? remainingRecoveryDay(group.planDays[browsedRecoveryIndex]) : recoveryDay)
+    : selectedDay;
+  const isRecoveryPortion = Boolean(recoveryStart && displayedDay && displayedDay.id === recoveryDayId);
+  function selectDay(index: number) {
+    if (!recoveryStart) {
+      setSelectedIndex(index);
+      return;
+    }
+    // Browsing does not change the daily recovery anchor or its extra reading.
+    const day = group.planDays[index];
+    if (day) setBrowsedRecoveryDayId(day.id === recoveryDayId ? null : day.id);
+  }
   const baseComplete = Boolean(recoveryDay && recoveryDay.segments.every(segment => progress[segment.id]));
-  const extra = dailyReading?.reading ?? getRecoveryReading(group, member.id, today, readChapters, recoveryDayId);
-  const extraComplete = Boolean(dailyReading?.completed || (extra && progress[extra.segmentId]));
-  async function completeExtra() {
-    if (!extra || extraComplete || !baseComplete) return;
+  const validDailyReading = validateDailyRecoveryReading(
+    group, member.id, today, readChapters, recoveryDayId, dailyReading,
+  );
+  useEffect(() => {
+    if (dailyReading && !validDailyReading) {
+      setDailyReading(null);
+      localStorage.removeItem(dailyKey);
+    }
+  }, [dailyKey, dailyReading, Boolean(validDailyReading)]);
+  const extra = validDailyReading?.reading ?? getRecoveryReading(group, member.id, today, readChapters, recoveryDayId);
+  const extraComplete = Boolean(validDailyReading?.completed || (extra && progress[extra.segmentId]));
+  async function toggleExtra() {
+    if (!extra || recoveryBusy || (!extraComplete && !baseComplete)) return;
+    const previousChapters = readChapters;
+    const previousReading = dailyReading;
+    const previousChapterStorage = localStorage.getItem(chapterKey);
+    const previousDailyStorage = localStorage.getItem(dailyKey);
+    const completed = !extraComplete;
+    const segmentCompleted = completed && extra.chapterIndex + 1 === extra.chapterCount;
+    const chapters = {
+      ...readChapters,
+      [extra.segmentId]: extra.chapterIndex + (completed ? 1 : 0),
+    };
+    const reading = { reading: extra, completed };
     setRecoveryBusy(true);
-    setRecoveryError("");
+    onError("");
     try {
-      if (extra.chapterIndex + 1 === extra.chapterCount && !progress[extra.segmentId]) await onToggle(extra.segmentId);
-      const chapters = { ...readChapters, [extra.segmentId]: extra.chapterIndex + 1 };
-      localStorage.setItem(chapterKey, JSON.stringify(chapters));
+      // Show the chapter immediately, including the final chapter saved by the API.
       setReadChapters(chapters);
-      const reading = { reading: extra, completed: true };
-      localStorage.setItem(dailyKey, JSON.stringify(reading));
       setDailyReading(reading);
-    } catch { setRecoveryError("Nie udało się zapisać. Spróbuj ponownie."); }
-    finally { setRecoveryBusy(false); }
+      localStorage.setItem(chapterKey, JSON.stringify(chapters));
+      localStorage.setItem(dailyKey, JSON.stringify(reading));
+      if (completed && recoveryDay) {
+        await onWaitForSegments(recoveryDay.segments.map(segment => segment.id));
+      }
+      if (Boolean(progress[extra.segmentId]) !== segmentCompleted) {
+        await onToggle(extra.segmentId);
+      }
+    } catch {
+      setReadChapters(previousChapters);
+      setDailyReading(previousReading);
+      try {
+        if (previousChapterStorage === null) localStorage.removeItem(chapterKey);
+        else localStorage.setItem(chapterKey, previousChapterStorage);
+        if (previousDailyStorage === null) localStorage.removeItem(dailyKey);
+        else localStorage.setItem(dailyKey, previousDailyStorage);
+      } catch { /* The visible state still rolls back if browser storage is unavailable. */ }
+      onError("Nie udało się zapisać zmiany. Spróbuj ponownie.");
+    } finally {
+      setRecoveryBusy(false);
+    }
   }
   function changeRecovery(start: string) {
-    if (start) localStorage.setItem(recoveryKey, start);
-    else localStorage.removeItem(recoveryKey);
+    if (start) {
+      // Activation uses the latest progress, even if this view was opened earlier.
+      setBrowsedRecoveryDayId(null);
+      setRecoveryDayAnchor(getNextDay(group, member.id)?.id ?? "");
+      localStorage.setItem(recoveryKey, start);
+    } else {
+      setSelectedIndex(displayedIndex);
+      setBrowsedRecoveryDayId(null);
+      localStorage.removeItem(recoveryKey);
+    }
     setRecoveryStart(start);
   }
 
@@ -1523,63 +1638,52 @@ function TodayView({
         <BacklogCard pace={metrics.paceDays} />
       </section>
       {(overdue.length > 2 || recoveryStart) && (
-        <section className="recovery-card">
-          <h2>Plan nadrabiania</h2>
-          <p>Kontynuuj od pierwszego nieprzeczytanego miejsca. Jedna porcja planu i jeden dodatkowy rozdział — zawsze w kolejności, bez przeskakiwania zaległości.</p>
-          {recoveryStart ? (
-            <>
-              <button className="small-button" onClick={() => changeRecovery("")}>Wróć do zwykłego czytania</button>
-              <div className="recovery-today">
-                <h3>Na dziś · {formatPolishDate(today)}</h3>
-                <p>Pierwsza nieprzeczytana porcja. Data na karcie pochodzi z oryginalnego planu.</p>
-                {recoveryDay ? (
-                  <DayCard day={recoveryDay} progress={progress} busySegment={busySegment} onToggle={onToggle} />
-                ) : <p>Plan ukończony.</p>}
-              </div>
-              <div className="recovery-extra">
-                <span className="recovery-badge">Mały krok · +1 rozdział</span>
-                {extra ? (
-                  <>
-                    <h3>{extra.label}</h3>
-                    <p>Kolejny fragment w kolejności planu, z {formatPolishDate(extra.originalDate, "shortYear")}.</p>
-                    {!baseComplete && <p>Najpierw dokończ porcję powyżej, potem dodatkowy rozdział.</p>}
-                    <button className="main-button" disabled={recoveryBusy || extraComplete || !baseComplete} onClick={completeExtra}>
-                      {extraComplete ? "Na dziś nadrobione ✓" : recoveryBusy ? "Zapisywanie…" : "Przeczytane"}
-                    </button>
-                    {extraComplete && <p>Kolejny mały krok jutro. Nie musisz dziś nadrabiać więcej.</p>}
-                  </>
-                ) : <p>Nie ma kolejnego zaległego rozdziału. Dokończ porcję powyżej i wróć do zwykłego czytania.</p>}
-                {recoveryError && <p role="alert">{recoveryError}</p>}
-              </div>
-              <p>Plan grupy pozostaje bez zmian. Przy fragmentach obejmujących kilka rozdziałów częściowe nadrabianie zapamiętujemy w tej przeglądarce; cały fragment trafi do postępu po ostatnim rozdziale.</p>
-            </>
-          ) : (
-            <button className="main-button" onClick={() => changeRecovery(today)}>Włącz łagodne nadrabianie</button>
-          )}
+        <section className="recovery-control" aria-label="Plan nadrabiania">
+          <button
+            type="button"
+            className={recoveryStart ? "link-button" : "small-button"}
+            onClick={() => changeRecovery(recoveryStart ? "" : today)}
+          >
+            {recoveryStart ? "Wyłącz plan nadrabiania" : "Włącz plan nadrabiania"}
+          </button>
+          <details className="recovery-details">
+            <summary>Jak to działa?</summary>
+            <p>
+              Czytasz od pierwszego nieukończonego miejsca w swoim planie.
+              Po zwykłej porcji odznaczasz jeden dodatkowy rozdział, oznaczony
+              plusem na dole listy. Kolejny mały krok pojawi się jutro.
+              Plan grupy pozostaje bez zmian.
+            </p>
+          </details>
         </section>
       )}
-      {!recoveryStart && (selectedDay ? (
-
-        <>
-          <DayCard
-            day={selectedDay}
-            progress={progress}
-            busySegment={busySegment}
-            onToggle={onToggle}
-          />
-          <DaySwitcher
-            days={group.planDays}
-            progress={progress}
-            selectedIndex={selectedIndex}
-            onChange={setSelectedIndex}
-          />
-        </>
+      {displayedDay ? (
+        <DayCard
+          day={displayedDay}
+          displayDate={isRecoveryPortion ? today : undefined}
+          progress={progress}
+          onToggle={onToggle}
+          extraReading={isRecoveryPortion && extra ? {
+            reading: extra,
+            completed: extraComplete,
+            disabled: recoveryBusy || (!baseComplete && !extraComplete),
+            onToggle: toggleExtra,
+          } : undefined}
+        />
       ) : (
         <div className="empty-state">
           <Icon name="check" size={28} />
           <h2>Plan ukończony</h2>
         </div>
-      ))}
+      )}
+      {group.planDays.length > 0 && (
+        <DaySwitcher
+          days={group.planDays}
+          progress={progress}
+          selectedIndex={displayedIndex}
+          onChange={selectDay}
+        />
+      )}
     </>
   );
 }
@@ -1851,47 +1955,99 @@ function SettingsView({
 
 function DayCard({
   day,
+  displayDate,
   progress,
-  busySegment,
   onToggle,
+  extraReading,
 }: {
   day: PlanDay;
+  displayDate?: string;
   progress: Record<string, string>;
-  busySegment: string;
   onToggle: (segmentId: string) => Promise<void>;
+  extraReading?: {
+    reading: RecoveryReading;
+    completed: boolean;
+    disabled: boolean;
+    onToggle: () => Promise<void>;
+  };
 }) {
-  const completed = day.segments.filter((segment) => progress[segment.id]).length;
-  const complete = completed === day.segments.length;
+  const completed = day.segments.filter((segment) => progress[segment.id]).length
+    + (extraReading?.completed ? 1 : 0);
+  const total = day.segments.length + (extraReading ? 1 : 0);
+  const complete = completed === total;
   return (
     <section className={`simple-day ${complete ? "is-complete" : ""}`}>
       <header>
-        <strong>{formatPolishDate(day.date)}</strong>
-        <b>
-          {completed}/{day.segments.length}
-        </b>
+        <strong>{formatPolishDate(displayDate ?? day.date)}</strong>
+        <b>{completed}/{total}</b>
       </header>
       <div className="simple-readings">
-        {day.segments.map((segment) => {
-          const checked = Boolean(progress[segment.id]);
-          return (
-            <button
-              key={segment.id}
-              className={checked ? "checked" : ""}
-              disabled={busySegment === segment.id}
-              onClick={() => onToggle(segment.id)}
-            >
-              <span className="simple-checkbox">
-                {checked && <Icon name="check" size={16} />}
-              </span>
-              <span>
-                <small>{segment.section}</small>
-                <strong>{segment.label}</strong>
-              </span>
-            </button>
-          );
-        })}
+        {day.segments.map((segment) => (
+          <ReadingRow
+            key={segment.id}
+            label={segment.label}
+            section={segment.section}
+            completed={Boolean(progress[segment.id])}
+            disabled={false}
+            onToggle={() => onToggle(segment.id)}
+          />
+        ))}
+        {extraReading && (
+          <ReadingRow
+            label={extraReading.reading.label}
+            section="Nadrabianie"
+            completed={extraReading.completed}
+            disabled={extraReading.disabled}
+            onToggle={extraReading.onToggle}
+            isExtra
+          />
+        )}
       </div>
     </section>
+  );
+}
+
+function ReadingRow({
+  label,
+  section,
+  completed,
+  disabled,
+  onToggle,
+  isExtra = false,
+}: {
+  label: string;
+  section: string;
+  completed: boolean;
+  disabled: boolean;
+  onToggle: () => Promise<void>;
+  isExtra?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`${completed ? "checked" : ""} ${isExtra ? "reading-extra" : ""}`}
+      disabled={disabled}
+      onClick={() => { void onToggle().catch(() => undefined); }}
+      aria-pressed={completed}
+      title={isExtra && disabled && !completed
+        ? "Najpierw dokończ fragmenty powyżej."
+        : undefined}
+    >
+      <span className="simple-checkbox">
+        {completed && <Icon name="check" size={16} />}
+      </span>
+      <span>
+        <small>
+          {isExtra ? (
+            <span className="reading-extra-label">
+              <Icon name="plus" size={12} />
+              {section} · 1 rozdział
+            </span>
+          ) : section}
+        </small>
+        <strong>{label}</strong>
+      </span>
+    </button>
   );
 }
 
@@ -2088,6 +2244,7 @@ function DaySwitcher({
           return (
             <button
               key={day.id}
+              aria-pressed={index === selectedIndex}
               className={`${index === selectedIndex ? "active" : ""} ${
                 complete ? "complete" : ""
               }`}

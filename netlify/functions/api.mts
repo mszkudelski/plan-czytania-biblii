@@ -1,4 +1,5 @@
 import { getStore } from "@netlify/blobs";
+import { applyProgressLog, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
 import type { Config } from "@netlify/functions";
 import type {
   Credentials,
@@ -224,7 +225,9 @@ async function storedGroup(groupId: string) {
     type: "json",
     consistency: "strong",
   });
-  return (group as StoredGroup | null) ?? null;
+  if (!group) return null;
+  const { blobs } = await store.list({ prefix: progressLogPrefix(groupId) });
+  return applyProgressLog(group as StoredGroup, blobs.map(blob => blob.key));
 }
 
 async function createGroup(request: Request) {
@@ -454,7 +457,10 @@ async function updateStoredGroup(
     const result = await store.set(key, JSON.stringify(group), {
       onlyIfMatch: entry.etag,
     });
-    if (result.modified) return json(publicGroup(group));
+    if (result.modified) {
+      const current = await storedGroup(groupId);
+      return json(publicGroup(current ?? group));
+    }
   }
   return error("Plan został właśnie zmieniony. Spróbuj ponownie.", 409);
 }
@@ -465,22 +471,24 @@ async function updateProgress(request: Request, groupId: string) {
     completed?: unknown;
   };
   const segmentId = cleanText(body.segmentId, 120);
+  const group = await storedGroup(groupId);
+  if (!group) return error("Nie znaleziono grupy.", 404);
+  const member = await authenticate(group, body);
+  if (!member) return error("Nieprawidłowy link dostępu.", 401);
+  const segmentIndex = group.planDays.flatMap(day => day.segments)
+    .findIndex(segment => segment.id === segmentId);
+  if (segmentIndex < 0 || typeof body.completed !== "boolean") {
+    return error("Nieprawidłowy fragment.");
+  }
 
-  return updateStoredGroup(groupId, async (group) => {
-    const member = await authenticate(group, body);
-    if (!member) return error("Nieprawidłowy link dostępu.", 401);
-    const exists = group.planDays.some((day) =>
-      day.segments.some((segment) => segment.id === segmentId),
-    );
-    if (!exists || typeof body.completed !== "boolean") {
-      return error("Nieprawidłowy fragment.");
-    }
-
-    const progress = group.progress[member.id] ?? {};
-    if (body.completed) progress[segmentId] = new Date().toISOString();
-    else delete progress[segmentId];
-    group.progress[member.id] = progress;
-  });
+  // Each operation has its own key. Parallel writes never replace another
+  // person's progress or another reading's update, unlike whole-group writes.
+  await groupStore().set(
+    progressLogKey(groupId, member.id, segmentIndex, body.completed),
+    "{}",
+  );
+  const current = await storedGroup(groupId);
+  return json(publicGroup(current ?? group));
 }
 
 async function ensureInvite(request: Request, groupId: string) {
