@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading } from "./recovery";
+import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, projectRecoveryPortions, setRecoveryChapters, parseChapterMarks } from "./recovery";
 import { buildSchedule } from "./schedule";
 import type { Group } from "../types";
 function fixture(): Group {
@@ -102,4 +102,60 @@ it("rejects malformed saved readings and those inside the current base day", () 
   }
   const reading = { segmentId: "day-1-segment-1", label: "Rdz 1", originalDate: "2026-09-01", chapterIndex: 0, chapterCount: 3 };
   expect(validateDailyRecoveryReading(g, "a", "2026-09-12", {}, "day-1", { reading, completed: false })).toBeNull();
+});
+
+it("forecasts one extra per day and trims previous extra chapters without persisting progress", () => {
+  const g = fixture();
+  const original = JSON.stringify(g);
+  const chapters = { "day-2-segment-1": 1 };
+  const portions = projectRecoveryPortions(g, "a", "2026-09-10", chapters, "day-1");
+  expect(portions.slice(0, 3).map(p => [p.day.date, p.day.segments[0].label, p.extra?.label])).toEqual([
+    ["2026-09-10", "Rdz 1–3", "Rdz 2"],
+    ["2026-09-11", "Rdz 3", "Rdz 1"],
+    ["2026-09-12", "Rdz 2 · Rdz 3", "Rdz 1"],
+  ]);
+  expect(JSON.stringify(g)).toBe(original);
+  expect(chapters).toEqual({ "day-2-segment-1": 1 });
+  expect(projectRecoveryPortions(g, "b", "2026-09-10", {}, "day-1")[1].day.segments[0].label)
+    .toBe("Rdz 2 · Rdz 3");
+});
+it("skips entire days consumed by extras and keeps today's already completed extra", () => {
+  const g = fixture();
+  g.planDays = g.planDays.slice(0, 5).map((day, i) => ({
+    ...day, segments: [{ ...day.segments[0], label: `Rdz ${i + 1}` }],
+  }));
+  const extra = getRecoveryReading(g, "a", "2026-09-10", {}, "day-1")!;
+  g.progress.a["day-1-segment-1"] = "done";
+  g.progress.a["day-2-segment-1"] = "done";
+  const portions = projectRecoveryPortions(g, "a", "2026-09-10", { "day-2-segment-1": 1 }, "day-1", extra);
+  expect(portions.map(p => [p.day.id, p.extra?.label])).toEqual([
+    ["day-1", "Rdz 2"], ["day-3", "Rdz 4"], ["day-5", undefined],
+  ]);
+  expect(projectRecoveryPortions(g, "a", "2026-09-10", {}, "missing")[0].day.id).toBe("day-3");
+});
+it("respects reading weekdays and stops adding extras when caught up", () => {
+  const g = fixture();
+  g.frequency = { kind: "weekdays", days: [] };
+  const portions = projectRecoveryPortions(g, "a", "2026-09-11", {}, "day-1");
+  expect(portions[1].day.date).toBe("2026-09-14");
+  g.frequency = { kind: "custom", days: [1, 4] };
+  expect(projectRecoveryPortions(g, "a", "2026-09-11", {}, "day-1")[1].day.date).toBe("2026-09-14");
+  expect(projectRecoveryPortions(g, "a", "2026-08-30", {}, "day-1")[0].extra).toBeUndefined();
+  for (const day of g.planDays) for (const segment of day.segments) g.progress.a[segment.id] = "done";
+  expect(projectRecoveryPortions(g, "a", "2026-09-11", {}, "")).toEqual([]);
+});
+
+it("records future chapter slices without treating an assumed earlier chapter as read", () => {
+  const first = setRecoveryChapters({}, {}, "s", [1, 2], true);
+  expect(first).toEqual({ chapters: { s: 0 }, marks: { s: [1, 2] } });
+  const g = fixture();
+  expect(getRecoveryReading(g, "a", "2026-09-10", {}, undefined, { "day-1-segment-1": [1, 2] })?.label)
+    .toBe("Rdz 1");
+  const finished = setRecoveryChapters(first.chapters, first.marks, "s", [0], true);
+  expect(finished.chapters.s).toBe(3);
+  const undone = setRecoveryChapters(finished.chapters, finished.marks, "s", [1, 2], false);
+  expect(undone.chapters.s).toBe(1);
+  expect(first.marks.s).toEqual([1, 2]);
+  expect(parseChapterMarks('{"s":[1,2],"bad":[-1]}')).toEqual({ s: [1, 2] });
+  expect(parseChapterMarks("null")).toEqual({});
 });

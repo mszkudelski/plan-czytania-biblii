@@ -1,4 +1,4 @@
-import type { Group } from "../types";
+import type { Group, PlanDay } from "../types";
 import { getNextDay } from "./metrics";
 
 export function getRecoveryDay(
@@ -32,15 +32,15 @@ export function splitReadingChapters(label: string): string[] {
 }
 
 export type RecoveryReading = { segmentId: string; label: string; originalDate: string; chapterIndex: number; chapterCount: number };
-export function getRecoveryReading(group: Group, memberId: string, today: string, readChapters: Record<string, number>, afterDayId?: string): RecoveryReading | undefined {
+export function getRecoveryReading(group: Group, memberId: string, today: string, readChapters: Record<string, number>, afterDayId?: string, chapterMarks: ReadChapterMarks = {}): RecoveryReading | undefined {
   const progress = group.progress[memberId] ?? {};
   const afterIndex = afterDayId ? group.planDays.findIndex(day => day.id === afterDayId) : -1;
   for (const day of getOverdueDays(group, memberId, today).filter(day => group.planDays.indexOf(day) > afterIndex)) {
     for (const segment of day.segments) {
       if (progress[segment.id]) continue;
       const chapters = splitReadingChapters(segment.label);
-      const chapterIndex = readChapters[segment.id] ?? 0;
-      if (chapterIndex >= chapters.length) continue;
+      const chapterIndex = chapters.findIndex((_, index) => !isRecoveryChapterRead(readChapters, chapterMarks, segment.id, index));
+      if (chapterIndex < 0) continue;
       return { segmentId: segment.id, label: chapters[chapterIndex], originalDate: day.date, chapterIndex, chapterCount: chapters.length };
     }
   }
@@ -89,4 +89,98 @@ export function validateDailyRecoveryReading(
     }
   }
   return null;
+}
+
+export type ReadChapterMarks = Record<string, number[]>;
+export function parseChapterMarks(value: string | null): ReadChapterMarks {
+  try {
+    const parsed: unknown = JSON.parse(value ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, indices]) =>
+      Array.isArray(indices) && indices.every(index => Number.isInteger(index) && index >= 0 && index <= 150),
+    ));
+  } catch { return {}; }
+}
+export function isRecoveryChapterRead(
+  readChapters: Record<string, number>, marks: ReadChapterMarks, segmentId: string, index: number,
+) {
+  return index < (readChapters[segmentId] ?? 0) || Boolean(marks[segmentId]?.includes(index));
+}
+export function setRecoveryChapters(
+  readChapters: Record<string, number>, marks: ReadChapterMarks, segmentId: string,
+  indices: number[], completed: boolean,
+) {
+  const nextChapters = { ...readChapters };
+  const actual = new Set([
+    ...Array.from({ length: readChapters[segmentId] ?? 0 }, (_, index) => index),
+    ...(marks[segmentId] ?? []),
+  ]);
+  for (const index of indices) {
+    if (completed) actual.add(index);
+    else actual.delete(index);
+  }
+  let prefix = 0;
+  while (actual.has(prefix)) prefix++;
+  nextChapters[segmentId] = prefix;
+  const nextMarks = { ...marks, [segmentId]: [...actual].filter(index => index >= prefix).sort((a, b) => a - b) };
+  return { chapters: nextChapters, marks: nextMarks };
+}
+export type RecoveryPortion = {
+  day: PlanDay; extra?: RecoveryReading; chapterIndices: Record<string, number[]>;
+};
+
+// Forecast on copies: viewing tomorrow never marks today's readings as done.
+export function projectRecoveryPortions(
+  group: Group,
+  memberId: string,
+  today: string,
+  readChapters: Record<string, number>,
+  savedDayId: string,
+  savedExtra?: RecoveryReading,
+  chapterMarks: ReadChapterMarks = {},
+): RecoveryPortion[] {
+  const progress = { ...group.progress[memberId] };
+  let chapters = { ...readChapters };
+  let marks = { ...chapterMarks };
+  const projectedGroup = { ...group, progress: { ...group.progress, [memberId]: progress } };
+  const portions: RecoveryPortion[] = [];
+  let base = getRecoveryDay(projectedGroup, memberId, savedDayId);
+  let date = today;
+  const allowed = group.frequency.kind === "daily" ? [0, 1, 2, 3, 4, 5, 6]
+    : group.frequency.kind === "weekdays" ? [1, 2, 3, 4, 5]
+    : group.frequency.days.length ? group.frequency.days : [0, 1, 2, 3, 4, 5, 6];
+  while (base) {
+    const chapterIndices: Record<string, number[]> = {};
+    const day: PlanDay = {
+      ...base, date,
+      segments: base.segments.map(segment => {
+        const labels = splitReadingChapters(segment.label);
+        const indices = labels.map((_, index) => index).filter(index =>
+          !isRecoveryChapterRead(chapters, marks, segment.id, index),
+        );
+        chapterIndices[segment.id] = indices.length && !progress[segment.id] ? indices : labels.map((_, index) => index);
+        const remaining = chapterIndices[segment.id].map(index => labels[index]);
+        return {
+          ...segment,
+          label: !progress[segment.id] && remaining.length !== labels.length
+            ? remaining.join(" · ") : segment.label,
+        };
+      }),
+    };
+    const extra = portions.length === 0 && savedExtra
+      ? savedExtra
+      : getRecoveryReading(projectedGroup, memberId, date, chapters, base.id, marks);
+    portions.push({ day, extra, chapterIndices });
+    for (const segment of base.segments) progress[segment.id] = "projected";
+    if (extra) {
+      const updated = setRecoveryChapters(chapters, marks, extra.segmentId, [extra.chapterIndex], true);
+      chapters = updated.chapters; marks = updated.marks;
+      if (chapters[extra.segmentId] >= extra.chapterCount) progress[extra.segmentId] = "projected";
+    }
+    base = getNextDay(projectedGroup, memberId);
+    const cursor = new Date(`${date}T12:00:00`);
+    do { cursor.setDate(cursor.getDate() + 1); } while (!allowed.includes(cursor.getDay()));
+    date = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+  }
+  return portions;
 }
