@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [develop, main]
   push:
-    branches: [develop]
+    branches: [develop, main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,6 +26,7 @@ jobs:
       - run: npm test
       - run: npm run build
   e2e-backend:
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     name: E2E with real backend
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -58,16 +59,39 @@ jobs:
             e2e/playwright-report
             e2e/test-results
           retention-days: 7
+  production-smoke:
+    name: Production read-only checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify the production commit, assets and API without writes
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+          PRODUCTION_BASE_URL: https://plan-czytania.netlify.app
+        run: node scripts/check-production.mjs
   required-ci:
     name: Required CI
     if: always()
-    needs: [unit-build, e2e-backend]
+    needs: [unit-build, e2e-backend, production-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Require every test job to pass
         env:
           UNIT_RESULT: ${{ needs.unit-build.result }}
           E2E_RESULT: ${{ needs.e2e-backend.result }}
+          PRODUCTION_RESULT: ${{ needs.production-smoke.result }}
+          PRODUCTION_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           test "$UNIT_RESULT" = success
-          test "$E2E_RESULT" = success
+          if [ "$PRODUCTION_PUSH" = true ]; then
+            test "$E2E_RESULT" = skipped
+            test "$PRODUCTION_RESULT" = success
+          else
+            test "$E2E_RESULT" = success
+            test "$PRODUCTION_RESULT" = skipped
+          fi

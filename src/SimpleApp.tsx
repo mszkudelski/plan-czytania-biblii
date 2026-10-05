@@ -41,6 +41,11 @@ import {
   isMobileDevice,
   isStandaloneApp,
 } from "./lib/install";
+import {
+  clearCachedGroup,
+  loadCachedGroup,
+  saveCachedGroup,
+} from "./lib/plan-cache";
 import QrScanner from "qr-scanner";
 import {
   calculateProgressPercent,
@@ -81,7 +86,8 @@ type IconName =
   | "left"
   | "right"
   | "install"
-  | "share";
+  | "share"
+  | "refresh";
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -158,6 +164,13 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
         <path d="M5 10H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1" />
       </>
     ),
+    refresh: (
+      <>
+        <path d="M20 11a8 8 0 0 0-14.7-4L4 9" />
+        <path d="M4 4v5h5M4 13a8 8 0 0 0 14.7 4L20 15" />
+        <path d="M20 20v-5h-5" />
+      </>
+    ),
   };
 
   return (
@@ -223,11 +236,35 @@ export default function SimpleApp() {
   const [credentials, setCredentials] = useState<Credentials | null>(() =>
     loadCredentials(),
   );
-  const [group, setGroup] = useState<Group | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [initialCachedGroup] = useState(() => {
+    const savedCredentials = loadCredentials();
+    return savedCredentials ? loadCachedGroup(savedCredentials.groupId) : null;
+  });
+  const [group, setGroup] = useState<Group | null>(
+    () => initialCachedGroup?.group ?? null,
+  );
+  const [cachedAt, setCachedAt] = useState<string | null>(
+    () => initialCachedGroup?.savedAt ?? null,
+  );
+  const [loading, setLoading] = useState(() => !initialCachedGroup);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [syncMessage, setSyncMessage] = useState("");
   const [retry, setRetry] = useState(0);
   const skipSessionRestore = useRef(false);
+  const groupWriteVersion = useRef(0);
+  const latestGroup = useRef<Group | null>(initialCachedGroup?.group ?? null);
+
+  const setGroupAndCache = useCallback((nextGroup: Group) => {
+    latestGroup.current = nextGroup;
+    setGroup(nextGroup);
+    setCachedAt(saveCachedGroup(nextGroup));
+  }, []);
+
+  const commitGroup = useCallback((nextGroup: Group) => {
+    groupWriteVersion.current++;
+    setGroupAndCache(nextGroup);
+  }, [setGroupAndCache]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -248,12 +285,14 @@ export default function SimpleApp() {
       let cancelled = false;
       setLoading(true);
       setError("");
+      setSyncMessage("");
+      setRefreshing(true);
       restoreSession()
         .then((session) => {
           if (cancelled || !session) return;
           saveCredentials(session.credentials);
           setCredentials(session.credentials);
-          setGroup(session.group);
+          setGroupAndCache(session.group);
         })
         .catch(() => {
           if (!cancelled) {
@@ -261,7 +300,10 @@ export default function SimpleApp() {
           }
         })
         .finally(() => {
-          if (!cancelled) setLoading(false);
+          if (!cancelled) {
+            setLoading(false);
+            setRefreshing(false);
+          }
         });
       return () => {
         cancelled = true;
@@ -272,14 +314,22 @@ export default function SimpleApp() {
       return;
     }
     let cancelled = false;
-    setLoading(true);
+    const hasVisibleGroup = Boolean(group);
+    const readWriteVersion = groupWriteVersion.current;
+    if (!hasVisibleGroup) setLoading(true);
+    setRefreshing(true);
     setError("");
+    setSyncMessage("");
     saveSession(credentials)
       .then((session) => {
         if (cancelled) return;
         saveCredentials(session.credentials);
         setCredentials(session.credentials);
-        setGroup(session.group);
+        const current = latestGroup.current;
+        const freshGroup = groupWriteVersion.current !== readWriteVersion && current?.id === session.group.id
+          ? { ...session.group, progress: { ...session.group.progress, [credentials.memberId]: current.progress[credentials.memberId] ?? {} } }
+          : session.group;
+        setGroupAndCache(freshGroup);
         if (joinInvite) {
           setJoinInvite(null);
           if (window.location.hash) {
@@ -289,10 +339,25 @@ export default function SimpleApp() {
       })
       .catch((caught: unknown) => {
         if (cancelled) return;
+        if (caught instanceof ApiError && [401, 403, 404].includes(caught.status)) {
+          clearCachedGroup(credentials.groupId);
+          setGroup(null);
+          setCachedAt(null);
+        } else if (hasVisibleGroup) {
+          const lastSync = cachedAt
+            ? ` Ostatnia synchronizacja: ${formatCacheTime(cachedAt)}.`
+            : "";
+          setSyncMessage(
+            `Brak połączenia. Pokazuję ostatnio zapisane dane planu.${lastSync}`,
+          );
+        }
         setError(sessionError(caught));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -303,12 +368,14 @@ export default function SimpleApp() {
     credentials?.token,
     joinInvite?.groupId,
     retry,
+    setGroupAndCache,
   ]);
 
   function enter(groupData: Group, nextCredentials: Credentials) {
     saveCredentials(nextCredentials);
     setCredentials(nextCredentials);
-    setGroup(groupData);
+    setGroupAndCache(groupData);
+    setSyncMessage("");
     setJoinInvite(null);
     setTransferCode(null);
     if (window.location.hash) {
@@ -357,16 +424,22 @@ export default function SimpleApp() {
         key={`${credentials.groupId}:${credentials.memberId}:${credentials.token}`}
         credentials={credentials}
         group={group}
-        setGroup={setGroup}
+        setGroup={commitGroup}
         onCredentialsChange={changeCredentials}
         theme={theme}
         onThemeChange={setTheme}
+        refreshing={refreshing}
+        syncMessage={syncMessage}
+        onRefresh={() => setRetry((current) => current + 1)}
         onLeave={async () => {
           skipSessionRestore.current = true;
           await clearSession().catch(() => undefined);
+          clearCachedGroup(credentials.groupId);
           clearCredentials();
           setCredentials(null);
           setGroup(null);
+          setCachedAt(null);
+          setSyncMessage("");
         }}
       />
     );
@@ -376,10 +449,13 @@ export default function SimpleApp() {
         error={error}
         onRetry={() => setRetry((current) => current + 1)}
         onReset={() => {
+          clearCachedGroup(credentials.groupId);
           clearCredentials();
           setCredentials(null);
           setGroup(null);
+          setCachedAt(null);
           setError("");
+          setSyncMessage("");
         }}
         theme={theme}
         onThemeChange={setTheme}
@@ -632,6 +708,15 @@ function sessionError(caught: unknown) {
     return "To zapisane połączenie nie ma już dostępu do tego planu.";
   }
   return "Nie udało się otworzyć planu. Zapisane połączenie nie zostało usunięte.";
+}
+
+function formatCacheTime(value: string) {
+  return new Intl.DateTimeFormat("pl-PL", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function JoinSetup({
@@ -890,6 +975,7 @@ function JoinEntrySetup({
 }) {
   const [link, setLink] = useState("");
   const [error, setError] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -900,6 +986,16 @@ function JoinEntrySetup({
     }
     onJoinInvite(invite);
   }
+
+  const handleScan = useCallback((value: string) => {
+    const invite = parseJoinLink(value);
+    if (!invite) {
+      setError("Ten kod QR nie zawiera zaproszenia do planu.");
+      return;
+    }
+    setScannerOpen(false);
+    onJoinInvite(invite);
+  }, [onJoinInvite]);
 
   return (
     <main className="setup-page">
@@ -913,8 +1009,26 @@ function JoinEntrySetup({
           Zeskanuj kod QR zaproszenia aparatem telefonu albo wklej otrzymany
           link.
         </p>
+        {scannerOpen && (
+          <TransferQrScanner
+            onScan={handleScan}
+            onClose={() => setScannerOpen(false)}
+          />
+        )}
         <form onSubmit={submit}>
           {error && <div className="simple-alert">{error}</div>}
+          {!scannerOpen && (
+            <button
+              type="button"
+              className="scanner-button"
+              onClick={() => {
+                setError("");
+                setScannerOpen(true);
+              }}
+            >
+              Otwórz aparat i zeskanuj kod QR
+            </button>
+          )}
           <Field label="Link zaproszenia">
             <input
               value={link}
@@ -1313,6 +1427,9 @@ function Dashboard({
   onCredentialsChange,
   theme,
   onThemeChange,
+  refreshing,
+  syncMessage,
+  onRefresh,
   onLeave,
 }: {
   credentials: Credentials;
@@ -1321,6 +1438,9 @@ function Dashboard({
   onCredentialsChange: (credentials: Credentials) => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
+  refreshing: boolean;
+  syncMessage: string;
+  onRefresh: () => void;
   onLeave: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("today");
@@ -1430,6 +1550,17 @@ function Dashboard({
           ))}
         </nav>
         <div className="header-tools">
+          <button
+            type="button"
+            className="refresh-button"
+            onClick={onRefresh}
+            disabled={refreshing}
+            aria-label="Odśwież plan i dane użytkownika"
+            title="Odśwież plan i dane użytkownika"
+          >
+            <Icon name="refresh" size={17} />
+            <span>{refreshing ? "Odświeżanie…" : "Odśwież"}</span>
+          </button>
           <ThemeToggle theme={theme} onChange={onThemeChange} />
           <span className="simple-avatar" style={{ background: member.color }}>
             {initials(member.name)}
@@ -1438,6 +1569,7 @@ function Dashboard({
       </header>
 
       <main className="simple-content">
+        {syncMessage && <div className="sync-status" role="status">{syncMessage}</div>}
         {progressError && <p className="progress-error" role="alert">{progressError}</p>}
         <div hidden={tab !== "today"}>
           <TodayView

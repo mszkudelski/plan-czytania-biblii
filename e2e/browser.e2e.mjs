@@ -528,3 +528,73 @@ test('real daily writes rotate recovery across all streams and keep the full nor
   await expect(reading(page, 'Ps 5')).toHaveAttribute('aria-pressed', 'false');
   await expectSaved(request, session, expected);
 });
+
+test('manual refresh cannot erase a progress write confirmed after its request started', async ({ page, request }) => {
+  const session = await createPlan(request, 'manual-refresh-race');
+  await openPlan(page, session);
+  await reading(page, 'Rdz 1').click();
+  await expectSaved(request, session, ['s0']);
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const captured = new Promise(resolve => { started = resolve; });
+  await page.route('**/api/session', async route => {
+    const response = await route.fetch();
+    started(response.status());
+    await gate;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  try {
+    await page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true }).click();
+    expect(await captured).toBe(200);
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['s0', 's1']);
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  } finally { release(); }
+  await expect(page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true })).toBeEnabled();
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await page.reload();
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await expectSaved(request, session, ['s0', 's1']);
+});
+
+test('cached startup stays visible and protects newer progress from its initial stale response', async ({ page, request }) => {
+  const session = await createPlan(request, 'cached-startup-race');
+  await openPlan(page, session);
+  await reading(page, 'Rdz 1').click();
+  await expectSaved(request, session, ['s0']);
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const captured = new Promise(resolve => { started = resolve; });
+  await page.route('**/api/session', async route => {
+    const response = await route.fetch();
+    started(response.status());
+    await gate;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  try {
+    await page.reload();
+    expect(await captured).toBe(200);
+    await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['s0', 's1']);
+  } finally { release(); }
+  await expect(page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true })).toBeEnabled();
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await expectSaved(request, session, ['s0', 's1']);
+});
+
+test('failed refresh shows the last real cached plan and can reconnect', async ({ page, request }) => {
+  const session = await createPlan(request, 'cache-reconnect');
+  await openPlan(page, session);
+  await reading(page, 'Rdz 1').click();
+  await expectSaved(request, session, ['s0']);
+  // Simulate a network failure, never a successful API response.
+  await page.route('**/api/session', route => route.abort(), { times: 1 });
+  await page.reload();
+  await expect(page.getByRole('status')).toContainText('Brak połączenia');
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true })).toBeEnabled();
+  await expect(page.getByRole('status')).toHaveCount(0);
+  await expectSaved(request, session, ['s0']);
+});
