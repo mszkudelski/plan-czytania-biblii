@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
-  createPlan, openPlan, saveProgress, expectSaved, readGroup, reading,
+  createPlan, createParallelPlan, openPlan, saveProgress, expectSaved, readGroup, reading,
   extraReading, tab, recoveryKey, TODAY, NOW, holdNextProgress, progressPath,
 } from './helpers.mjs';
 
@@ -465,4 +465,66 @@ test('completed recovery portion keeps its one extra and advances only through d
   await expect(extraReading(page)).toContainText('Rdz 2');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
   expect(await page.evaluate(key => localStorage.getItem(key), recoveryKey(session) + ':ordered:' + TODAY + ':day')).toBe('d0');
+});
+
+test('ten days behind with three streams catches up after thirty extras, without preview writes', async ({ page, request }) => {
+  const session = await createParallelPlan(request);
+  await openPlan(page, session);
+  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await expect(page.locator('.simple-readings button')).toHaveCount(4);
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await expect(extraReading(page)).toContainText('Mt 3');
+  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await expect(extraReading(page)).toContainText('Ps 4');
+  for (let index = 2; index < 29; index++) {
+    await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  }
+  await expect(extraReading(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await expect(extraReading(page)).toHaveCount(0);
+  await expect(page.locator('.simple-readings button')).toHaveCount(3);
+  for (const book of ['Rdz', 'Mt', 'Ps']) {
+    await expect(reading(page, book + ' 41')).toHaveAttribute('aria-pressed', 'false');
+  }
+  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await expect(extraReading(page)).toHaveCount(0);
+  await expectSaved(request, session, []);
+  expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
+});
+
+test('real daily writes rotate recovery across all streams and keep the full normal quota', async ({ page, request }) => {
+  const session = await createParallelPlan(request, 'parallel-real-days');
+  await openPlan(page, session);
+  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  const expected = [];
+  for (let day = 0; day < 3; day++) {
+    const base = day === 0
+      ? [['Rdz 1', 'p0s0'], ['Mt 1', 'p0s1'], ['Ps 1', 'p0s2']]
+      : day === 1
+      ? [['Rdz 3', 'p2s0'], ['Mt 2', 'p1s1'], ['Ps 2', 'p1s2']]
+      : [['Rdz 4', 'p3s0'], ['Mt 4', 'p3s1'], ['Ps 3', 'p2s2']];
+    const extra = [['Rdz 2', 'p1s0'], ['Mt 3', 'p2s1'], ['Ps 4', 'p3s2']][day];
+    await expect(page.locator('.simple-readings button')).toHaveCount(4);
+    await expect(extraReading(page)).toContainText(extra[0]);
+    await expect(extraReading(page)).toBeDisabled();
+    for (const [label, id] of base) {
+      await reading(page, label).click(); expected.push(id);
+    }
+    await expect(extraReading(page)).toBeEnabled();
+    await extraReading(page).click(); expected.push(extra[1]);
+    await expectSaved(request, session, expected);
+    await page.reload();
+    await expect(page.locator('.simple-readings button')).toHaveCount(4);
+    for (const [label] of base) await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'true');
+    await expect(extraReading(page)).toContainText(extra[0]);
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+    await page.clock.setSystemTime(new Date(NOW.getTime() + (day + 1) * 86400000));
+    await page.reload();
+  }
+  await expect(extraReading(page)).toContainText('Rdz 6');
+  await expect(reading(page, 'Rdz 5')).toHaveAttribute('aria-pressed', 'false');
+  await expect(reading(page, 'Mt 5')).toHaveAttribute('aria-pressed', 'false');
+  await expect(reading(page, 'Ps 5')).toHaveAttribute('aria-pressed', 'false');
+  await expectSaved(request, session, expected);
 });

@@ -129,7 +129,88 @@ export type RecoveryPortion = {
   day: PlanDay; extra?: RecoveryReading; chapterIndices: Record<string, number[]>;
 };
 
-// Forecast on copies: viewing tomorrow never marks today's readings as done.
+type Chapter = RecoveryReading & { section: string; lane: string; dayIndex: number };
+function planChapters(group: Group): Chapter[] {
+  return group.planDays.flatMap((day, dayIndex) => {
+    const occurrences: Record<string, number> = {};
+    return day.segments.flatMap(segment => {
+      const occurrence = occurrences[segment.section] ?? 0;
+      occurrences[segment.section] = occurrence + 1;
+      // CSV column/section survives book transitions. Repeated generic columns
+      // retain separate parallel streams by their occurrence within that section.
+      const lane = JSON.stringify([segment.section, occurrence]);
+      const labels = splitReadingChapters(segment.label);
+      return labels.map((label, chapterIndex) => ({
+        segmentId: segment.id, label, originalDate: day.date,
+        chapterIndex, chapterCount: labels.length, section: segment.section, lane, dayIndex,
+      }));
+    });
+  });
+}
+function readingReference(chapter: Chapter): RecoveryReading {
+  return {
+    segmentId: chapter.segmentId, label: chapter.label, originalDate: chapter.originalDate,
+    chapterIndex: chapter.chapterIndex, chapterCount: chapter.chapterCount,
+  };
+}
+function nextRecoveryDate(date: string, group: Group) {
+  const allowed = group.frequency.kind === "daily" ? [0, 1, 2, 3, 4, 5, 6]
+    : group.frequency.kind === "weekdays" ? [1, 2, 3, 4, 5]
+    : group.frequency.days.filter(day => day >= 0 && day <= 6);
+  const cursor = new Date(`${date}T12:00:00`);
+  do { cursor.setDate(cursor.getDate() + 1); } while (allowed.length && !allowed.includes(cursor.getDay()));
+  return `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+}
+export function parseRecoveryPortion(
+  group: Group, memberId: string, today: string,
+  readChapters: Record<string, number>, marks: ReadChapterMarks, value: string | null,
+): RecoveryPortion | undefined {
+  try {
+    const saved = JSON.parse(value ?? "null") as RecoveryPortion | null;
+    if (!saved || saved.day?.date !== today || saved.day.id !== `recovery:${today}` ||
+        !Array.isArray(saved.day.segments) || !saved.day.segments.length ||
+        !saved.chapterIndices || typeof saved.chapterIndices !== "object") return;
+    const chapters = planChapters(group);
+    const assigned = new Set<string>();
+    const chosen: Chapter[] = [];
+    const ids = new Set<string>();
+    for (const segment of saved.day.segments) {
+      if (ids.has(segment.id)) return;
+      ids.add(segment.id);
+      const indices = saved.chapterIndices[segment.id];
+      if (!Array.isArray(indices) || !indices.length || new Set(indices).size !== indices.length) return;
+      const selected = indices.map(index => chapters.find(c => c.segmentId === segment.id && c.chapterIndex === index));
+      if (selected.some(c => !c)) return;
+      const actual = selected as Chapter[];
+      if (actual.some(c => c.originalDate > today) || segment.section !== actual[0].section ||
+          segment.label !== (actual.length === actual[0].chapterCount
+            ? group.planDays[actual[0].dayIndex].segments.find(s => s.id === segment.id)?.label
+            : actual.map(c => c.label).join(" · "))) return;
+      for (const chapter of actual) {
+        assigned.add(`${chapter.segmentId}:${chapter.chapterIndex}`); chosen.push(chapter);
+      }
+    }
+    if (saved.extra) {
+      const extra = chapters.find(c => c.segmentId === saved.extra?.segmentId && c.chapterIndex === saved.extra.chapterIndex);
+      if (!extra || extra.originalDate > today || Object.entries(readingReference(extra)).some(([key, value]) => saved.extra?.[key as keyof RecoveryReading] !== value) ||
+          assigned.has(`${extra.segmentId}:${extra.chapterIndex}`)) return;
+      chosen.push(extra);
+    }
+    // Cached portions may keep completed rows, but cannot bypass an earlier
+    // unread chapter in any parallel stream.
+    for (const chosenChapter of chosen) {
+      if (chapters.some(c => c.lane === chosenChapter.lane &&
+          (c.dayIndex < chosenChapter.dayIndex || c.segmentId === chosenChapter.segmentId && c.chapterIndex < chosenChapter.chapterIndex) &&
+          !assigned.has(`${c.segmentId}:${c.chapterIndex}`) &&
+          !group.progress[memberId]?.[c.segmentId] &&
+          !isRecoveryChapterRead(readChapters, marks, c.segmentId, c.chapterIndex))) return;
+    }
+    return saved;
+  } catch { return; }
+}
+
+// Forecast on copies: each date has a full normal quota in every parallel
+// stream, then one extra from the stream with the largest remaining debt.
 export function projectRecoveryPortions(
   group: Group,
   memberId: string,
@@ -138,49 +219,73 @@ export function projectRecoveryPortions(
   savedDayId: string,
   savedExtra?: RecoveryReading,
   chapterMarks: ReadChapterMarks = {},
+  savedPortion?: RecoveryPortion,
 ): RecoveryPortion[] {
-  const progress = { ...group.progress[memberId] };
-  let chapters = { ...readChapters };
-  let marks = { ...chapterMarks };
-  const projectedGroup = { ...group, progress: { ...group.progress, [memberId]: progress } };
+  const chapters = planChapters(group);
+  const lanes = [...new Set(chapters.map(chapter => chapter.lane))];
+  const done = new Set(chapters.filter(chapter => group.progress[memberId]?.[chapter.segmentId] ||
+    isRecoveryChapterRead(readChapters, chapterMarks, chapter.segmentId, chapter.chapterIndex))
+    .map(chapter => `${chapter.segmentId}:${chapter.chapterIndex}`));
+  const isDone = (chapter: Chapter) => done.has(`${chapter.segmentId}:${chapter.chapterIndex}`);
+  const consume = (reading: RecoveryReading) => done.add(`${reading.segmentId}:${reading.chapterIndex}`);
   const portions: RecoveryPortion[] = [];
-  let base = getRecoveryDay(projectedGroup, memberId, savedDayId);
+  const anchor = getRecoveryDay(group, memberId, savedDayId);
   let date = today;
-  const allowed = group.frequency.kind === "daily" ? [0, 1, 2, 3, 4, 5, 6]
-    : group.frequency.kind === "weekdays" ? [1, 2, 3, 4, 5]
-    : group.frequency.days.length ? group.frequency.days : [0, 1, 2, 3, 4, 5, 6];
-  while (base) {
-    const chapterIndices: Record<string, number[]> = {};
-    const day: PlanDay = {
-      ...base, date,
-      segments: base.segments.map(segment => {
-        const labels = splitReadingChapters(segment.label);
-        const indices = labels.map((_, index) => index).filter(index =>
-          !isRecoveryChapterRead(chapters, marks, segment.id, index),
-        );
-        chapterIndices[segment.id] = indices.length && !progress[segment.id] ? indices : labels.map((_, index) => index);
-        const remaining = chapterIndices[segment.id].map(index => labels[index]);
-        return {
-          ...segment,
-          label: !progress[segment.id] && remaining.length !== labels.length
-            ? remaining.join(" · ") : segment.label,
-        };
-      }),
-    };
-    const extra = portions.length === 0 && savedExtra
-      ? savedExtra
-      : getRecoveryReading(projectedGroup, memberId, date, chapters, base.id, marks);
-    portions.push({ day, extra, chapterIndices });
-    for (const segment of base.segments) progress[segment.id] = "projected";
-    if (extra) {
-      const updated = setRecoveryChapters(chapters, marks, extra.segmentId, [extra.chapterIndex], true);
-      chapters = updated.chapters; marks = updated.marks;
-      if (chapters[extra.segmentId] >= extra.chapterCount) progress[extra.segmentId] = "projected";
+  while (chapters.some(chapter => !isDone(chapter)) || portions.length === 0 && (savedPortion || anchor && savedDayId)) {
+    let base: Chapter[] = [];
+    if (portions.length === 0 && savedPortion) {
+      base = savedPortion.day.segments.flatMap(segment =>
+        savedPortion.chapterIndices[segment.id].map(index =>
+          chapters.find(c => c.segmentId === segment.id && c.chapterIndex === index)!));
+    } else if (portions.length === 0 && anchor && savedDayId &&
+        anchor.segments.every(segment => group.progress[memberId]?.[segment.id])) {
+      // Migrate a completed legacy daily anchor without advancing today's rows.
+      base = chapters.filter(c => c.dayIndex === group.planDays.indexOf(anchor));
+    } else {
+      for (const lane of lanes) {
+        const laneChapters = chapters.filter(c => c.lane === lane);
+        const due = laneChapters.filter(c => c.originalDate <= date);
+        const templateIndex = due.at(-1)?.dayIndex ?? laneChapters[0].dayIndex;
+        const quota = laneChapters.filter(c => c.dayIndex === templateIndex).length;
+        base.push(...laneChapters.filter(c => !isDone(c) && c.originalDate <= date).slice(0, quota));
+      }
     }
-    base = getNextDay(projectedGroup, memberId);
-    const cursor = new Date(`${date}T12:00:00`);
-    do { cursor.setDate(cursor.getDate() + 1); } while (!allowed.includes(cursor.getDay()));
-    date = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+    if (!base.length) {
+      // A future schedule gap is not a reason to read its chapters early.
+      const nextDue = chapters.find(chapter => !isDone(chapter));
+      if (!nextDue) break;
+      date = nextRecoveryDate(date, group);
+      continue;
+    }
+    const chapterIndices: Record<string, number[]> = {};
+    const segments: PlanDay["segments"] = [];
+    for (const chapter of base) {
+      if (!chapterIndices[chapter.segmentId]) {
+        chapterIndices[chapter.segmentId] = [];
+        segments.push({ id: chapter.segmentId, label: "", section: chapter.section });
+      }
+      chapterIndices[chapter.segmentId].push(chapter.chapterIndex);
+      const segment = segments.find(s => s.id === chapter.segmentId)!;
+      segment.label += (segment.label ? " · " : "") + chapter.label;
+      consume(chapter);
+    }
+    for (const segment of segments) {
+      const indices = chapterIndices[segment.id];
+      const original = group.planDays.flatMap(day => day.segments).find(s => s.id === segment.id)!;
+      if (indices.length === splitReadingChapters(original.label).length) segment.label = original.label;
+    }
+    let extra = portions.length === 0 ? savedPortion?.extra ?? savedExtra : undefined;
+    if (!extra) {
+      const debts = lanes.map(lane => chapters.filter(c => c.lane === lane && c.originalDate <= date && !isDone(c)));
+      const largest = debts.reduce<Chapter[]>((previous, debt) => debt.length > previous.length ? debt : previous, []);
+      if (largest[0]) extra = readingReference(largest[0]);
+    }
+    if (extra) consume(extra);
+    portions.push({
+      day: { id: `recovery:${date}`, index: portions.length, date, title: "", segments },
+      extra, chapterIndices,
+    });
+    date = nextRecoveryDate(date, group);
   }
   return portions;
 }

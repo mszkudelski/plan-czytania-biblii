@@ -1,4 +1,4 @@
-import { getRecoveryDay, getRecoveryReading, getOverdueDays, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks } from "./lib/recovery";
+import { getRecoveryDay, getOverdueDays, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1564,32 +1564,32 @@ function TodayView({
       window.removeEventListener("pageshow", resume);
     };
   }, []);
-  function remainingRecoveryDay(day: PlanDay): PlanDay {
-    return {
-      ...day,
-      segments: day.segments.map(segment => {
-        const labels = splitReadingChapters(segment.label);
-        const remaining = labels.filter((_, index) => !isRecoveryChapterRead(readChapters, chapterMarks, segment.id, index));
-        return { ...segment, label: !progress[segment.id] && remaining.length && remaining.length !== labels.length ? remaining.join(" · ") : segment.label };
-      }),
-    };
-  }
-  const recoveryDay = originalRecoveryDay ? remainingRecoveryDay(originalRecoveryDay) : undefined;
-  const validDailyReading = validateDailyRecoveryReading(
+  const portionKey = `${dailyKey}:portion-v2`;
+  const [dailyPortion, setDailyPortion] = useState<RecoveryPortion | undefined>(() =>
+    parseRecoveryPortion(group, member.id, today, readChapters, chapterMarks, localStorage.getItem(portionKey)),
+  );
+  const legacyDailyReading = validateDailyRecoveryReading(
     group, member.id, today, readChapters, recoveryDayId, dailyReading,
   );
+  const currentPortion = useMemo(() =>
+    projectRecoveryPortions(group, member.id, today, readChapters, recoveryDayId,
+      legacyDailyReading?.reading, chapterMarks, dailyPortion)[0],
+    [recoveryStart, recoveryDayId, today, dailyPortion],
+  );
   useEffect(() => {
-    if (dailyReading && !validDailyReading) {
-      setDailyReading(null);
-      localStorage.removeItem(dailyKey);
-    }
-  }, [dailyKey, dailyReading, Boolean(validDailyReading)]);
-  const extra = validDailyReading?.reading ?? getRecoveryReading(group, member.id, today, readChapters, recoveryDayId, chapterMarks);
-  // Keep the forecast stable while its rows are checked; a new current extra
-  // or daily anchor recalculates the remaining portions from actual progress.
+    if (!recoveryStart || !currentPortion || dailyPortion) return;
+    localStorage.setItem(portionKey, JSON.stringify(currentPortion));
+    setDailyPortion(currentPortion);
+  }, [recoveryStart, currentPortion, dailyPortion, portionKey]);
+  const extra = currentPortion?.extra;
+  const validDailyReading = dailyReading?.reading?.segmentId === extra?.segmentId &&
+    dailyReading?.reading?.chapterIndex === extra?.chapterIndex ? dailyReading : null;
+  // Freeze today's assignments while checking them; projections consume the
+  // full daily quota in each stream and keep future checkbox rows stable.
   const recoveryPortions = useMemo(() =>
-    projectRecoveryPortions(group, member.id, today, readChapters, recoveryDayId, extra, chapterMarks),
-    [recoveryStart, recoveryDayId, today, extra?.segmentId, extra?.chapterIndex],
+    projectRecoveryPortions(group, member.id, today, readChapters, recoveryDayId,
+      extra, chapterMarks, currentPortion),
+    [recoveryStart, currentPortion],
   );
   const anchorIndex = group.planDays.findIndex(day => day.id === recoveryDayId);
   const navigationDays = recoveryStart && recoveryPortions.length
@@ -1600,9 +1600,9 @@ function TodayView({
     .find(day => day.id === browsedRecoveryDayId)
     ?? (!recoveryPortions.length ? group.planDays.find(day => day.id === browsedRecoveryDayId) : undefined);
   const displayedDay = recoveryStart
-    ? (browsedPortion?.day ?? historicalDay ?? recoveryDay)
+    ? (browsedPortion?.day ?? historicalDay ?? currentPortion?.day)
     : selectedDay;
-  const isRecoveryPortion = Boolean(recoveryStart && displayedDay && displayedDay.id === recoveryDayId);
+  const isRecoveryPortion = Boolean(recoveryStart && displayedDay && displayedDay.id === currentPortion?.day.id);
   const isForecast = Boolean(recoveryStart && browsedPortion && !isRecoveryPortion);
   const displayedIndex = recoveryStart
     ? (displayedDay ? Math.max(0, navigationDays.findIndex(day => day.id === displayedDay.id)) : initialIndex)
@@ -1610,12 +1610,13 @@ function TodayView({
   function selectDay(index: number) {
     if (!recoveryStart) { setSelectedIndex(index); return; }
     const day = navigationDays[index];
-    if (day) setBrowsedRecoveryDayId(day.id === recoveryDayId ? null : day.id);
+    if (day) setBrowsedRecoveryDayId(day.id === currentPortion?.day.id ? null : day.id);
   }
   const displayedProgress = { ...progress };
-  if (isForecast && browsedPortion) {
-    for (const segment of browsedPortion.day.segments) {
-      const indices = browsedPortion.chapterIndices[segment.id];
+  const selectedPortion = isRecoveryPortion ? currentPortion : isForecast ? browsedPortion : undefined;
+  if (selectedPortion) {
+    for (const segment of selectedPortion.day.segments) {
+      const indices = selectedPortion.chapterIndices[segment.id];
       if (progress[segment.id] || indices.every(index => isRecoveryChapterRead(readChapters, chapterMarks, segment.id, index))) {
         displayedProgress[segment.id] = progress[segment.id] || "local";
       } else delete displayedProgress[segment.id];
@@ -1716,19 +1717,19 @@ function TodayView({
     const original = group.planDays.flatMap(day => day.segments).find(segment => segment.id === segmentId);
     if (!original) return;
     const allIndices = splitReadingChapters(original.label).map((_, index) => index);
-    const indices = isForecast && browsedPortion
-      ? browsedPortion.chapterIndices[segmentId]
-      : allIndices.filter(index => !isRecoveryChapterRead(readChapters, chapterMarks, segmentId, index));
+    const indices = selectedPortion?.chapterIndices[segmentId] ?? allIndices;
     await toggleChapterSelection(segmentId, indices.length ? indices : allIndices, !Boolean(displayedProgress[segmentId]));
   }
   function changeRecovery(start: string) {
     if (start) {
       // Activation uses the latest progress, even if this view was opened earlier.
       setBrowsedRecoveryDayId(null);
+      setDailyPortion(undefined);
+      localStorage.removeItem(portionKey);
       setRecoveryDayAnchor(getNextDay(group, member.id)?.id ?? "");
       localStorage.setItem(recoveryKey, start);
     } else {
-      setSelectedIndex(Math.max(0, group.planDays.findIndex(day => day.id === displayedDay?.id)));
+      setSelectedIndex(Math.max(0, group.planDays.findIndex(day => day.segments.some(segment => segment.id === displayedDay?.segments[0]?.id))));
       setBrowsedRecoveryDayId(null);
       localStorage.removeItem(recoveryKey);
     }
@@ -1757,7 +1758,8 @@ function TodayView({
             <p>
               Czytasz od pierwszego nieukończonego miejsca w swoim planie.
               Po zwykłej porcji odznaczasz jeden dodatkowy rozdział, oznaczony
-              plusem na dole listy. Kolejny mały krok pojawi się jutro.
+              plusem na dole listy. Nadrabiasz wszystkie równoległe części planu,
+              zaczynając od najbardziej zaległej. Gdy dogonisz plan, dodatkowe czytanie zniknie.
               Podgląd kolejnych dni zakłada wykonanie wcześniejszych porcji.
               Możesz też odznaczać czytanie z wyprzedzeniem. Plan grupy pozostaje bez zmian.
             </p>

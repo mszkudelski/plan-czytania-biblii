@@ -41,6 +41,21 @@ export async function createPlan(request, suffix, multiChapter = false) {
   expect(session.group.members).toHaveLength(1);
   return session;
 }
+export async function createParallelPlan(request, suffix = 'parallel-recovery') {
+  const plan = inputPlan(suffix);
+  plan.startDate = dateBefore(10);
+  plan.planDays = Array.from({ length: 80 }, (_, index) => ({
+    id: 'p' + index, index, date: dateBefore(10 - index), title: 'Dzień ' + (index + 1),
+    segments: ['Rdz', 'Mt', 'Ps'].map((book, lane) => ({
+      id: 'p' + index + 's' + lane, label: book + ' ' + (index + 1), section: 'Czytanie ' + (lane + 1),
+    })),
+  }));
+  const response = await request.post('/api/groups', { data: plan });
+  expect(response.status()).toBe(201);
+  const session = await response.json();
+  test.info().annotations.push({ type: 'test-plan', description: session.group.id });
+  return session;
+}
 export const progressPath = session => '/api/groups/' + session.group.id + '/progress';
 export async function saveProgress(request, session, segmentId, completed = true) {
   const response = await request.post(progressPath(session), {
