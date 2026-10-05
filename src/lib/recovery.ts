@@ -191,7 +191,7 @@ export function parseRecoveryPortion(
       }
     }
     if (saved.extra) {
-      const extra = chapters.find(c => c.segmentId === saved.extra?.segmentId && c.chapterIndex === saved.extra.chapterIndex);
+      const extra = chapters.find(c => c.segmentId === saved.extra?.segmentId && c.chapterIndex === saved.extra?.chapterIndex);
       if (!extra || extra.originalDate > today || Object.entries(readingReference(extra)).some(([key, value]) => saved.extra?.[key as keyof RecoveryReading] !== value) ||
           assigned.has(`${extra.segmentId}:${extra.chapterIndex}`)) return;
       chosen.push(extra);
@@ -237,6 +237,9 @@ export function projectRecoveryPortions(
       base = savedPortion.day.segments.flatMap(segment =>
         savedPortion.chapterIndices[segment.id].map(index =>
           chapters.find(c => c.segmentId === segment.id && c.chapterIndex === index)!));
+    } else if (portions.length === 0 && anchor && chapters.every(c => c.originalDate > today)) {
+      // Preserve an explicitly opened pre-start portion without assigning debt.
+      base = chapters.filter(c => c.dayIndex === group.planDays.indexOf(anchor));
     } else if (portions.length === 0 && anchor && savedDayId &&
         anchor.segments.every(segment => group.progress[memberId]?.[segment.id])) {
       // Migrate a completed legacy daily anchor without advancing today's rows.
@@ -247,7 +250,17 @@ export function projectRecoveryPortions(
         const due = laneChapters.filter(c => c.originalDate <= date);
         const templateIndex = due.at(-1)?.dayIndex ?? laneChapters[0].dayIndex;
         const quota = laneChapters.filter(c => c.dayIndex === templateIndex).length;
-        base.push(...laneChapters.filter(c => !isDone(c) && c.originalDate <= date).slice(0, quota));
+        const unread = laneChapters.filter(c => !isDone(c) && c.originalDate <= date);
+        const anchorIndex = anchor ? group.planDays.indexOf(anchor) : -1;
+        // Keep a partially checked standard portion visible on activation.
+        // Recorded recovery chapters already consumed on earlier dates instead
+        // move this stream forward and do not reduce its new daily quota.
+        const checkedAnchor = portions.length === 0 && anchorIndex >= 0 &&
+          (!unread[0] || unread[0].dayIndex <= anchorIndex + 1)
+          ? laneChapters.filter(c => c.dayIndex === anchorIndex && group.progress[memberId]?.[c.segmentId] &&
+              !isRecoveryChapterRead(readChapters, chapterMarks, c.segmentId, c.chapterIndex)).slice(0, quota)
+          : [];
+        base.push(...checkedAnchor, ...unread.slice(0, quota - checkedAnchor.length));
       }
     }
     if (!base.length) {

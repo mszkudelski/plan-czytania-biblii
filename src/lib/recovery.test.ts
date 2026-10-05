@@ -140,7 +140,9 @@ it("respects reading weekdays and stops adding extras when caught up", () => {
   expect(portions[1].day.date).toBe("2026-09-14");
   g.frequency = { kind: "custom", days: [1, 4] };
   expect(projectRecoveryPortions(g, "a", "2026-09-11", {}, "day-1")[1].day.date).toBe("2026-09-14");
-  expect(projectRecoveryPortions(g, "a", "2026-08-30", {}, "day-1")[0].extra).toBeUndefined();
+  const beforeStart = projectRecoveryPortions(g, "a", "2026-08-30", {}, "day-1")[0];
+  expect(beforeStart.day.date).toBe("2026-08-30");
+  expect(beforeStart.extra).toBeUndefined();
   for (const day of g.planDays) for (const segment of day.segments) g.progress.a[segment.id] = "done";
   expect(projectRecoveryPortions(g, "a", "2026-09-11", {}, "")).toEqual([]);
 });
@@ -213,4 +215,16 @@ it("preserves a saved composite portion but rejects corrupt and skipped chapter 
   const future = projectRecoveryPortions(parallelFixture(), "a", "2026-09-11", {}, "")[5];
   future.day.date = "2026-09-11"; future.day.id = "recovery:2026-09-11";
   expect(parseRecoveryPortion(parallelFixture(), "a", "2026-09-11", {}, {}, JSON.stringify(future))).toBeUndefined();
+});
+
+it("keeps a prechecked standard row on activation without counting yesterday's recovery as today's quota", () => {
+  const g = parallelFixture();
+  g.progress.a["day-1-segment-1"] = "done";
+  const activation = projectRecoveryPortions(g, "a", "2026-09-11", {}, "");
+  expect(activation[0].day.segments.map(s => s.label)).toEqual(["Rdz 1", "Mt 1", "Ps 1"]);
+  expect(activation[0].extra?.label).toBe("Rdz 2");
+  // The same completed chapter recorded by recovery must be skipped in a new
+  // day's full normal quota, while keeping the other parallel streams present.
+  const nextDay = projectRecoveryPortions(g, "a", "2026-09-12", { "day-1-segment-1": 1 }, "");
+  expect(nextDay[0].day.segments.map(s => s.label)).toEqual(["Rdz 2", "Mt 1", "Ps 1"]);
 });
