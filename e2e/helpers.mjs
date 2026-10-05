@@ -70,10 +70,30 @@ export async function readGroup(request, session) {
   return response.json();
 }
 export async function expectSaved(request, session, expectedIds) {
-  await expect.poll(async () => {
-    const group = await readGroup(request, session);
-    return Object.keys(group.progress[session.credentials.memberId] ?? {}).sort();
-  }).toEqual([...expectedIds].sort());
+  const started = Date.now();
+  let readStarted = null;
+  let returnedReads = 0;
+  let lastSeen = null;
+  let maxReadMs = 0;
+  try {
+    await expect.poll(async () => {
+      readStarted = Date.now();
+      const group = await readGroup(request, session);
+      maxReadMs = Math.max(maxReadMs, Date.now() - readStarted);
+      readStarted = null;
+      returnedReads++;
+      lastSeen = Object.keys(group.progress[session.credentials.memberId] ?? {}).sort();
+      return lastSeen;
+    }).toEqual([...expectedIds].sort());
+  } catch (error) {
+    // Public IDs and segment IDs only; never print the session or request body.
+    console.error('Backend progress verification:', JSON.stringify({
+      groupId: session.group.id, expected: [...expectedIds].sort(), lastSeen,
+      returnedReads, maxReadMs, elapsedMs: Date.now() - started,
+      pendingReadMs: readStarted === null ? null : Date.now() - readStarted,
+    }));
+    throw error;
+  }
 }
 export async function openPlan(page, session, cache = {}) {
   await page.clock.install({ time: NOW });
