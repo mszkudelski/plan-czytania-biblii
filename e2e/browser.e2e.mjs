@@ -96,6 +96,42 @@ test('recovery starts at personal progress and adds only one extra row', async (
   await expect(extraReading(page)).toHaveCount(0);
 });
 
+test('reload after backend commit preserves the extra while its response is pending', async ({ page, request }) => {
+  const session = await createPlan(request, 'extra-reload-response');
+  await saveProgress(request, session, 's0');
+  await saveProgress(request, session, 's1');
+  // Keep the daily portion at d0 even though its base is already completed.
+  await openPlan(page, session, {
+    [recoveryKey(session)]: TODAY,
+    [recoveryKey(session) + ':ordered:' + TODAY + ':day']: 'd0',
+  });
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  let release;
+  let committed;
+  const gate = new Promise(resolve => { release = resolve; });
+  const saved = new Promise(resolve => { committed = resolve; });
+  await page.route('**' + progressPath(session), async route => {
+    const response = await route.fetch();
+    committed(response.status());
+    await gate;
+    try { await route.fulfill({ response }); } catch {
+      // The old page's request may already have been cancelled by reload.
+    }
+  }, { times: 1 });
+  try {
+    await extraReading(page).click();
+    expect(await saved).toBe(200);
+    await expectSaved(request, session, ['s0', 's1', 's2']);
+    await page.reload();
+    await expect(extraReading(page)).toContainText('Rdz 2');
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  } finally { release(); }
+  await page.reload();
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  await expectSaved(request, session, ['s0', 's1', 's2']);
+});
+
 test('extra waits for the standard writes and rolls back if the base fails', async ({ page, request }) => {
   const session = await createPlan(request, 'base-failure');
   await openPlan(page, session);

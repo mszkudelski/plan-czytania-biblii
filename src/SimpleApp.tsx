@@ -1533,6 +1533,21 @@ function TodayView({
     try { return JSON.parse(localStorage.getItem(dailyKey) ?? "null"); } catch { return null; }
   });
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const activeView = useRef(true);
+  useEffect(() => {
+    activeView.current = true;
+    const leave = () => { activeView.current = false; };
+    const resume = () => { activeView.current = true; };
+    window.addEventListener("beforeunload", leave);
+    window.addEventListener("pagehide", leave);
+    window.addEventListener("pageshow", resume);
+    return () => {
+      leave();
+      window.removeEventListener("beforeunload", leave);
+      window.removeEventListener("pagehide", leave);
+      window.removeEventListener("pageshow", resume);
+    };
+  }, []);
   function remainingRecoveryDay(day: PlanDay): PlanDay {
     return {
       ...day,
@@ -1602,6 +1617,9 @@ function TodayView({
         await onToggle(extra.segmentId);
       }
     } catch {
+      // Navigation can abort the response after the backend committed the write.
+      // A departed view must not erase the new page's saved daily reading.
+      if (!activeView.current) return;
       setReadChapters(previousChapters);
       setDailyReading(previousReading);
       try {
@@ -1612,7 +1630,7 @@ function TodayView({
       } catch { /* The visible state still rolls back if browser storage is unavailable. */ }
       onError("Nie udało się zapisać zmiany. Spróbuj ponownie.");
     } finally {
-      setRecoveryBusy(false);
+      if (activeView.current) setRecoveryBusy(false);
     }
   }
   function changeRecovery(start: string) {
