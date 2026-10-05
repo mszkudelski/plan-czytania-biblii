@@ -242,6 +242,8 @@ test('completed plan has no future recovery extra', async ({ page, request }) =>
   await expect(page.getByRole('heading', { name: 'Plan ukończony' })).toBeVisible();
   await expect(extraReading(page)).toHaveCount(0);
   await expect(page.locator('.day-switcher')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Poprzedni dzień', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Następny dzień', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Poprzedni dzień', exact: true }).click();
   await expect(reading(page, 'Rdz 5')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('.day-strip button').last().click();

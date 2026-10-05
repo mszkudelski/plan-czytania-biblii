@@ -1602,7 +1602,7 @@ function TodayView({
   const isRecoveryPortion = Boolean(recoveryStart && displayedDay && displayedDay.id === recoveryDayId);
   const isForecast = Boolean(recoveryStart && browsedPortion && !isRecoveryPortion);
   const displayedIndex = recoveryStart
-    ? Math.max(0, navigationDays.findIndex(day => day.id === displayedDay?.id))
+    ? (displayedDay ? Math.max(0, navigationDays.findIndex(day => day.id === displayedDay.id)) : initialIndex)
     : selectedIndex;
   function selectDay(index: number) {
     if (!recoveryStart) { setSelectedIndex(index); return; }
