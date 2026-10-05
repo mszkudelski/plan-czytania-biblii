@@ -1,5 +1,7 @@
 # Development and verification
 
+Work directly on `develop` unless the user explicitly requests another branch. Do not create a feature branch or pull request for routine changes.
+
 For every change affecting frontend behavior, recovery/progress logic, sessions, or backend routes:
 - Update the existing unit and E2E regression tests to cover the final behavior. Add a regression for each fixed defect.
 - Run `npm test`, `npm run build`, and `npm run test:e2e` against a Netlify non-production deployment of the same commit.
