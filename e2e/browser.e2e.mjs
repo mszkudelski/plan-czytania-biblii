@@ -601,3 +601,41 @@ test('failed refresh shows the last real cached plan and can reconnect', async (
   await expect(page.getByRole('status')).toHaveCount(0);
   await expectSaved(request, session, ['s0']);
 });
+
+test('unchecking a cached extra before session refresh persists the explicit uncheck', async ({ page, request }) => {
+  const session = await createPlan(request, 'cached-extra-uncheck');
+  await openPlan(page, session);
+  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await extraReading(page).click();
+  await expectSaved(request, session, ['s0', 's1', 's2']);
+  await page.evaluate(({ key, memberId }) => {
+    const cached = JSON.parse(localStorage.getItem(key));
+    // Recreate an older real cache snapshot; backend still has the saved extra.
+    delete cached.group.progress[memberId].s2;
+    localStorage.setItem(key, JSON.stringify(cached));
+  }, { key: 'plan-czytania-biblii-group-' + session.group.id, memberId: session.credentials.memberId });
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const captured = new Promise(resolve => { started = resolve; });
+  await page.route('**/api/session', async route => {
+    const response = await route.fetch();
+    started(response.status());
+    await gate;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  try {
+    await page.reload();
+    expect(await captured).toBe(200);
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+    await extraReading(page).click();
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+    await expectSaved(request, session, ['s0', 's1']);
+  } finally { release(); }
+  await expect(page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true })).toBeEnabled();
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+  await page.reload();
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+  await expectSaved(request, session, ['s0', 's1']);
+});

@@ -222,3 +222,16 @@ it("can reactivate after effect cleanup without leaving the UI disabled", async 
   await save;
   expect(f.saved).toHaveLength(1);
 });
+
+it("saves an explicit uncheck even when a stale cache does not show server completion", async () => {
+  const f = fixture();
+  const revision = f.queue.revision;
+  const save = f.queue.toggle("s1", false);
+  expect(f.requests[0].completed).toBe(false);
+  expect(f.visible.progress.a.s1).toBeUndefined();
+  f.queue.replaceGroup(groupWith({ s1: "stale-read" }), revision);
+  expect(f.visible.progress.a.s1).toBeUndefined();
+  f.requests[0].task.resolve(groupWith());
+  await save;
+  expect(f.visible.progress.a.s1).toBeUndefined();
+});

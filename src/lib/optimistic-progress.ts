@@ -97,8 +97,8 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
       }
       return confirmedGroup;
     },
-    toggle(segmentId: string) {
-      const completed = !snapshot().progress[options.memberId]?.[segmentId];
+    toggle(segmentId: string, desiredCompleted?: boolean) {
+      const completed = desiredCompleted ?? !snapshot().progress[options.memberId]?.[segmentId];
       let resolve!: () => void;
       let reject!: (error: unknown) => void;
       const promise = new Promise<void>((onSuccess, onFailure) => {

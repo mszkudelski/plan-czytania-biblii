@@ -1511,9 +1511,9 @@ function Dashboard({
 
   const member = visibleGroup.members.find((item) => item.id === credentials.memberId);
   if (!member) return null;
-  function toggle(segmentId: string) {
+  function toggle(segmentId: string, completed?: boolean) {
     setProgressError("");
-    return progressQueue.toggle(segmentId);
+    return progressQueue.toggle(segmentId, completed);
   }
 
   async function remove(person: Member) {
@@ -1629,7 +1629,7 @@ function TodayView({
 }: {
   group: Group;
   member: Member;
-  onToggle: (segmentId: string) => Promise<void>;
+  onToggle: (segmentId: string, completed?: boolean) => Promise<void>;
   onError: (message: string) => void;
   onWaitForSegments: (segmentIds: string[]) => Promise<void>;
 }) {
@@ -1822,7 +1822,7 @@ function TodayView({
       if (displayedExtra?.segmentId === segmentId && completed && displayedDay) {
         await onWaitForSegments(displayedDay.segments.filter(segment => progress[segment.id]).map(segment => segment.id));
       }
-      if (Boolean(progress[segmentId]) !== segmentCompleted) await onToggle(segmentId);
+      if (!completed || Boolean(progress[segmentId]) !== segmentCompleted) await onToggle(segmentId, segmentCompleted);
       settle("saved");
     } catch {
       try { settle("failed"); } catch { /* Visible state is restored even if storage fails. */ }
