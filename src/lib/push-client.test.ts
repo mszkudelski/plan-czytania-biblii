@@ -36,3 +36,16 @@ it("registers a worker after consent and replaces a subscription for a different
   expect(unsubscribe).toHaveBeenCalledTimes(1);
   expect(subscribe).toHaveBeenCalledWith({ userVisibleOnly: true, applicationServerKey: new Uint8Array([1, 2]) });
 });
+it("recognizes an iPad desktop user agent outside Safari as requiring installation", () => {
+  Object.assign(navigator, { userAgent: "Mozilla/5.0 Macintosh AppleWebKit CriOS/130.0", platform: "MacIntel", maxTouchPoints: 5 });
+  expect(notificationSupportMessage()).toContain("ekranu początkowego");
+});
+it("does not require installation in an iOS home-screen app", () => {
+  Object.assign(navigator, { userAgent: "iPhone AppleWebKit", platform: "iPhone", standalone: true });
+  expect(notificationSupportMessage()).toBe("");
+});
+it("lets the user retry a dismissed permission prompt without changing system settings", async () => {
+  vi.stubGlobal("Notification", { requestPermission: vi.fn().mockResolvedValue("default") });
+  await expect(subscribeToReading("abc")).rejects.toThrow("Kliknij ponownie");
+  expect(navigator.serviceWorker.register).not.toHaveBeenCalled();
+});

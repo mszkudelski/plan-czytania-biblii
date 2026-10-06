@@ -1,4 +1,4 @@
-import { isIosSafariBrowser, isStandaloneApp } from "./install";
+import { isIosDevice, isStandaloneApp } from "./install";
 import type { PushSubscriptionData } from "./notifications";
 
 export function reminderDeviceId() {
@@ -11,13 +11,20 @@ export function reminderDeviceId() {
   return id;
 }
 
-export function notificationSupportMessage() {
+export function notificationDevice() {
   const standalone = isStandaloneApp(window.matchMedia("(display-mode: standalone)").matches, Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
-  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent) || isIosSafariBrowser(navigator.userAgent, navigator.platform, navigator.maxTouchPoints);
-  if (ios && !standalone) return "Na iPhonie lub iPadzie dodaj aplikację do ekranu początkowego i otwórz ją z jej ikony, aby włączyć powiadomienia.";
-  if (!window.isSecureContext || !("Notification" in window) || !("PushManager" in window) || !("serviceWorker" in navigator)) {
-    return "Ta przeglądarka nie obsługuje powiadomień push. Otwórz aplikację w przeglądarce obsługującej powiadomienia.";
-  }
+  const ios = isIosDevice(navigator.userAgent, navigator.platform, navigator.maxTouchPoints);
+  const supported = window.isSecureContext && "Notification" in window && "PushManager" in window && "serviceWorker" in navigator;
+  const browser = /CriOS|Chrome|Chromium/i.test(navigator.userAgent) ? "chrome"
+    : /Safari/i.test(navigator.userAgent) && !/FxiOS|EdgiOS|OPiOS/i.test(navigator.userAgent) ? "safari" : "other";
+  return { ios, standalone, supported, browser, needsInstall: ios && !standalone,
+    permission: "Notification" in window ? window.Notification.permission ?? "default" : "default" as NotificationPermission };
+}
+
+export function notificationSupportMessage() {
+  const device = notificationDevice();
+  if (device.needsInstall) return "Na iPhonie lub iPadzie dodaj aplikację do ekranu początkowego i otwórz ją z jej ikony, aby włączyć powiadomienia.";
+  if (!device.supported) return "Ta przeglądarka nie obsługuje powiadomień push. Otwórz aplikację w przeglądarce obsługującej powiadomienia.";
   return "";
 }
 
@@ -29,6 +36,7 @@ export function applicationServerKey(publicKey: string) {
 export async function subscribeToReading(publicKey: string): Promise<PushSubscriptionData> {
   // Call directly from the click/submit gesture, before any network request.
   const permission = await Notification.requestPermission();
+  if (permission === "default") throw new Error("Nie udzielono jeszcze zgody. Kliknij ponownie „Włącz przypomnienia” i wybierz „Zezwól” lub „Pozwól”.");
   if (permission !== "granted") throw new Error("Zezwól na powiadomienia w ustawieniach przeglądarki, a następnie spróbuj ponownie.");
   await navigator.serviceWorker.register("/sw.js");
   let timeout: ReturnType<typeof setTimeout> | undefined;

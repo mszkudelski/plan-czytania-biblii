@@ -78,7 +78,7 @@ test('notification settings reload the saved hour and disable through the deploy
     expect(await (await request.post(path(session), { data: body(session, deviceId, 'read') })).json()).toBeNull();
     await page.reload();
     await tab(page, 'Ustawienia').click();
-    await expect(panel).toContainText('Status: wyłączone');
+    await expect(panel).toContainText('Przypomnienia wyłączone');
   } finally { await request.post(path(session), { data: body(session, deviceId, 'disable') }); }
 });
 
@@ -90,8 +90,13 @@ test('blocked notification permission is explained without changing settings', a
   await tab(page, 'Ustawienia').click();
   const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
   await expect(panel).toContainText('Powiadomienia są zablokowane');
+  await expect(panel).toContainText('ikonę ustawień strony');
   await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toBeDisabled();
-  await expect(panel).toContainText('Status: wyłączone');
+  await expect(panel).toContainText('Wymagana zgoda na powiadomienia');
+  await cdp.send('Browser.setPermission', { permission: { name: 'notifications' }, setting: 'granted', origin: new URL(process.env.E2E_BASE_URL).origin });
+  await panel.getByRole('button', { name: 'Sprawdź zgodę ponownie' }).click();
+  await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toBeEnabled();
+  await expect(panel).not.toContainText('Powiadomienia są zablokowane');
 });
 
 test('logout disables only this device reminder', async ({ page, request }) => {
@@ -121,10 +126,59 @@ test('mobile iOS explains installation and keeps the notification panel within t
   });
   const session = await createPlan(request, 'notifications-ios');
   await openPlan(page, session);
+  await expect(page.locator('.install-app-card')).toBeVisible();
   await tab(page, 'Ustawienia').click();
+  await expect(page.locator('.install-app-card')).toBeHidden();
   const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
   await expect(panel).toContainText('ekranu początkowego');
-  await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toBeDisabled();
+  await expect(panel).toContainText('Udostępnij');
+  await expect(panel).toContainText('Otwórz jako aplikację webową');
+  await expect(panel).toContainText('otwórz ikonę');
+  await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toHaveCount(0);
+  await expect(panel.getByLabel('Godzina przypomnienia')).toHaveCount(0);
+  await panel.getByText('Po instalacji nie widzę swojego planu', { exact: true }).click();
+  await expect(panel).toContainText('Przeniesienie sesji');
   const size = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, viewport: innerWidth }));
   expect(size.width).toBeLessThanOrEqual(size.viewport);
+});
+
+
+test('desktop setup presents the next action without requiring installation', async ({ page, request }) => {
+  const session = await createPlan(request, 'notifications-desktop-guide');
+  await openPlan(page, session);
+  await tab(page, 'Ustawienia').click();
+  const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
+  await expect(panel).toContainText('Instalacja aplikacji nie jest wymagana');
+  await expect(panel.getByLabel('Godzina przypomnienia')).toHaveValue('08:00');
+  await expect(panel).toContainText('Po kliknięciu przycisku');
+  await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toBeEnabled();
+  await expect(panel.getByRole('button', { name: 'Wyślij powiadomienie testowe' })).toHaveCount(0);
+  await expect(panel.locator('[aria-current="step"]')).toContainText('Wybierz godzinę');
+});
+
+test('installed iOS app advances directly to the time and consent step', async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: 'iPhone AppleWebKit Safari' });
+    Object.defineProperty(navigator, 'standalone', { value: true });
+  });
+  const session = await createPlan(request, 'notifications-ios-installed');
+  await openPlan(page, session);
+  await tab(page, 'Ustawienia').click();
+  const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
+  await expect(panel).toContainText('Aplikacja jest otwarta');
+  await expect(panel.getByLabel('Godzina przypomnienia')).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toBeEnabled();
+  await expect(panel.locator('.notification-install-steps')).toHaveCount(0);
+});
+
+test('unsupported browser explains the next action without a dead enable button', async ({ page, request }) => {
+  await page.addInitScript(() => { delete window.PushManager; });
+  const session = await createPlan(request, 'notifications-unsupported');
+  await openPlan(page, session);
+  await tab(page, 'Ustawienia').click();
+  const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
+  await expect(panel).toContainText('Ta przeglądarka nie obsługuje powiadomień');
+  await expect(panel).toContainText('Otwórz plan w aktualnej wersji');
+  await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toHaveCount(0);
 });

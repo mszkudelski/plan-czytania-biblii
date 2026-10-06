@@ -21,8 +21,12 @@ postęp, zaznacza fragmenty oddzielnie i widzi zaległość lub wyprzedzenie.
 
 ## Przypomnienia o czytaniu
 
-W **Ustawienia → Powiadomienia o czytaniu** wybierz godzinę i naciśnij
-**Włącz przypomnienia**, a następnie zezwól przeglądarce na powiadomienia.
+W **Ustawienia → Powiadomienia o czytaniu** przejdź przez trzy kroki:
+przygotowanie urządzenia, wybór godziny i zgoda, a następnie test powiadomienia.
+Na iPhonie i iPadzie pierwszy krok zawiera instrukcję dodania aplikacji do
+ekranu początkowego i otwarcia jej z ikony, wraz z pomocą w przeniesieniu sesji.
+Na komputerze instalacja nie jest wymagana. Jeśli zgoda jest zablokowana,
+panel wyjaśnia jak ją przywrócić i umożliwia ponowne sprawdzenie bez przeładowania.
 Godzina jest liczona w zapisanej strefie czasowej urządzenia, z uwzględnieniem
 czasu letniego/zimowego. Na drugim urządzeniu włącz przypomnienia osobno.
 Możesz zmienić godzinę, wysłać test albo wyłączyć przypomnienia.

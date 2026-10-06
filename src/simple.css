@@ -1348,17 +1348,65 @@ button {
   font-weight: 700;
 }
 
-.notification-card {
-  display: grid;
-  gap: 14px;
-  padding: 22px;
+.notification-card { padding: 24px; display: grid; gap: 20px; }
+.notification-card p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+.notification-intro { display: flex; gap: 14px; align-items: flex-start; }
+.notification-bell { flex: 0 0 46px; height: 46px; display: grid; place-items: center; border-radius: 14px; background: var(--soft-green); color: var(--green); }
+.notification-intro h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.4px; }
+.notification-card .notification-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.notification-status > span { flex: 0 0 7px; height: 7px; background: var(--muted); border-radius: 50%; }
+.notification-card .notification-status--on { color: var(--success); }
+.notification-status--on > span { background: var(--success); }
+.notification-notice { display: grid; gap: 5px; padding: 14px 16px; background: var(--subtle); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; }
+.notification-notice > strong { font-size: 13px; }
+.notification-card .notification-notice p { font-size: 13px; }
+.notification-notice--warning { background: var(--ahead-soft); border-color: var(--ahead-border); }
+.notification-notice ol { margin: 6px 0; padding-left: 20px; line-height: 1.65; }
+.notification-notice li + li { margin-top: 8px; }
+.notification-steps { margin: 0; padding: 0; list-style: none; }
+.notification-step { position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 14px; padding: 0 0 24px; }
+.notification-step:not(:last-child)::before { content: ""; position: absolute; left: 14px; top: 36px; bottom: 6px; width: 1px; background: var(--border); }
+.notification-step:last-child { padding-bottom: 0; }
+.notification-step-number { display: grid; place-items: center; height: 30px; border: 1px solid var(--border); border-radius: 50%; font-size: 13px; font-weight: 700; color: var(--muted); background: var(--paper); }
+.notification-step--current .notification-step-number { background: var(--green-button); border-color: var(--green-button); color: #fff; }
+.notification-step--done .notification-step-number { background: var(--success-soft); border-color: var(--success-border); color: var(--success); }
+.notification-step-content { display: grid; gap: 12px; min-width: 0; padding-top: 3px; }
+.notification-step-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.notification-step-heading h3 { margin: 0; font-size: 15px; line-height: 1.5; }
+.notification-step-heading > span { font-size: 11px; color: var(--muted); font-weight: 600; }
+.notification-step--current .notification-step-heading > span { color: var(--green); }
+.notification-step--done .notification-step-heading > span { color: var(--success); }
+.notification-card form { display: grid; gap: 12px; }
+.notification-card .simple-field { margin: 0; }
+.notification-card .simple-field > span { font-size: 13px; }
+.notification-card input[type="time"] { width: 100%; max-width: 180px; min-height: 48px; font-size: 22px; font-weight: 600; padding: 8px 12px; }
+.notification-card .notification-hint { font-size: 12px; overflow-wrap: anywhere; }
+.notification-card button { min-height: 44px; white-space: normal; }
+.notification-card .main-button, .notification-card .small-button { justify-self: start; }
+.notification-install-steps { display: grid; gap: 12px; margin: 0; padding: 16px 16px 16px 34px; background: var(--subtle); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; line-height: 1.7; }
+.notification-install-steps li { padding-left: 4px; }
+.notification-install-steps li::marker { color: var(--green); font-weight: 700; }
+.notification-share { display: inline-block; vertical-align: text-bottom; color: var(--green); }
+.notification-help { font-size: 13px; line-height: 1.6; }
+.notification-help summary { cursor: pointer; color: var(--green); font-weight: 600; padding: 6px 0; }
+.notification-help summary:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 3px; }
+.notification-help p { padding-top: 8px; }
+.notification-card .notification-feedback { padding: 12px 16px; background: var(--success-soft); border: 1px solid var(--success-border); border-radius: 12px; color: var(--success); font-size: 13px; }
+.notification-footer { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 16px; }
+.notification-footer p { font-size: 12px; }
+@media (max-width: 480px) {
+  .notification-card { padding: 18px 14px; gap: 16px; }
+  .notification-intro { gap: 10px; }
+  .notification-intro h3 { font-size: 18px; }
+  .notification-bell { flex-basis: 38px; height: 38px; border-radius: 11px; }
+  .notification-step { grid-template-columns: 26px minmax(0, 1fr); gap: 10px; }
+  .notification-step-number { height: 26px; }
+  .notification-step:not(:last-child)::before { left: 12px; top: 32px; }
+  .notification-step-content { padding-top: 1px; }
+  .notification-step-heading h3 { font-size: 14px; }
+  .notification-card p { font-size: 13px; }
+  .notification-card form .main-button { width: 100%; }
 }
-.notification-card p { margin: 0; color: var(--muted); line-height: 1.6; }
-.notification-card .notification-status { color: var(--ink); font-weight: 600; }
-.notification-card form { display: grid; gap: 14px; }
-.notification-card input[type="time"] { max-width: 220px; }
-.notification-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-.notification-card .notification-preview { font-size: 13px; }
 
 .transfer-card {
   display: grid;
@@ -1877,3 +1925,7 @@ button {
   color: var(--danger);
   font-size: 0.8rem;
 }
+
+/* The notification setup already includes the installation guide. */
+body:has(.notification-card) .install-app-card,
+body:has(.notification-card) .simple-modal-bg:has(.install-instructions) { display: none; }
