@@ -32,6 +32,11 @@ subscriptions are created only in preview scope and deleted in finally blocks;
 these tests do not claim delivery through a browser push provider. Scheduler
 timing, local dates, deduplication, retries and expired subscriptions have unit tests.
 
+Notification browser tests use full Chromium in its new headless mode, because
+the separate headless shell reports notification permission as denied. Native
+permission states are set for the test's own browser context; API responses and
+settings persistence still use the real Netlify backend.
+
 The workflow provides a stable **Required CI** check which fails unless both Unit tests and build and E2E with real backend pass. Configure Settings > Rules > Rulesets for develop and main, enable Require status checks to pass, select **Required CI**, and require the branch to be up to date. A reviewable REST ruleset payload is in ../.github/required-ci.ruleset.json.
 
 Adding a workflow does not enable branch protection. The connected GitHub integration cannot edit administrative settings; an administrator must apply that ruleset once.

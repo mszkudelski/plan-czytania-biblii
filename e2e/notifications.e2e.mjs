@@ -2,6 +2,21 @@ import { test, expect } from '@playwright/test';
 import { createECDH, randomBytes } from 'node:crypto';
 import { createPlan, openPlan, tab, readGroup } from './helpers.mjs';
 
+// Headless shell always reports Notification.permission as denied. Use the
+// full Chromium browser so these regressions exercise native permission states.
+test.use({ channel: 'chromium' });
+
+async function setNotificationPermission(page, setting) {
+  const cdp = await page.context().newCDPSession(page);
+  const { targetInfo } = await cdp.send('Target.getTargetInfo');
+  await cdp.send('Browser.setPermission', {
+    permission: { name: 'notifications' }, setting,
+    origin: new URL(process.env.E2E_BASE_URL).origin,
+    browserContextId: targetInfo.browserContextId,
+  });
+  await cdp.detach();
+}
+
 function testSubscription() {
   const curve = createECDH('prime256v1');
   curve.generateKeys();
@@ -58,6 +73,7 @@ test('notifications persist personal settings and reject invalid inputs without 
 });
 
 test('notification settings reload the saved hour and disable through the deployed API', async ({ page, request }) => {
+  await setNotificationPermission(page, 'granted');
   const session = await createPlan(request, 'notifications-browser');
   const deviceId = crypto.randomUUID();
   await page.addInitScript(id => localStorage.setItem('reading-notification-device', id), deviceId);
@@ -84,8 +100,7 @@ test('notification settings reload the saved hour and disable through the deploy
 
 test('blocked notification permission is explained without changing settings', async ({ page, request }) => {
   const session = await createPlan(request, 'notifications-denied');
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Browser.setPermission', { permission: { name: 'notifications' }, setting: 'denied', origin: new URL(process.env.E2E_BASE_URL).origin });
+  await setNotificationPermission(page, 'denied');
   await openPlan(page, session);
   await tab(page, 'Ustawienia').click();
   const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
@@ -93,7 +108,8 @@ test('blocked notification permission is explained without changing settings', a
   await expect(panel).toContainText('ikonę ustawień strony');
   await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toBeDisabled();
   await expect(panel).toContainText('Wymagana zgoda na powiadomienia');
-  await cdp.send('Browser.setPermission', { permission: { name: 'notifications' }, setting: 'granted', origin: new URL(process.env.E2E_BASE_URL).origin });
+  await setNotificationPermission(page, 'granted');
+  await expect.poll(() => page.evaluate(() => Notification.permission)).toBe('granted');
   await panel.getByRole('button', { name: 'Sprawdź zgodę ponownie' }).click();
   await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toBeEnabled();
   await expect(panel).not.toContainText('Powiadomienia są zablokowane');
@@ -144,6 +160,7 @@ test('mobile iOS explains installation and keeps the notification panel within t
 
 
 test('desktop setup presents the next action without requiring installation', async ({ page, request }) => {
+  await setNotificationPermission(page, 'prompt');
   const session = await createPlan(request, 'notifications-desktop-guide');
   await openPlan(page, session);
   await tab(page, 'Ustawienia').click();
@@ -157,6 +174,7 @@ test('desktop setup presents the next action without requiring installation', as
 });
 
 test('installed iOS app advances directly to the time and consent step', async ({ page, request }) => {
+  await setNotificationPermission(page, 'prompt');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'userAgent', { value: 'iPhone AppleWebKit Safari' });
