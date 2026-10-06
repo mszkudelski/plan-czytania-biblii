@@ -14,7 +14,8 @@ async function setNotificationPermission(page, setting) {
     origin: new URL(process.env.E2E_BASE_URL).origin,
     browserContextId: targetInfo.browserContextId,
   });
-  await cdp.detach();
+  // Keep the session attached for the scenario: detaching restores permissions.
+  // Playwright closes it with the isolated browser context at the end of the test.
 }
 
 function testSubscription() {
@@ -102,6 +103,7 @@ test('blocked notification permission is explained without changing settings', a
   const session = await createPlan(request, 'notifications-denied');
   await setNotificationPermission(page, 'denied');
   await openPlan(page, session);
+  await expect.poll(() => page.evaluate(() => Notification.permission)).toBe('denied');
   await tab(page, 'Ustawienia').click();
   const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
   await expect(panel).toContainText('Powiadomienia są zablokowane');
