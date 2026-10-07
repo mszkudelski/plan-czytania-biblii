@@ -87,6 +87,10 @@ test('notification settings reload the saved hour and disable through the deploy
     await expect(panel).toContainText('Europe/Warsaw');
     await expect(panel).toContainText('włączone na tym urządzeniu');
     await expect(panel).toContainText('Wersja testowa');
+    await expect(panel.getByLabel('Godzina przypomnienia')).toBeHidden();
+    await expect(panel.getByRole('button', { name: 'Wyślij powiadomienie testowe' })).toBeHidden();
+    await panel.getByText('Narzędzia testowe', { exact: true }).click();
+    await expect(panel.getByRole('button', { name: 'Wyślij powiadomienie testowe' })).toBeVisible();
     await page.reload();
     await tab(page, 'Ustawienia').click();
     await expect(panel.getByLabel('Godzina przypomnienia')).toHaveValue('19:35');
@@ -95,7 +99,8 @@ test('notification settings reload the saved hour and disable through the deploy
     expect(await (await request.post(path(session), { data: body(session, deviceId, 'read') })).json()).toBeNull();
     await page.reload();
     await tab(page, 'Ustawienia').click();
-    await expect(panel).toContainText('Przypomnienia wyłączone');
+    await expect(panel.getByRole('heading', { name: 'O której przypomnieć Ci o czytaniu?' })).toBeVisible();
+    await expect(panel.getByLabel('Godzina przypomnienia')).toBeVisible();
   } finally { await request.post(path(session), { data: body(session, deviceId, 'disable') }); }
 });
 
@@ -108,8 +113,9 @@ test('blocked notification permission is explained without changing settings', a
   const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
   await expect(panel).toContainText('Powiadomienia są zablokowane');
   await expect(panel).toContainText('ikonę ustawień strony');
-  await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toBeDisabled();
-  await expect(panel).toContainText('Wymagana zgoda na powiadomienia');
+  await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toHaveCount(0);
+  await expect(panel.getByLabel('Godzina przypomnienia')).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Wyślij powiadomienie testowe' })).toHaveCount(0);
   await setNotificationPermission(page, 'granted');
   await expect.poll(() => page.evaluate(() => Notification.permission)).toBe('granted');
   await panel.getByRole('button', { name: 'Sprawdź zgodę ponownie' }).click();
@@ -148,7 +154,12 @@ test('mobile iOS explains installation and keeps the notification panel within t
   await tab(page, 'Ustawienia').click();
   await expect(page.locator('.install-app-card')).toBeHidden();
   const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
-  await expect(panel).toContainText('ekranu początkowego');
+  await expect(panel).toContainText('Chcesz włączyć powiadomienia?');
+  await expect(panel.locator('.notification-install-steps')).toBeHidden();
+  await expect(panel).not.toContainText('Wersja testowa');
+  await expect(panel.getByRole('heading')).toHaveCount(1);
+  await panel.getByText('Jak zainstalować aplikację?', { exact: true }).click();
+  await expect(panel.locator('.notification-install-steps')).toBeVisible();
   await expect(panel).toContainText('Udostępnij');
   await expect(panel).toContainText('Otwórz jako aplikację webową');
   await expect(panel).toContainText('otwórz ikonę');
@@ -167,12 +178,13 @@ test('desktop setup presents the next action without requiring installation', as
   await openPlan(page, session);
   await tab(page, 'Ustawienia').click();
   const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
-  await expect(panel).toContainText('Instalacja aplikacji nie jest wymagana');
+  await expect(panel.getByRole('heading', { name: 'O której przypomnieć Ci o czytaniu?' })).toBeVisible();
+  await expect(panel.getByRole('heading')).toHaveCount(1);
+  await expect(panel).not.toContainText('zainstalować');
   await expect(panel.getByLabel('Godzina przypomnienia')).toHaveValue('08:00');
   await expect(panel).toContainText('Po kliknięciu przycisku');
   await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toBeEnabled();
   await expect(panel.getByRole('button', { name: 'Wyślij powiadomienie testowe' })).toHaveCount(0);
-  await expect(panel.locator('[aria-current="step"]')).toContainText('Wybierz godzinę');
 });
 
 test('installed iOS app advances directly to the time and consent step', async ({ page, request }) => {
@@ -186,7 +198,7 @@ test('installed iOS app advances directly to the time and consent step', async (
   await openPlan(page, session);
   await tab(page, 'Ustawienia').click();
   const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
-  await expect(panel).toContainText('Aplikacja jest otwarta');
+  await expect(panel.getByRole('heading', { name: 'O której przypomnieć Ci o czytaniu?' })).toBeVisible();
   await expect(panel.getByLabel('Godzina przypomnienia')).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toBeEnabled();
   await expect(panel.locator('.notification-install-steps')).toHaveCount(0);

@@ -1349,6 +1349,9 @@ button {
 }
 
 .notification-card { padding: 24px; display: grid; gap: 20px; }
+.notification-current-step { display: grid; gap: 14px; min-width: 0; }
+.notification-current-step h3 { margin: 0; font-size: 18px; line-height: 1.45; }
+.notification-help > form, .notification-test-tools > div, .notification-help > .notification-install-steps { margin-top: 12px; }
 .notification-card p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
 .notification-intro { display: flex; gap: 14px; align-items: flex-start; }
 .notification-bell { flex: 0 0 46px; height: 46px; display: grid; place-items: center; border-radius: 14px; background: var(--soft-green); color: var(--green); }

@@ -21,15 +21,17 @@ postęp, zaznacza fragmenty oddzielnie i widzi zaległość lub wyprzedzenie.
 
 ## Przypomnienia o czytaniu
 
-W **Ustawienia → Powiadomienia o czytaniu** przejdź przez trzy kroki:
-przygotowanie urządzenia, wybór godziny i zgoda, a następnie test powiadomienia.
-Na iPhonie i iPadzie pierwszy krok zawiera instrukcję dodania aplikacji do
-ekranu początkowego i otwarcia jej z ikony, wraz z pomocą w przeniesieniu sesji.
-Na komputerze instalacja nie jest wymagana. Jeśli zgoda jest zablokowana,
-panel wyjaśnia jak ją przywrócić i umożliwia ponowne sprawdzenie bez przeładowania.
+W **Ustawienia → Powiadomienia o czytaniu** widzisz tylko aktualny krok.
+Na iPhonie i iPadzie przed instalacją zobaczysz prośbę o dodanie aplikacji do
+ekranu głównego i rozwijaną instrukcję. Godzina i zgoda pojawią się dopiero
+po otwarciu aplikacji z ikony. Przy zablokowanej zgodzie widzisz tylko pomoc
+w jej przywróceniu i przycisk ponownego sprawdzenia. Na komputerze możesz
+od razu wybrać godzinę, bez instalacji aplikacji.
 Godzina jest liczona w zapisanej strefie czasowej urządzenia, z uwzględnieniem
 czasu letniego/zimowego. Na drugim urządzeniu włącz przypomnienia osobno.
-Możesz zmienić godzinę, wysłać test albo wyłączyć przypomnienia.
+Po włączeniu możesz rozwinąć zmianę godziny albo wyłączyć przypomnienia.
+Narzędzia testowe są schowane w rozwijanej sekcji tylko poza produkcją;
+produkcyjny build i konfiguracja produkcyjna wykluczają przycisk testu.
 
 Na iOS/iPadOS 16.4+ dodaj aplikację do ekranu początkowego i otwórz z ikony.
 Powiadomienia wymagają HTTPS, obsługi Web Push i zgody przeglądarki.
