@@ -1,3 +1,4 @@
+import { getRecoveryDay, getOverdueDays, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -24,7 +25,8 @@ import {
   restoreSession,
   updateProgress,
 } from "./lib/api";
-import { parsePlanCsv, SAMPLE_CSV } from "./lib/csv";
+import { parsePlanCsv } from "./lib/csv";
+import { BASIC_PLAN_CSV } from "./lib/basic-plan";
 import QRCode from "qrcode";
 import {
   createJoinLink,
@@ -53,6 +55,7 @@ import {
   getPaceTone,
 } from "./lib/metrics";
 import { cleanPersonName } from "./lib/name";
+import { createOptimisticProgressQueue } from "./lib/optimistic-progress";
 import { buildSchedule, formatPolishDate, todayIso } from "./lib/schedule";
 import type {
   Credentials,
@@ -249,11 +252,19 @@ export default function SimpleApp() {
   const [syncMessage, setSyncMessage] = useState("");
   const [retry, setRetry] = useState(0);
   const skipSessionRestore = useRef(false);
+  const groupWriteVersion = useRef(0);
+  const latestGroup = useRef<Group | null>(initialCachedGroup?.group ?? null);
 
   const setGroupAndCache = useCallback((nextGroup: Group) => {
+    latestGroup.current = nextGroup;
     setGroup(nextGroup);
     setCachedAt(saveCachedGroup(nextGroup));
   }, []);
+
+  const commitGroup = useCallback((nextGroup: Group) => {
+    groupWriteVersion.current++;
+    setGroupAndCache(nextGroup);
+  }, [setGroupAndCache]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -304,6 +315,7 @@ export default function SimpleApp() {
     }
     let cancelled = false;
     const hasVisibleGroup = Boolean(group);
+    const readWriteVersion = groupWriteVersion.current;
     if (!hasVisibleGroup) setLoading(true);
     setRefreshing(true);
     setError("");
@@ -313,7 +325,11 @@ export default function SimpleApp() {
         if (cancelled) return;
         saveCredentials(session.credentials);
         setCredentials(session.credentials);
-        setGroupAndCache(session.group);
+        const current = latestGroup.current;
+        const freshGroup = groupWriteVersion.current !== readWriteVersion && current?.id === session.group.id
+          ? { ...session.group, progress: { ...session.group.progress, [credentials.memberId]: current.progress[credentials.memberId] ?? {} } }
+          : session.group;
+        setGroupAndCache(freshGroup);
         if (joinInvite) {
           setJoinInvite(null);
           if (window.location.hash) {
@@ -405,9 +421,10 @@ export default function SimpleApp() {
   } else if (credentials && group) {
     content = (
       <Dashboard
+        key={`${credentials.groupId}:${credentials.memberId}:${credentials.token}`}
         credentials={credentials}
         group={group}
-        setGroup={setGroupAndCache}
+        setGroup={commitGroup}
         onCredentialsChange={changeCredentials}
         theme={theme}
         onThemeChange={setTheme}
@@ -1037,7 +1054,7 @@ function JoinEntrySetup({
   );
 }
 
-function SetupChoices({
+function LandingPage({
   error,
   onChoose,
   theme,
@@ -1049,49 +1066,55 @@ function SetupChoices({
   onThemeChange: (theme: Theme) => void;
 }) {
   return (
-    <main className="setup-page">
-      <div className="setup-box setup-choice-box">
-        <div className="setup-top">
+    <main className="landing-page">
+      <div className="landing-shell">
+        <header className="landing-header">
           <Brand />
           <ThemeToggle theme={theme} onChange={onThemeChange} />
-        </div>
-        <h1>Witaj</h1>
-        {error && <div className="simple-alert">{error}</div>}
-        <p className="setup-description">
-          Wybierz, jak chcesz rozpocząć korzystanie z planu czytania.
+        </header>
+
+        <section className="landing-hero">
+          <div className="landing-eyebrow">Dla Ciebie, rodziny i grupy</div>
+          <h1>Plan czytania Biblii,<br />który łatwo trzymać.</h1>
+          <p>
+            Ustal plan, czytaj każdego dnia i zaznaczaj postęp.
+            Zaproś innych i każdy śledzi swoje czytanie w jednym miejscu.
+          </p>
+          {error && <div className="simple-alert">{error}</div>}
+          <div className="landing-actions">
+            <button type="button" className="main-button landing-primary" onClick={() => onChoose("create")}>
+              Utwórz plan
+            </button>
+            <button type="button" className="landing-secondary" onClick={() => onChoose("join")}>
+              Dołącz do istniejącego planu
+            </button>
+          </div>
+          <button type="button" className="link-button landing-transfer" onClick={() => onChoose("transfer")}>
+            Mam już plan na innym urządzeniu → przenieś sesję
+          </button>
+        </section>
+
+        <section className="landing-features" aria-label="Najważniejsze funkcje">
+          <article>
+            <span>01</span>
+            <strong>Twój plan</strong>
+            <p>Wgraj własny plan czytania i ustaw dni, w które chcesz czytać.</p>
+          </article>
+          <article>
+            <span>02</span>
+            <strong>Twój postęp</strong>
+            <p>Zaznaczaj przeczytane fragmenty i od razu widzisz, gdzie jesteś.</p>
+          </article>
+          <article>
+            <span>03</span>
+            <strong>Wspólne czytanie</strong>
+            <p>Zaproś rodzinę lub grupę. Każda osoba ma własny postęp.</p>
+          </article>
+        </section>
+
+        <p className="landing-footer">
+          Bez konta e-mail. Zacznij od własnego planu lub dołącz przez zaproszenie.
         </p>
-        <div className="setup-choice-list">
-          <button
-            type="button"
-            className="setup-choice"
-            onClick={() => onChoose("transfer")}
-          >
-            <strong>Przenieś sesję z innego urządzenia</strong>
-            <span>
-              Zeskanuj kod QR z działającego planu i otwórz go tutaj.
-            </span>
-          </button>
-          <button
-            type="button"
-            className="setup-choice"
-            onClick={() => onChoose("create")}
-          >
-            <strong>Utwórz nowy plan</strong>
-            <span>
-              Stwórz plan, dodaj własny harmonogram i zaproś inne osoby.
-            </span>
-          </button>
-          <button
-            type="button"
-            className="setup-choice"
-            onClick={() => onChoose("join")}
-          >
-            <strong>Dołącz do planu</strong>
-            <span>
-              Zeskanuj kod QR zaproszenia albo wklej otrzymany link.
-            </span>
-          </button>
-        </div>
       </div>
     </main>
   );
@@ -1198,7 +1221,7 @@ function Setup({
 
   if (view === "choices") {
     return (
-      <SetupChoices
+      <LandingPage
         error={error}
         onChoose={setView}
         theme={theme}
@@ -1246,7 +1269,7 @@ function Setup({
             </Field>
           </div>
 
-          <Field label="Plan CSV">
+          <Field label="Plan czytania">
             <label className="simple-upload">
               <input
                 type="file"
@@ -1255,22 +1278,89 @@ function Setup({
                   readFile(event.target.files?.[0])
                 }
               />
-              <span>{rows.length ? fileName : "Wybierz plik CSV"}</span>
+              <span>{rows.length ? fileName : "Wybierz plik z planem"}</span>
               {rows.length > 0 && <b>{rows.length} dni</b>}
             </label>
+            <p className="field-help">
+              Wybierz plik z planem czytania. Może to być plik CSV, czyli
+              zwykła tabela zapisana np. z Excela lub Arkuszy Google.
+            </p>
             {!rows.length && (
               <button
                 className="link-button"
                 type="button"
                 onClick={() => {
-                  setCsvText(SAMPLE_CSV);
-                  setFileName("plan-przykładowy.csv");
+                  setCsvText(BASIC_PLAN_CSV);
+                  setFrequencyKind("daily");
+                  setFileName("Plan podstawowy · M’Cheyne · 365 dni");
                 }}
               >
-                Użyj przykładu
+                Użyj planu podstawowego · 365 dni
               </button>
             )}
+            <p className="field-help">
+              Plan podstawowy M’Cheyne’a: 4 fragmenty dziennie przez 365 dni.
+              Stary Testament raz, Nowy Testament i Psalmy dwa razy.
+              Możesz zacząć w dowolnym dniu. Przy czytaniu codziennym trwa rok;
+              przy rzadszym harmonogramie potrwa dłużej.{" "}
+              <a href="https://www.mcheyne.app/" target="_blank" rel="noreferrer">O planie</a>
+            </p>
           </Field>
+          <section className="csv-ai-help">
+            <div className="csv-ai-help-header">
+              <div>
+                <strong>Nie masz jeszcze planu?</strong>
+                <p>Poproś AI o przygotowanie tabeli do wgrania do aplikacji.</p>
+              </div>
+            </div>
+            <details>
+              <summary>Zobacz przykładowy prompt</summary>
+              <div className="csv-prompt-box">
+                <pre>{`Przygotuj dla mnie plan czytania Biblii w formacie CSV.
+
+Chcę czytać:
+- [np. całą Biblię w rok / Ewangelię Jana w 30 dni]
+- [np. 5 dni w tygodniu]
+- po kilka fragmentów dziennie
+
+Użyj dokładnie tych kolumn:
+Dzień;Stary Testament;Nowy Testament;Psalm
+
+Zasady:
+- jeden wiersz = jeden dzień czytania,
+- wpisuj konkretne fragmenty, np. Rdz 1–3, Mt 1, Ps 1,
+- nie dodawaj pustych wierszy,
+- używaj średnika (;) jako separatora,
+- odpowiedź zwróć wyłącznie jako CSV, bez komentarza, bez nagłówka Markdown i bez bloku kodu.`}</pre>
+                <button
+                  type="button"
+                  className="small-button"
+                  onClick={() =>
+                    void copyText(
+                      `Przygotuj dla mnie plan czytania Biblii w formacie CSV.
+
+Chcę czytać:
+- [np. całą Biblię w rok / Ewangelię Jana w 30 dni]
+- [np. 5 dni w tygodniu]
+- po kilka fragmentów dziennie
+
+Użyj dokładnie tych kolumn:
+Dzień;Stary Testament;Nowy Testament;Psalm
+
+Zasady:
+- jeden wiersz = jeden dzień czytania,
+- wpisuj konkretne fragmenty, np. Rdz 1–3, Mt 1, Ps 1,
+- nie dodawaj pustych wierszy,
+- używaj średnika (;) jako separatora,
+- odpowiedź zwróć wyłącznie jako CSV, bez komentarza, bez nagłówka Markdown i bez bloku kodu.`,
+                    )
+                  }
+                >
+                  Kopiuj prompt
+                </button>
+              </div>
+            </details>
+          </section>
 
           <div className="form-row">
             <Field label="Start">
@@ -1354,14 +1444,58 @@ function Dashboard({
   onLeave: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("today");
+  const [today, setToday] = useState(todayIso);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [busySegment, setBusySegment] = useState("");
+  const [visibleGroup, setVisibleGroup] = useState(group);
+  const [progressError, setProgressError] = useState("");
+  const [progressQueue] = useState(() => createOptimisticProgressQueue({
+    group,
+    memberId: credentials.memberId,
+    save: (segmentId, completed) => updateProgress(credentials, segmentId, completed),
+    onChange: setVisibleGroup,
+    onSave: setGroup,
+    onError: () => setProgressError("Nie udało się zapisać zmiany. Spróbuj ponownie."),
+  }));
+  const renderedRevision = progressQueue.revision;
+
+  useEffect(() => {
+    progressQueue.setActive(true);
+    return () => progressQueue.setActive(false);
+  }, [progressQueue]);
+
+  useEffect(() => {
+    progressQueue.replaceGroup(group, renderedRevision);
+  }, [group, progressQueue]);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    function scheduleMidnight() {
+      const now = new Date();
+      const midnight = new Date(now);
+      midnight.setHours(24, 0, 0, 0);
+      timer = setTimeout(() => {
+        setToday(todayIso());
+        scheduleMidnight();
+      }, midnight.getTime() - now.getTime() + 50);
+    }
+    scheduleMidnight();
+    const refreshDate = () => setToday(todayIso());
+    window.addEventListener("focus", refreshDate);
+    document.addEventListener("visibilitychange", refreshDate);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", refreshDate);
+      document.removeEventListener("visibilitychange", refreshDate);
+    };
+  }, []);
   const [busyMember, setBusyMember] = useState("");
 
   useEffect(() => {
     if (tab !== "group") return;
+    let cancelled = false;
+    const requestRevision = progressQueue.revision;
     getGroup(credentials.groupId)
       .then((groupData) => {
+        if (cancelled) return;
         const hasAccess = groupData.members.some(
           (person) => person.id === credentials.memberId,
         );
@@ -1369,24 +1503,17 @@ function Dashboard({
           onLeave();
           return;
         }
-        setGroup(groupData);
+        setGroup(progressQueue.replaceGroup(groupData, requestRevision));
       })
       .catch(() => undefined);
-  }, [credentials.groupId, credentials.memberId, setGroup, tab]);
+    return () => { cancelled = true; };
+  }, [credentials.groupId, credentials.memberId, progressQueue, setGroup, tab]);
 
-  const member = group.members.find((item) => item.id === credentials.memberId);
+  const member = visibleGroup.members.find((item) => item.id === credentials.memberId);
   if (!member) return null;
-  const memberId = member.id;
-
-  async function toggle(segmentId: string) {
-    const current = group.progress[memberId] ?? {};
-    const completed = !current[segmentId];
-    setBusySegment(segmentId);
-    try {
-      setGroup(await updateProgress(credentials, segmentId, completed));
-    } finally {
-      setBusySegment("");
-    }
+  function toggle(segmentId: string, completed?: boolean) {
+    setProgressError("");
+    return progressQueue.toggle(segmentId, completed);
   }
 
   async function remove(person: Member) {
@@ -1395,8 +1522,10 @@ function Dashboard({
     );
     if (!confirmed) return;
     setBusyMember(person.id);
+    const requestRevision = progressQueue.revision;
     try {
-      setGroup(await removeMember(credentials, person.id));
+      const nextGroup = await removeMember(credentials, person.id);
+      setGroup(progressQueue.replaceGroup(nextGroup, requestRevision));
     } catch {
       window.alert("Nie udało się usunąć osoby.");
     } finally {
@@ -1440,25 +1569,24 @@ function Dashboard({
       </header>
 
       <main className="simple-content">
-        {syncMessage && (
-          <div className="sync-status" role="status">
-            {syncMessage}
-          </div>
-        )}
-        {tab === "today" && (
+        {syncMessage && <div className="sync-status" role="status">{syncMessage}</div>}
+        {progressError && <p className="progress-error" role="alert">{progressError}</p>}
+        <div hidden={tab !== "today"}>
           <TodayView
-            group={group}
+            key={`${group.id}:${member.id}:${today}`}
+            group={visibleGroup}
             member={member}
-            busySegment={busySegment}
             onToggle={toggle}
+            onError={setProgressError}
+            onWaitForSegments={progressQueue.waitForSegments}
           />
-        )}
+        </div>
         {tab === "plan" && (
-          <PlanView group={group} member={member} />
+          <PlanView group={visibleGroup} member={member} />
         )}
         {tab === "group" && (
           <GroupView
-            group={group}
+            group={visibleGroup}
             member={member}
             onInvite={() => setInviteOpen(true)}
             onRemove={remove}
@@ -1468,7 +1596,7 @@ function Dashboard({
         {tab === "settings" && (
           <SettingsView
             credentials={credentials}
-            group={group}
+            group={visibleGroup}
             member={member}
             onLeave={onLeave}
           />
@@ -1495,13 +1623,15 @@ function Dashboard({
 function TodayView({
   group,
   member,
-  busySegment,
   onToggle,
+  onError,
+  onWaitForSegments,
 }: {
   group: Group;
   member: Member;
-  busySegment: string;
-  onToggle: (segmentId: string) => void;
+  onToggle: (segmentId: string, completed?: boolean) => Promise<void>;
+  onError: (message: string) => void;
+  onWaitForSegments: (segmentIds: string[]) => Promise<void>;
 }) {
   const metrics = getMemberMetrics(group, member.id);
   const nextDay = getNextDay(group, member.id);
@@ -1511,6 +1641,233 @@ function TodayView({
     : Math.max(0, group.planDays.length - 1);
   const [selectedIndex, setSelectedIndex] = useState(Math.max(0, initialIndex));
   const selectedDay = group.planDays[selectedIndex];
+  const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
+  const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
+  const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
+  const today = todayIso();
+  const overdue = getOverdueDays(group, member.id, today);
+  const chapterKey = `${recoveryKey}:chapters`;
+  const dailyKey = `${recoveryKey}:ordered:${today}`;
+  const [recoveryDayAnchor, setRecoveryDayAnchor] = useState(() =>
+    recoveryStart ? localStorage.getItem(`${dailyKey}:day`) ?? "" : "",
+  );
+  const originalRecoveryDay = getRecoveryDay(group, member.id, recoveryDayAnchor);
+  const recoveryDayId = originalRecoveryDay?.id ?? "";
+  useEffect(() => {
+    if (!recoveryStart || !recoveryDayId) return;
+    localStorage.setItem(`${dailyKey}:day`, recoveryDayId);
+    if (recoveryDayAnchor !== recoveryDayId) setRecoveryDayAnchor(recoveryDayId);
+  }, [dailyKey, recoveryStart, recoveryDayId, recoveryDayAnchor]);
+  const [readChapters, setReadChapters] = useState<Record<string, number>>(() =>
+    parseReadChapters(localStorage.getItem(chapterKey)),
+  );
+  const markKey = `${recoveryKey}:chapter-marks`;
+  const [chapterMarks, setChapterMarks] = useState<ReadChapterMarks>(() =>
+    parseChapterMarks(localStorage.getItem(markKey)),
+  );
+  const chapterState = useRef({ chapters: readChapters, marks: chapterMarks });
+  const chapterOperations = useRef<Record<string, {
+    baseline: { chapters: Record<string, number>; marks: ReadChapterMarks };
+    pending: Array<{ indices: number[]; completed: boolean; status: "pending" | "saved" | "failed" }>;
+  }>>({});
+  function writeChapters(chapters: Record<string, number>, marks: ReadChapterMarks) {
+    chapterState.current = { chapters, marks };
+    setReadChapters(chapters);
+    setChapterMarks(marks);
+    localStorage.setItem(chapterKey, JSON.stringify(chapters));
+    localStorage.setItem(markKey, JSON.stringify(marks));
+  }
+  const [dailyReading, setDailyReading] = useState<{ reading: RecoveryReading; completed: boolean } | null>(() => {
+    try { return JSON.parse(localStorage.getItem(dailyKey) ?? "null"); } catch { return null; }
+  });
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const activeView = useRef(true);
+  useEffect(() => {
+    activeView.current = true;
+    const leave = () => { activeView.current = false; };
+    const resume = () => { activeView.current = true; };
+    window.addEventListener("beforeunload", leave);
+    window.addEventListener("pagehide", leave);
+    window.addEventListener("pageshow", resume);
+    return () => {
+      leave();
+      window.removeEventListener("beforeunload", leave);
+      window.removeEventListener("pagehide", leave);
+      window.removeEventListener("pageshow", resume);
+    };
+  }, []);
+  const portionKey = `${dailyKey}:portion-v2`;
+  const [dailyPortion, setDailyPortion] = useState<RecoveryPortion | undefined>(() =>
+    parseRecoveryPortion(group, member.id, today, readChapters, chapterMarks, localStorage.getItem(portionKey)),
+  );
+  const legacyDailyReading = validateDailyRecoveryReading(
+    group, member.id, today, readChapters, recoveryDayId, dailyReading,
+  );
+  const currentPortion = useMemo(() =>
+    projectRecoveryPortions(group, member.id, today, readChapters, recoveryDayId,
+      legacyDailyReading?.reading, chapterMarks, dailyPortion)[0],
+    [recoveryStart, recoveryDayId, today, dailyPortion],
+  );
+  useEffect(() => {
+    if (!recoveryStart || !currentPortion || dailyPortion) return;
+    localStorage.setItem(portionKey, JSON.stringify(currentPortion));
+    setDailyPortion(currentPortion);
+  }, [recoveryStart, currentPortion, dailyPortion, portionKey]);
+  const extra = currentPortion?.extra;
+  const validDailyReading = dailyReading?.reading?.segmentId === extra?.segmentId &&
+    dailyReading?.reading?.chapterIndex === extra?.chapterIndex ? dailyReading : null;
+  // Freeze today's assignments while checking them; projections consume the
+  // full daily quota in each stream and keep future checkbox rows stable.
+  const recoveryPortions = useMemo(() =>
+    projectRecoveryPortions(group, member.id, today, readChapters, recoveryDayId,
+      extra, chapterMarks, currentPortion),
+    [recoveryStart, currentPortion],
+  );
+  const anchorIndex = group.planDays.findIndex(day => day.id === recoveryDayId);
+  const navigationDays = recoveryStart && recoveryPortions.length
+    ? [...group.planDays.slice(0, Math.max(0, anchorIndex)), ...recoveryPortions.map(portion => portion.day)]
+    : group.planDays;
+  const browsedPortion = recoveryPortions.find(portion => portion.day.id === browsedRecoveryDayId);
+  const historicalDay = group.planDays.slice(0, Math.max(0, anchorIndex))
+    .find(day => day.id === browsedRecoveryDayId)
+    ?? (!recoveryPortions.length ? group.planDays.find(day => day.id === browsedRecoveryDayId) : undefined);
+  const displayedDay = recoveryStart
+    ? (browsedPortion?.day ?? historicalDay ?? currentPortion?.day)
+    : selectedDay;
+  const isRecoveryPortion = Boolean(recoveryStart && displayedDay && displayedDay.id === currentPortion?.day.id);
+  const isForecast = Boolean(recoveryStart && browsedPortion && !isRecoveryPortion);
+  const displayedIndex = recoveryStart
+    ? (displayedDay ? Math.max(0, navigationDays.findIndex(day => day.id === displayedDay.id)) : initialIndex)
+    : selectedIndex;
+  function selectDay(index: number) {
+    if (!recoveryStart) { setSelectedIndex(index); return; }
+    const day = navigationDays[index];
+    if (day) setBrowsedRecoveryDayId(day.id === currentPortion?.day.id ? null : day.id);
+  }
+  const displayedProgress = { ...progress };
+  const selectedPortion = isRecoveryPortion ? currentPortion : isForecast ? browsedPortion : undefined;
+  if (selectedPortion) {
+    for (const segment of selectedPortion.day.segments) {
+      const indices = selectedPortion.chapterIndices[segment.id];
+      if (progress[segment.id] || indices.every(index => isRecoveryChapterRead(readChapters, chapterMarks, segment.id, index))) {
+        displayedProgress[segment.id] = progress[segment.id] || "local";
+      } else delete displayedProgress[segment.id];
+    }
+  }
+  const displayedExtra = isRecoveryPortion ? extra : isForecast ? browsedPortion?.extra : undefined;
+  const extraComplete = Boolean(displayedExtra && (
+    progress[displayedExtra.segmentId] ||
+    isRecoveryChapterRead(readChapters, chapterMarks, displayedExtra.segmentId, displayedExtra.chapterIndex) ||
+    (isRecoveryPortion && validDailyReading?.completed)
+  ));
+  const baseComplete = Boolean(displayedDay && displayedDay.segments.every(segment => displayedProgress[segment.id]));
+  async function toggleChapterSelection(
+    segmentId: string, indices: number[], completed: boolean, dailyExtra = false,
+  ) {
+    const previous = chapterState.current;
+    const previousReading = dailyReading;
+    const previousDailyStorage = localStorage.getItem(dailyKey);
+    const original = group.planDays.flatMap(day => day.segments).find(segment => segment.id === segmentId);
+    if (!original) return;
+    const count = splitReadingChapters(original.label).length;
+    let queue = chapterOperations.current[segmentId];
+    if (!queue?.pending.length) {
+      queue = {
+        baseline: {
+          chapters: { [segmentId]: progress[segmentId] ? count : previous.chapters[segmentId] ?? 0 },
+          marks: { [segmentId]: previous.marks[segmentId] ?? [] },
+        },
+        pending: [],
+      };
+      chapterOperations.current[segmentId] = queue;
+    }
+    const operation: typeof queue.pending[number] = { indices, completed, status: "pending" };
+    queue.pending.push(operation);
+    function localSnapshot() {
+      let snapshot = queue.baseline;
+      for (const intent of queue.pending) {
+        if (intent.status !== "failed") {
+          snapshot = setRecoveryChapters(snapshot.chapters, snapshot.marks, segmentId, intent.indices, intent.completed);
+        }
+      }
+      return snapshot;
+    }
+    function publishSnapshot() {
+      const snapshot = localSnapshot();
+      const current = chapterState.current;
+      writeChapters(
+        { ...current.chapters, [segmentId]: snapshot.chapters[segmentId] },
+        { ...current.marks, [segmentId]: snapshot.marks[segmentId] },
+      );
+    }
+    function settle(status: "saved" | "failed") {
+      operation.status = status;
+      while (queue.pending.length && queue.pending[0].status !== "pending") {
+        const first = queue.pending.shift()!;
+        if (first.status === "saved") {
+          queue.baseline = setRecoveryChapters(queue.baseline.chapters, queue.baseline.marks, segmentId, first.indices, first.completed);
+        }
+      }
+      if (activeView.current) publishSnapshot();
+    }
+    const segmentCompleted = localSnapshot().chapters[segmentId] >= count;
+    onError("");
+    try {
+      publishSnapshot();
+      if (dailyExtra && extra) {
+        const reading = { reading: extra, completed };
+        setDailyReading(reading);
+        localStorage.setItem(dailyKey, JSON.stringify(reading));
+      }
+      if (displayedExtra?.segmentId === segmentId && completed && displayedDay) {
+        await onWaitForSegments(displayedDay.segments.filter(segment => progress[segment.id]).map(segment => segment.id));
+      }
+      if (!completed || Boolean(progress[segmentId]) !== segmentCompleted) await onToggle(segmentId, segmentCompleted);
+      settle("saved");
+    } catch {
+      try { settle("failed"); } catch { /* Visible state is restored even if storage fails. */ }
+      if (!activeView.current) return;
+      if (dailyExtra) {
+        setDailyReading(previousReading);
+        try {
+          if (previousDailyStorage === null) localStorage.removeItem(dailyKey);
+          else localStorage.setItem(dailyKey, previousDailyStorage);
+        } catch { /* State still rolls back. */ }
+      }
+      onError("Nie udało się zapisać zmiany. Spróbuj ponownie.");
+    }
+  }
+  async function toggleExtra() {
+    if (!displayedExtra || recoveryBusy || (!extraComplete && !baseComplete)) return;
+    setRecoveryBusy(true);
+    try {
+      await toggleChapterSelection(displayedExtra.segmentId, [displayedExtra.chapterIndex], !extraComplete, isRecoveryPortion);
+    } finally { if (activeView.current) setRecoveryBusy(false); }
+  }
+  async function toggleDisplayedSegment(segmentId: string) {
+    if (!recoveryStart || (!isRecoveryPortion && !isForecast)) return onToggle(segmentId);
+    const original = group.planDays.flatMap(day => day.segments).find(segment => segment.id === segmentId);
+    if (!original) return;
+    const allIndices = splitReadingChapters(original.label).map((_, index) => index);
+    const indices = selectedPortion?.chapterIndices[segmentId] ?? allIndices;
+    await toggleChapterSelection(segmentId, indices.length ? indices : allIndices, !Boolean(displayedProgress[segmentId]));
+  }
+  function changeRecovery(start: string) {
+    if (start) {
+      // Activation uses the latest progress, even if this view was opened earlier.
+      setBrowsedRecoveryDayId(null);
+      setDailyPortion(undefined);
+      localStorage.removeItem(portionKey);
+      setRecoveryDayAnchor(getNextDay(group, member.id)?.id ?? "");
+      localStorage.setItem(recoveryKey, start);
+    } else {
+      setSelectedIndex(Math.max(0, group.planDays.findIndex(day => day.segments.some(segment => segment.id === displayedDay?.segments[0]?.id))));
+      setBrowsedRecoveryDayId(null);
+      localStorage.removeItem(recoveryKey);
+    }
+    setRecoveryStart(start);
+  }
+
 
   return (
     <>
@@ -1519,26 +1876,55 @@ function TodayView({
         <ProgressDonut percent={metrics.progressPercent} />
         <BacklogCard pace={metrics.paceDays} />
       </section>
-      {selectedDay ? (
-        <>
-          <DayCard
-            day={selectedDay}
-            progress={progress}
-            busySegment={busySegment}
-            onToggle={onToggle}
-          />
-          <DaySwitcher
-            days={group.planDays}
-            progress={progress}
-            selectedIndex={selectedIndex}
-            onChange={setSelectedIndex}
-          />
-        </>
+      {(overdue.length > 2 || recoveryStart) && (
+        <section className="recovery-control" aria-label="Plan nadrabiania">
+          <button
+            type="button"
+            className={recoveryStart ? "link-button" : "small-button"}
+            onClick={() => changeRecovery(recoveryStart ? "" : today)}
+          >
+            {recoveryStart ? "Wyłącz plan nadrabiania" : "Włącz plan nadrabiania"}
+          </button>
+          <details className="recovery-details">
+            <summary>Jak to działa?</summary>
+            <p>
+              Czytasz od pierwszego nieukończonego miejsca w swoim planie.
+              Po zwykłej porcji odznaczasz jeden dodatkowy rozdział, oznaczony
+              plusem na dole listy. Nadrabiasz wszystkie równoległe części planu,
+              zaczynając od najbardziej zaległej. Gdy dogonisz plan, dodatkowe czytanie zniknie.
+              Podgląd kolejnych dni zakłada wykonanie wcześniejszych porcji.
+              Możesz też odznaczać czytanie z wyprzedzeniem. Plan grupy pozostaje bez zmian.
+            </p>
+          </details>
+        </section>
+      )}
+      {isForecast && <p className="muted">Zakłada wykonanie wcześniejszych porcji nadrabiania.</p>}
+      {displayedDay ? (
+        <DayCard
+          day={displayedDay}
+          displayDate={isRecoveryPortion ? today : undefined}
+          progress={displayedProgress}
+          onToggle={toggleDisplayedSegment}
+          extraReading={displayedExtra ? {
+            reading: displayedExtra,
+            completed: extraComplete,
+            disabled: recoveryBusy || (!baseComplete && !extraComplete),
+            onToggle: toggleExtra,
+          } : undefined}
+        />
       ) : (
         <div className="empty-state">
           <Icon name="check" size={28} />
           <h2>Plan ukończony</h2>
         </div>
+      )}
+      {group.planDays.length > 0 && (
+        <DaySwitcher
+          days={navigationDays}
+          progress={progress}
+          selectedIndex={displayedIndex}
+          onChange={selectDay}
+        />
       )}
     </>
   );
@@ -1559,7 +1945,7 @@ function PlanView({
   const endDate = group.planDays.at(-1)?.date ?? group.startDate;
   return (
     <>
-      <PageTitle title="Plan" meta={`${group.planDays.length} dni`} />
+      <PageTitle title="Plan" meta={`${group.planDays.length} dni · plan grupy`} />
       <section className="plan-dates">
         <div>
           <span>Start</span>
@@ -1811,47 +2197,99 @@ function SettingsView({
 
 function DayCard({
   day,
+  displayDate,
   progress,
-  busySegment,
   onToggle,
+  extraReading,
 }: {
   day: PlanDay;
+  displayDate?: string;
   progress: Record<string, string>;
-  busySegment: string;
-  onToggle: (segmentId: string) => void;
+  onToggle: (segmentId: string) => Promise<void>;
+  extraReading?: {
+    reading: RecoveryReading;
+    completed: boolean;
+    disabled: boolean;
+    onToggle: () => Promise<void>;
+  };
 }) {
-  const completed = day.segments.filter((segment) => progress[segment.id]).length;
-  const complete = completed === day.segments.length;
+  const completed = day.segments.filter((segment) => progress[segment.id]).length
+    + (extraReading?.completed ? 1 : 0);
+  const total = day.segments.length + (extraReading ? 1 : 0);
+  const complete = completed === total;
   return (
     <section className={`simple-day ${complete ? "is-complete" : ""}`}>
       <header>
-        <strong>{formatPolishDate(day.date)}</strong>
-        <b>
-          {completed}/{day.segments.length}
-        </b>
+        <strong>{formatPolishDate(displayDate ?? day.date)}</strong>
+        <b>{completed}/{total}</b>
       </header>
       <div className="simple-readings">
-        {day.segments.map((segment) => {
-          const checked = Boolean(progress[segment.id]);
-          return (
-            <button
-              key={segment.id}
-              className={checked ? "checked" : ""}
-              disabled={busySegment === segment.id}
-              onClick={() => onToggle(segment.id)}
-            >
-              <span className="simple-checkbox">
-                {checked && <Icon name="check" size={16} />}
-              </span>
-              <span>
-                <small>{segment.section}</small>
-                <strong>{segment.label}</strong>
-              </span>
-            </button>
-          );
-        })}
+        {day.segments.map((segment) => (
+          <ReadingRow
+            key={segment.id}
+            label={segment.label}
+            section={segment.section}
+            completed={Boolean(progress[segment.id])}
+            disabled={false}
+            onToggle={() => onToggle(segment.id)}
+          />
+        ))}
+        {extraReading && (
+          <ReadingRow
+            label={extraReading.reading.label}
+            section="Nadrabianie"
+            completed={extraReading.completed}
+            disabled={extraReading.disabled}
+            onToggle={extraReading.onToggle}
+            isExtra
+          />
+        )}
       </div>
     </section>
+  );
+}
+
+function ReadingRow({
+  label,
+  section,
+  completed,
+  disabled,
+  onToggle,
+  isExtra = false,
+}: {
+  label: string;
+  section: string;
+  completed: boolean;
+  disabled: boolean;
+  onToggle: () => Promise<void>;
+  isExtra?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`${completed ? "checked" : ""} ${isExtra ? "reading-extra" : ""}`}
+      disabled={disabled}
+      onClick={() => { void onToggle().catch(() => undefined); }}
+      aria-pressed={completed}
+      title={isExtra && disabled && !completed
+        ? "Najpierw dokończ fragmenty powyżej."
+        : undefined}
+    >
+      <span className="simple-checkbox">
+        {completed && <Icon name="check" size={16} />}
+      </span>
+      <span>
+        <small>
+          {isExtra ? (
+            <span className="reading-extra-label">
+              <Icon name="plus" size={12} />
+              {section} · 1 rozdział
+            </span>
+          ) : section}
+        </small>
+        <strong>{label}</strong>
+      </span>
+    </button>
   );
 }
 
@@ -2048,6 +2486,7 @@ function DaySwitcher({
           return (
             <button
               key={day.id}
+              aria-pressed={index === selectedIndex}
               className={`${index === selectedIndex ? "active" : ""} ${
                 complete ? "complete" : ""
               }`}
