@@ -1,7 +1,7 @@
 import { getStore } from "@netlify/blobs";
 import { applyProgressLog, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
 import type { Config, Context } from "@netlify/functions";
-import { validReminderSettings, validPushSubscription } from "../../src/lib/notifications";
+import { validReminderSettings, validPushSubscription, testReminder } from "../../src/lib/notifications";
 import { reminderStore, reminderKey, pushConfigured, missingPushConfiguration, sendReminder, type StoredReminder } from "./_shared/notifications";
 import type {
   Credentials,
@@ -660,14 +660,13 @@ async function notifications(request: Request, groupId: string, scope: string) {
   }
   if (body.action === "test") {
     if (!ownRecord?.enabled) return error("Najpierw włącz powiadomienia.", 409);
+    const payload = testReminder(group, member.id, body.deviceId, new Date(), ownRecord.timeZone);
+    if (!payload) return error("W planie nie ma fragmentów do pokazania w powiadomieniu testowym.", 409);
     const rateKey = `tests/${encodeURIComponent(scope)}/${body.deviceId}/${Math.floor(Date.now() / 60000)}`;
     const claim = await store.set(rateKey, "sent", { onlyIfNew: true });
     if (!claim.modified) return error("Poczekaj minutę przed kolejnym testem.", 429);
     try {
-      await sendReminder(ownRecord, {
-        title: "Powiadomienie testowe", body: `Przypomnienie o czytaniu: ${ownRecord.time} (${ownRecord.timeZone}).`,
-        tag: `reading-test-${body.deviceId}`,
-      });
+      await sendReminder(ownRecord, payload);
       return json({ ok: true });
     } catch (caught) {
       const status = (caught as { statusCode?: number }).statusCode;

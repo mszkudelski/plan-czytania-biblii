@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validReminderSettings, validPushSubscription, localReminderClock, reminderIsDue, todaysReminder } from "./notifications";
+import { validReminderSettings, validPushSubscription, localReminderClock, reminderIsDue, todaysReminder, testReminder } from "./notifications";
 import type { Group } from "../types";
 
 const settings = { enabled: true, time: "08:30", timeZone: "Europe/Warsaw" };
@@ -48,5 +48,19 @@ describe("reading reminders", () => {
     expect(todaysReminder({ ...group, progress: { member: { a: "read", b: "read" } } }, "member", now, settings.timeZone)).toBeNull();
     expect(todaysReminder(group, "member", new Date("2026-10-06T06:30:00Z"), settings.timeZone)).toBeNull();
     expect(todaysReminder(group, "removed", now, settings.timeZone)).toBeNull();
+  });
+  it("formats tests exactly like real reminders, changing only the title suffix and notification tag", () => {
+    const now = new Date("2026-10-05T06:30:00Z");
+    const real = todaysReminder(group, "member", now, settings.timeZone)!;
+    expect(testReminder(group, "member", "device", now, settings.timeZone)).toEqual({
+      ...real, title: `${real.title} (test)`, tag: "reading-test-device",
+    });
+  });
+  it("previews actual plan fragments on rest days or after reading without changing progress", () => {
+    const completed = { ...group, progress: { member: { old: "read", a: "read", b: "read" } } };
+    expect(testReminder(completed, "member", "device", new Date("2026-10-06T06:30:00Z"), settings.timeZone)?.body).toBe("Plan: Rdz 1");
+    expect(testReminder(group, "member", "device", new Date("2026-10-06T06:30:00Z"), settings.timeZone)?.body).toBe("Plan: Rdz 1");
+    expect(completed.progress.member).toEqual({ old: "read", a: "read", b: "read" });
+    expect(testReminder(group, "removed", "device", new Date(), settings.timeZone)).toBeNull();
   });
 });

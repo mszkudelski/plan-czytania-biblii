@@ -40,6 +40,7 @@ test('notifications persist personal settings and reject invalid inputs without 
   expect(config.publicKey).toMatch(/^[A-Za-z0-9_-]{87}$/);
   expect(config.scheduled).toBe(false);
   expect((await request.post(path(session), { data: { ...body(session, deviceId, 'save'), token: 'invalid', settings, subscription } })).status()).toBe(401);
+  expect((await request.post(path(session), { data: { ...body(session, deviceId, 'test'), token: 'invalid' } })).status()).toBe(401);
   for (const invalid of [
     { settings: { ...settings, time: '24:00' }, subscription },
     { settings: { ...settings, timeZone: 'invalid' }, subscription },
@@ -58,6 +59,7 @@ test('notifications persist personal settings and reject invalid inputs without 
     expect(joined.status()).toBe(201);
     const guest = await joined.json();
     expect(await (await request.post(path(session), { data: body(guest, deviceId, 'read') })).json()).toBeNull();
+    expect((await request.post(path(session), { data: body(guest, deviceId, 'test') })).status()).toBe(409);
     await request.post(path(session), { data: body(guest, deviceId, 'disable') });
     expect(await (await request.post(path(session), { data: body(session, deviceId, 'read') })).json()).toEqual(settings);
     const changed = { ...settings, time: '06:10' };

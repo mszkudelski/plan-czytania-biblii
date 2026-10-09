@@ -50,15 +50,34 @@ export function reminderIsDue(settings: ReminderSettings, now: Date) {
   return elapsed >= 0 && elapsed < 15;
 }
 
+function readingReminderPayload(group: Group, labels: string[], tag: string) {
+  return {
+    title: "Dzisiejsze czytanie Biblii",
+    body: `${group.name}: ${labels.join(" · ")}`.slice(0, 700),
+    tag,
+  };
+}
+
 export function todaysReminder(group: Group, memberId: string, now: Date, timeZone: string) {
   if (!group.members.some(member => member.id === memberId)) return null;
   const { date } = localReminderClock(now, timeZone);
   const segments = group.planDays.filter(day => day.date === date).flatMap(day => day.segments);
   const remaining = segments.filter(segment => !group.progress[memberId]?.[segment.id]);
   if (!remaining.length) return null;
-  return {
-    title: "Dzisiejsze czytanie Biblii",
-    body: `${group.name}: ${remaining.map(segment => segment.label).join(" · ")}`.slice(0, 700),
-    tag: `reading-${group.id}-${memberId}-${date}`,
-  };
+  return readingReminderPayload(group, remaining.map(segment => segment.label), `reading-${group.id}-${memberId}-${date}`);
+}
+
+export function testReminder(group: Group, memberId: string, deviceId: string, now: Date, timeZone: string) {
+  if (!group.members.some(member => member.id === memberId)) return null;
+  const tag = `reading-test-${deviceId}`;
+  let payload = todaysReminder(group, memberId, now, timeZone);
+  if (!payload) {
+    // A test remains available on rest days and after completing today's reading.
+    // Preview real fragments from the plan, using the production formatter.
+    const unread = group.planDays.map(day => day.segments.filter(segment => !group.progress[memberId]?.[segment.id]));
+    const sample = unread.find(segments => segments.length) ?? group.planDays.find(day => day.segments.length)?.segments;
+    if (!sample?.length) return null;
+    payload = readingReminderPayload(group, sample.map(segment => segment.label), tag);
+  }
+  return { ...payload, title: `${payload.title} (test)`, tag };
 }
