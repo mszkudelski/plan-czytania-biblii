@@ -1737,22 +1737,35 @@ button {
   gap: 12px;
 }
 
-.access-hint {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 22px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--soft-green);
-}
-
-.access-hint p {
-  margin: 6px 0 0;
-  font-size: 0.85rem;
+.group-access-help { margin-bottom: 20px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--soft-green); }
+.group-access-help strong { font-size: 0.9rem; }
+.group-access-help p { margin: 8px 0 0; font-size: 0.85rem; line-height: 1.55; }
+.member-row > div { min-width: 0; }
+.member-row strong { overflow-wrap: anywhere; }
+.member-row div > .admin-badge { color: var(--green); font-weight: 600; }
+.manage-member-button { padding: 7px 9px; font-size: 0.72rem; }
+.backup-access { min-width: 0; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.backup-access summary { cursor: pointer; font-size: 0.85rem; line-height: 1.5; }
+.backup-access-content { display: grid; gap: 16px; padding-top: 18px; }
+.recovery-code-card .backup-access { margin-top: 0; }
+.member-access-modal { width: min(100%, 520px); max-height: calc(100dvh - 40px); overflow-y: auto; }
+.member-access-modal h2 { margin: 0 32px 6px 0; overflow-wrap: anywhere; }
+.member-access-meta { margin: 0 0 20px; color: var(--muted); font-size: 0.85rem; }
+.modal-close { position: absolute; top: 16px; right: 16px; font-size: 1.5rem; }
+.member-access-section { display: grid; gap: 14px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
+.member-access-section h3 { margin: 0; font-size: 1rem; }
+.member-access-section p { margin: 0; font-size: 0.85rem; line-height: 1.55; }
+.member-access-section > button { justify-self: start; }
+.member-access-result { display: grid; justify-items: start; gap: 12px; min-width: 0; }
+.member-access-result label { display: grid; gap: 6px; width: 100%; min-width: 0; font-size: 0.85rem; }
+.member-access-result input { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--ink); background: var(--paper); font: inherit; }
+.member-access-result output { font: 600 1.3rem/1.5 monospace; user-select: all; }
+.member-access-result .qr-code { max-width: 100%; }
+.role-confirm { display: grid; gap: 14px; }
+@media (max-width: 600px) {
+  .member-row { grid-template-columns: 20px 32px minmax(0, 1fr); gap: 10px; padding: 14px; }
+  .member-actions { grid-column: 3; flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+  .member-access-modal { padding: 24px 20px; }
 }
 
 .recovery-code-card {

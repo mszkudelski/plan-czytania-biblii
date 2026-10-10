@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { createRecoveryCode, recoveryCodeStatus } from "./lib/api";
-import type { Credentials } from "./types";
+import type { Credentials, Group, Member } from "./types";
 
 export default function RecoveryCodeSettings({
-  credentials, copyText,
-}: { credentials: Credentials; copyText: (value: string) => Promise<void> }) {
+  credentials, group, member, copyText,
+}: { credentials: Credentials; group: Group; member: Member; copyText: (value: string) => Promise<void> }) {
   const [hasCode, setHasCode] = useState<boolean | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -13,6 +13,7 @@ export default function RecoveryCodeSettings({
   const [statusError, setStatusError] = useState("");
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const otherAdmins = group.members.filter((person) => person.isAdmin && person.id !== member.id);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,10 +45,17 @@ export default function RecoveryCodeSettings({
     <>
       <h2 className="settings-heading">Odzyskiwanie dostępu</h2>
       <section className="settings-card recovery-code-card" aria-label="Odzyskiwanie dostępu">
-        <p>
-          Zapisz kod odzyskiwania, aby wrócić do tego samego profilu i postępu
-          po utracie urządzenia lub danych przeglądarki. Nie potrzebujesz e-maila.
-        </p>
+        {otherAdmins.length ? <p>
+          Jeśli stracisz dostęp, poproś administratora grupy ({otherAdmins.map((person) => person.name).join(", ")})
+          o jednorazowy link. Przywróci Twój profil i postęp. Nie musisz wcześniej zapisywać kodu.
+        </p> : <p>
+          Jesteś jedynym administratorem. Zaproś zaufaną osobę i nadaj jej rolę administratora:
+          Grupa → Zarządzaj → Nadaj rolę administratora. Wtedy pomoże Ci odzyskać dostęp.
+        </p>}
+        <details className="backup-access">
+          <summary>Osobisty kod awaryjny (opcjonalnie)</summary>
+          <div className="backup-access-content">
+        <p>Kod przyda się, jeśli żaden administrator ani Twoje inne urządzenie nie może pomóc. Zapisz go poza tą aplikacją.</p>
         {statusError ? (
           <div className="simple-alert" role="alert">
             <p>{statusError}</p>
@@ -100,6 +108,8 @@ export default function RecoveryCodeSettings({
             )}
           </>
         )}
+          </div>
+        </details>
       </section>
     </>
   );

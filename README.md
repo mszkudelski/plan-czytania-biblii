@@ -96,11 +96,29 @@ tworzy nowy profil (`memberId`) z własnym postępem, nawet przy takim samym
 imieniu jak istniejąca osoba lub administrator. Nie przywraca wcześniejszego
 profilu ani jego uprawnień. Istniejące profile, tokeny i postęp pozostają ważne.
 
-W **Ustawienia → Odzyskiwanie dostępu** utwórz kod i zapisz go w bezpiecznym
-miejscu. Po utracie urządzenia lub danych przeglądarki wybierz na stronie
-startowej **Odzyskaj dostęp do mojego planu** i wklej kod. Otworzy ten sam
-profil, rolę i postęp, wydając osobny token dla tego urządzenia. Nie jest
-potrzebny e-mail. Kod pozostaje ważny do utworzenia nowego; wymiana wymaga
+Po utracie dostępu poproś administratora swojej grupy o pomoc. W **Grupa →
+Zarządzaj** przy Twoim profilu wybiera **Przywróć dostęp → Utwórz link dostępu**.
+Przekazuje Ci link lub QR ważny przez 10 minut. Link otwiera ekran potwierdzenia;
+po wybraniu **Przywróć mój dostęp** wracasz do tego samego profilu, roli i postępu.
+Możesz też wkleić link lub krótki kod na stronie startowej w **Odzyskaj dostęp
+do mojego planu → Mam link lub kod od administratora**. Nie musisz wcześniej
+zapisywać żadnego kodu ani podawać e-maila. Kod jest jednorazowy, a serwer
+przechowuje tylko jego hash. Nie działa po usunięciu osoby lub odebraniu
+uprawnień administratorowi, który go wystawił. Dostęp innych urządzeń zostaje.
+
+Administrator może nadać tę rolę zaufanej osobie w **Grupa → Zarządzaj → Nadaj
+rolę administratora**. Zmiana wymaga potwierdzenia i nie zmienia profilu ani
+postępu. Drugi administrator może przywrócić dostęp również twórcy grupy.
+Nie można odebrać roli ostatniemu administratorowi; administratora można usunąć
+dopiero po odebraniu mu roli. Administratorzy mogą zapraszać osoby, zarządzać
+rolami i przywracać profile — nadawaj tę rolę osobom, którym ufasz. Samotny
+administrator powinien wyznaczyć drugą osobę, połączyć inne urządzenie lub
+zachować opcjonalny kod awaryjny.
+
+W **Ustawienia → Odzyskiwanie dostępu → Osobisty kod awaryjny (opcjonalnie)**
+możesz dodatkowo zapisać długi kod na wypadek braku pomocy administratora
+i dostępu na innym urządzeniu. Na stronie odzyskiwania rozwiń **Mam osobisty
+kod odzyskiwania** i wklej zapisany kod. Kod pozostaje ważny do utworzenia nowego; wymiana wymaga
 potwierdzenia i unieważnia tylko poprzedni kod, zachowując dostęp urządzeń.
 Kod jest pokazywany po utworzeniu, nie jest przechowywany w przeglądarce,
 a serwer przechowuje wyłącznie jego SHA-256 w osobnym, prywatnym store
@@ -108,8 +126,9 @@ a serwer przechowuje wyłącznie jego SHA-256 w osobnym, prywatnym store
 
 Sesja może też wrócić z bezpiecznego cookie po utracie samego lokalnego zapisu.
 Wylogowanie usuwa lokalny dostęp i cookie na tym urządzeniu. Samo imię lub
-zaproszenie nie przywraca profilu; potrzebny jest kod odzyskiwania albo dostęp
-na innym urządzeniu. Bez żadnego z nich odzyskanie profilu nie jest możliwe.
+zaproszenie nie przywraca profilu; potrzebny jest link od administratora,
+osobisty kod awaryjny albo dostęp na innym urządzeniu. Bez żadnej z tych
+możliwości odzyskanie profilu nie jest możliwe.
 
 ### Łączenie urządzeń
 
@@ -175,7 +194,8 @@ To pragmatyczny model dla zaufanej, prywatnej grupy:
 - link zaproszenia daje możliwość utworzenia własnego profilu;
 - token urządzenia lub kod odzyskiwania daje dostęp wyłącznie do przypisanego
   profilu, wraz z jego rolą; kod odzyskiwania ma 160 bitów losowości;
-- administrator może tworzyć kolejne zaproszenia.
+- administrator może tworzyć kolejne zaproszenia, nadawać role i wystawiać
+  jednorazowy dostęp do konkretnego istniejącego profilu.
 
 Nazwy osób i zbiorczy postęp są widoczne dla każdego, kto zna niezgadywalny
 identyfikator grupy. Dla publicznej aplikacji o większej skali kolejnym krokiem

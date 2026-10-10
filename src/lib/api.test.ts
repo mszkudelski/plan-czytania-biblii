@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSession,
   createRecoveryCode,
+  createMemberAccess,
+  updateMemberRole,
   recoveryCodeStatus,
   redeemRecoveryCode,
   redeemSessionTransfer,
@@ -149,6 +151,28 @@ describe("remote session API", () => {
   it("does not mask a deployed recovery rejection with a local fallback", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ error: "Kod nie działa." }, 401)));
     await expect(redeemRecoveryCode("invalid")).rejects.toMatchObject({ message: "Kod nie działa.", status: 401 });
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  it("issues access for the selected profile and changes its role with the current credentials", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ code: "ABCD-EFGH", expiresAt: "2026-10-10T12:10:00Z" }, 201))
+      .mockResolvedValueOnce(jsonResponse(group));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(createMemberAccess(credentials, "member-2")).resolves.toMatchObject({ code: "ABCD-EFGH" });
+    await expect(updateMemberRole(credentials, "member-2", true)).resolves.toEqual(group);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/groups/group-1/members/member-2/access",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(credentials), credentials: "same-origin" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/groups/group-1/members/member-2/role",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ ...credentials, isAdmin: true }) }));
+  });
+
+  it("preserves server permission and last-administrator errors", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ error: "Tylko administrator." }, 403))
+      .mockResolvedValueOnce(jsonResponse({ error: "Ostatni administrator." }, 409)));
+    await expect(createMemberAccess(credentials, "member-2")).rejects.toMatchObject({ status: 403 });
+    await expect(updateMemberRole(credentials, credentials.memberId, false)).rejects.toMatchObject({ status: 409 });
     expect(localStorage.setItem).not.toHaveBeenCalled();
   });
 });

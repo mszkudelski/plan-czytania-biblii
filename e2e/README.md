@@ -31,6 +31,17 @@ confirmation, invalid-code feedback, reload and cookie restoration on desktop
 and mobile. Recovery UI tests disable screenshots so access codes are not
 included in failure reports.
 
+Administrator-assisted recovery coverage: restore the selected duplicate-name
+profile without inheriting the issuer's invitation secret, 10-minute expiry
+metadata, strict code length, single-use and simultaneous redemption,
+unauthorized issuance/role changes, group scope, removed targets and demoted
+issuers. Concurrent role changes cannot remove the last administrator. A second
+administrator restores the original administrator without a saved personal
+code. Desktop and mobile UI scenarios cover issuing links/QR, role confirmation
+and cancellation, focus restoration, removal visibility, fresh-device recovery,
+reload, preserved progress and explicit profile switching while the app is open.
+Personal recovery codes remain covered as an optional, collapsed backup.
+
 For every relevant change, maintain these tests and run the complete unit/build/E2E checks; see ../AGENTS.md.
 
 ## Required GitHub check

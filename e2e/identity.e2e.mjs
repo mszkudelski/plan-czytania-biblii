@@ -9,7 +9,7 @@ const joinPath = session => '/#join=' + Buffer.from(JSON.stringify({
   groupId: session.group.id, inviteToken: session.credentials.inviteToken,
 })).toString('base64url');
 
-test('creating a plan offers a recovery code after the first entry', async ({ page, request }) => {
+test('creating a plan explains a second administrator and keeps personal codes optional', async ({ page, request }) => {
   const plan = inputPlan('create-ui');
   await page.goto('/');
   await page.getByRole('button', { name: 'Utwórz plan', exact: true }).click();
@@ -27,8 +27,12 @@ test('creating a plan offers a recovery code after the first entry', async ({ pa
   expect(group.members).toHaveLength(1);
   expect(group.members[0].isAdmin).toBe(true);
   test.info().annotations.push({ type: 'test-plan', description: group.id });
-  await page.getByRole('button', { name: 'Zapisz kod odzyskiwania', exact: true }).click();
+  await tab(page, 'Grupa').click();
+  await expect(page.locator('.group-access-help')).toContainText('Jesteś jedynym administratorem');
+  await tab(page, 'Ustawienia').click();
   await expect(page.getByRole('region', { name: 'Odzyskiwanie dostępu', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Utwórz kod odzyskiwania', exact: true })).toBeHidden();
+  await page.getByText('Osobisty kod awaryjny (opcjonalnie)', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Utwórz kod odzyskiwania', exact: true })).toBeEnabled();
   await expect(page.locator('.access-hint')).toHaveCount(0);
 });
@@ -55,11 +59,12 @@ for (const width of [1280, 390]) {
     await reading(page, 'Rdz 1').click();
     await expectSaved(request, member, ['s0']);
     await expectSaved(request, owner, ['s1']);
-    await page.getByRole('button', { name: 'Później', exact: true }).click();
     await tab(page, 'Grupa').click();
     await expect(page.locator('.member-row')).toHaveCount(2);
     await expect(page.locator('.member-row').filter({ hasText: 'Ty' })).toHaveCount(1);
     await expect(page.getByRole('button', { name: 'Zaproś', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Zarządzaj profilem/ })).toHaveCount(0);
+    await expect(page.locator('.group-access-help')).toContainText('Poproś administratora');
     await page.reload();
     expect((await browserCredentials(page)).memberId).toBe(credentials.memberId);
   });
@@ -73,6 +78,7 @@ for (const width of [1280, 390]) {
     await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
     await tab(page, 'Ustawienia').click();
     const panel = page.getByRole('region', { name: 'Odzyskiwanie dostępu', exact: true });
+    await panel.getByText('Osobisty kod awaryjny (opcjonalnie)', { exact: true }).click();
     await panel.getByRole('button', { name: 'Utwórz kod odzyskiwania', exact: true }).click();
     const output = panel.getByLabel('Twój kod odzyskiwania');
     await expect(output).toBeVisible();
@@ -95,6 +101,7 @@ for (const width of [1280, 390]) {
     expect(await browserCredentials(page)).toBeNull();
     expect((await page.request.get('/api/session')).status()).toBe(401);
     await page.getByRole('button', { name: 'Odzyskaj dostęp do mojego planu', exact: true }).click();
+    await page.getByText('Mam osobisty kod odzyskiwania', { exact: true }).click();
     await page.getByLabel('Kod odzyskiwania', { exact: true }).fill('ABCD-EFGH');
     await expect(page.getByRole('button', { name: 'Odzyskaj dostęp', exact: true })).toBeDisabled();
     await page.getByLabel('Kod odzyskiwania', { exact: true }).fill('2'.repeat(32));
@@ -117,6 +124,7 @@ for (const width of [1280, 390]) {
     await reading(page, 'Mt 1').click();
     await expectSaved(request, owner, ['s0', 's1']);
     await tab(page, 'Ustawienia').click();
+    await panel.getByText('Osobisty kod awaryjny (opcjonalnie)', { exact: true }).click();
     await expect(panel.getByRole('button', { name: 'Utwórz nowy kod odzyskiwania', exact: true })).toBeEnabled();
     await panel.getByRole('button', { name: 'Utwórz nowy kod odzyskiwania', exact: true }).click();
     await expect(panel.getByRole('alert')).toContainText('Poprzedni kod przestanie działać');
@@ -131,12 +139,13 @@ test('an invitation offers recovery and pairing without silently creating a prof
   expect(response.status()).toBe(201);
   const { code } = await response.json();
   await page.goto(joinPath(owner));
-  await page.getByRole('button', { name: 'Odzyskaj dostęp kodem', exact: true }).click();
+  await page.getByRole('button', { name: 'Odzyskaj mój dostęp', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Odzyskaj mój dostęp', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Mam dostęp na innym urządzeniu', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Połącz inne urządzenie', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Wróć do wyboru', exact: true }).click();
-  await page.getByRole('button', { name: 'Odzyskaj dostęp kodem', exact: true }).click();
+  await page.getByRole('button', { name: 'Odzyskaj mój dostęp', exact: true }).click();
+  await page.getByText('Mam osobisty kod odzyskiwania', { exact: true }).click();
   await page.getByLabel('Kod odzyskiwania', { exact: true }).fill(code);
   await page.getByRole('button', { name: 'Odzyskaj dostęp', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
@@ -150,6 +159,7 @@ test('replacing a recovery code requires confirmation and hides it after leaving
   await page.goto('/');
   await tab(page, 'Ustawienia').click();
   const panel = page.getByRole('region', { name: 'Odzyskiwanie dostępu', exact: true });
+  await panel.getByText('Osobisty kod awaryjny (opcjonalnie)', { exact: true }).click();
   await panel.getByRole('button', { name: 'Utwórz kod odzyskiwania', exact: true }).click();
   await expect(panel.getByLabel('Twój kod odzyskiwania')).toBeVisible();
   const oldCode = await panel.getByLabel('Twój kod odzyskiwania').textContent();
@@ -163,6 +173,7 @@ test('replacing a recovery code requires confirmation and hides it after leaving
   expect((await request.post('/api/session/recovery-code/redeem', { data: { code: newCode } })).status()).toBe(201);
   await tab(page, 'Dzisiaj').click();
   await tab(page, 'Ustawienia').click();
+  await panel.getByText('Osobisty kod awaryjny (opcjonalnie)', { exact: true }).click();
   await expect(panel.getByLabel('Twój kod odzyskiwania')).toHaveCount(0);
   await expect(panel).toContainText('Masz już kod odzyskiwania');
   await saveProgress(request, owner, 's0');

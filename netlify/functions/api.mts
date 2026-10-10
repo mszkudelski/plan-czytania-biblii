@@ -27,6 +27,7 @@ type StoredGroup = Omit<Group, "members"> & {
 type SessionTransfer = {
   groupId: string;
   memberId: string;
+  issuedByAdminId?: string;
   inviteToken?: string;
   expiresAt: string;
   usedAt?: string;
@@ -99,7 +100,7 @@ function formatTransferCode(code: string) {
 
 function cleanTransferCode(value: unknown) {
   return typeof value === "string"
-    ? value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8)
+    ? value.toUpperCase().replace(/[\s-]/g, "")
     : "";
 }
 
@@ -416,7 +417,6 @@ async function redeemRecoveryCode(request: Request) {
 }
 
 async function createSessionTransfer(request: Request) {
-  const store = groupStore();
   const credentials = cleanCredentials(await request.json());
   if (!credentials) return error("Nieprawidłowa sesja.", 400);
   const group = await storedGroup(credentials.groupId);
@@ -434,14 +434,19 @@ async function createSessionTransfer(request: Request) {
     inviteToken = credentials.inviteToken;
   }
 
+  return issueSessionTransfer({
+    groupId: credentials.groupId, memberId: credentials.memberId,
+    ...(inviteToken ? { inviteToken } : {}),
+  });
+}
+
+async function issueSessionTransfer(profile: Omit<SessionTransfer, "expiresAt" | "usedAt">) {
+  const store = groupStore();
   const expiresAt = new Date(Date.now() + TRANSFER_TTL_MS).toISOString();
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const code = randomTransferCode();
     const transfer: SessionTransfer = {
-      groupId: credentials.groupId,
-      memberId: credentials.memberId,
-      ...(inviteToken ? { inviteToken } : {}),
-      expiresAt,
+      ...profile, expiresAt,
     };
     const result = await store.set(
       await transferKey(code),
@@ -457,9 +462,9 @@ async function createSessionTransfer(request: Request) {
 
 async function redeemSessionTransfer(request: Request) {
   const store = groupStore();
-  const body = (await request.json()) as { code?: unknown };
-  const code = cleanTransferCode(body.code);
-  if (code.length !== 8) return error("Kod ma nieprawidłowy format.", 400);
+  const body = (await request.json()) as { code?: unknown } | null;
+  const code = cleanTransferCode(body?.code);
+  if (!/^[2-9A-HJ-NP-Z]{8}$/.test(code)) return error("Kod ma nieprawidłowy format.", 400);
 
   const key = await transferKey(code);
   const entry = await store.getWithMetadata(key, {
@@ -483,6 +488,11 @@ async function redeemSessionTransfer(request: Request) {
   const response = await updateStoredGroup(
     transfer.groupId,
     async (group) => {
+      if (transfer.issuedByAdminId && !group.members.some(
+        (person) => person.id === transfer.issuedByAdminId && person.isAdmin,
+      )) {
+        return error("Administrator nie ma już uprawnień. Poproś o nowy link dostępu.", 403);
+      }
       const member = group.members.find(
         (candidate) => candidate.id === transfer.memberId,
       );
@@ -671,6 +681,37 @@ async function removeMember(
   });
 }
 
+async function createMemberAccess(request: Request, groupId: string, memberId: string) {
+  const credentials = cleanCredentials(await request.json());
+  if (!credentials || credentials.groupId !== groupId) return error("Nieprawidłowy dostęp.", 401);
+  const group = await storedGroup(groupId);
+  if (!group) return error("Nie znaleziono grupy.", 404);
+  const current = await authenticate(group, credentials);
+  if (!current?.isAdmin) return error("Tylko administrator może przywracać dostęp.", 403);
+  if (!group.members.some((person) => person.id === memberId)) return error("Nie znaleziono osoby.", 404);
+  // The code points to the selected member, never to the issuing admin.
+  // No invitation secret is copied into the restored member's session.
+  return issueSessionTransfer({ groupId, memberId, issuedByAdminId: current.id });
+}
+
+async function updateMemberRole(request: Request, groupId: string, memberId: string) {
+  const value = await request.json();
+  const credentials = cleanCredentials(value);
+  if (!credentials || credentials.groupId !== groupId) return error("Nieprawidłowy dostęp.", 401);
+  const isAdmin = (value as { isAdmin?: unknown }).isAdmin;
+  if (typeof isAdmin !== "boolean") return error("Nieprawidłowa rola.", 400);
+  return updateStoredGroup(groupId, async (group) => {
+    const current = await authenticate(group, credentials);
+    if (!current?.isAdmin) return error("Tylko administrator może zmieniać role.", 403);
+    const member = group.members.find((person) => person.id === memberId);
+    if (!member) return error("Nie znaleziono osoby.", 404);
+    if (!isAdmin && member.isAdmin && !group.members.some(
+      (person) => person.id !== memberId && person.isAdmin,
+    )) return error("Grupa musi mieć co najmniej jednego administratora.", 409);
+    member.isAdmin = isAdmin;
+  });
+}
+
 async function notifications(request: Request, groupId: string, scope: string) {
   const value = await request.json();
   if (!value || typeof value !== "object") return error("Nieprawidłowa operacja.");
@@ -762,6 +803,13 @@ export default async (request: Request, context: Context) => {
     }
     if (request.method === "POST" && route.length === 1 && route[0] === "session") {
       return saveSession(request);
+    }
+    if (
+      request.method === "POST" &&
+      route.length === 5 && route[0] === "groups" && route[2] === "members"
+    ) {
+      if (route[4] === "access") return createMemberAccess(request, route[1], route[3]);
+      if (route[4] === "role") return updateMemberRole(request, route[1], route[3]);
     }
     if (
       request.method === "DELETE" &&

@@ -8,12 +8,15 @@ import type {
 import {
   localCreateGroup,
   localCreateRecoveryCode,
+  localCreateMemberAccess,
   localEnsureInvite,
   localGetGroup,
   localJoinGroup,
   localRemoveMember,
   localRecoveryCodeStatus,
   localRedeemRecoveryCode,
+  localRedeemMemberAccess,
+  localUpdateMemberRole,
   localUpdateProgress,
 } from "./local-store";
 import type { ReminderSettings, PushSubscriptionData } from "./notifications";
@@ -145,7 +148,7 @@ export async function createSessionTransfer(credentials: Credentials) {
 
 export async function redeemSessionTransfer(code: string) {
   if (useLocalOnly()) {
-    throw new Error("Przenoszenie sesji jest dostępne po wdrożeniu aplikacji.");
+    return localRedeemMemberAccess(code);
   }
   return request<{ group: Group; credentials: Credentials }>(
     "/session/transfers/redeem",
@@ -154,6 +157,20 @@ export async function redeemSessionTransfer(code: string) {
       body: JSON.stringify({ code }),
     },
   );
+}
+
+export async function createMemberAccess(credentials: Credentials, memberId: string) {
+  if (useLocalOnly()) return localCreateMemberAccess(credentials, memberId);
+  return request<{ code: string; expiresAt: string }>(`/groups/${credentials.groupId}/members/${memberId}/access`, {
+    method: "POST", body: JSON.stringify(credentials),
+  });
+}
+
+export async function updateMemberRole(credentials: Credentials, memberId: string, isAdmin: boolean) {
+  if (useLocalOnly()) return localUpdateMemberRole(credentials, memberId, isAdmin);
+  return request<Group>(`/groups/${credentials.groupId}/members/${memberId}/role`, {
+    method: "POST", body: JSON.stringify({ ...credentials, isAdmin }),
+  });
 }
 
 export async function recoveryCodeStatus(credentials: Credentials) {

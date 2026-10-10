@@ -1,11 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   localCreateGroup,
   localCreateRecoveryCode,
+  localCreateMemberAccess,
   localJoinGroup,
   localRemoveMember,
   localRecoveryCodeStatus,
   localRedeemRecoveryCode,
+  localRedeemMemberAccess,
+  localUpdateMemberRole,
   localUpdateProgress,
 } from "./local-store";
 import { hashRecoveryCode, normalizeRecoveryCode } from "./access-recovery";
@@ -152,6 +155,115 @@ function createLocalPlan() {
       segments: [{ id: "segment-1", label: "Rdz 1", section: "ST" }] }],
   });
 }
+
+describe("odzyskiwanie przez administratora", () => {
+  beforeEach(() => { vi.stubGlobal("localStorage", memoryStorage()); });
+  afterEach(() => { vi.useRealTimers(); });
+  const join = (owner: ReturnType<typeof createLocalPlan>, name = "Anna") => localJoinGroup({
+    groupId: owner.group.id, inviteToken: owner.credentials.inviteToken!,
+  }, name);
+
+  it("przywraca wybrany profil mimo powtórzonego imienia, bez uprawnień wystawiającego", async () => {
+    const owner = createLocalPlan();
+    const first = join(owner, "Marek");
+    const second = join(owner, "Marek");
+    localUpdateProgress(first.credentials, "segment-1", true);
+    const access = await localCreateMemberAccess(owner.credentials, first.credentials.memberId);
+    const stored = localStorage.getItem("plan-czytania-biblii-local-member-access")!;
+    expect(stored.includes(access.code.replaceAll("-", ""))).toBe(false);
+    const recovered = await localRedeemMemberAccess(access.code.toLowerCase().replaceAll("-", " "));
+    expect(recovered.credentials.memberId).toBe(first.credentials.memberId);
+    expect(recovered.credentials.token).not.toBe(first.credentials.token);
+    expect(recovered.credentials.inviteToken).toBeUndefined();
+    expect(recovered.group.members).toHaveLength(3);
+    expect(recovered.group.members.find((person) => person.id === first.credentials.memberId)?.isAdmin).toBe(false);
+    expect(recovered.group.progress[first.credentials.memberId]["segment-1"]).toBeTruthy();
+    expect(recovered.group.progress[second.credentials.memberId]).toEqual({});
+    expect(() => localUpdateProgress(first.credentials, "segment-1", false)).not.toThrow();
+    expect(() => localUpdateProgress(recovered.credentials, "segment-1", true)).not.toThrow();
+  });
+
+  it("drugi administrator przywraca pierwotnego administratora bez wcześniejszego kodu", async () => {
+    const owner = createLocalPlan();
+    const second = join(owner);
+    localUpdateMemberRole(owner.credentials, second.credentials.memberId, true);
+    localUpdateProgress(owner.credentials, "segment-1", true);
+    const access = await localCreateMemberAccess(second.credentials, owner.credentials.memberId);
+    const recovered = await localRedeemMemberAccess(access.code);
+    expect(recovered.credentials.memberId).toBe(owner.credentials.memberId);
+    expect(recovered.group.members.find((person) => person.id === owner.credentials.memberId)?.isAdmin).toBe(true);
+    expect(recovered.group.progress[owner.credentials.memberId]["segment-1"]).toBeTruthy();
+    expect(localRecoveryCodeStatus(owner.credentials).hasCode).toBe(false);
+  });
+
+  it("blokuje zarządzanie przez uczestnika i odebranie ostatniego administratora", async () => {
+    const owner = createLocalPlan();
+    const person = join(owner);
+    await expect(localCreateMemberAccess(person.credentials, owner.credentials.memberId)).rejects.toThrow("Tylko administrator");
+    expect(() => localUpdateMemberRole(person.credentials, person.credentials.memberId, true)).toThrow("Tylko administrator");
+    expect(() => localUpdateMemberRole(owner.credentials, owner.credentials.memberId, false)).toThrow("co najmniej jednego administratora");
+    localUpdateMemberRole(owner.credentials, person.credentials.memberId, true);
+    localUpdateMemberRole(person.credentials, owner.credentials.memberId, false);
+    expect(() => localUpdateMemberRole(person.credentials, person.credentials.memberId, false)).toThrow("co najmniej jednego administratora");
+    await expect(localCreateMemberAccess(owner.credentials, person.credentials.memberId)).rejects.toThrow("Tylko administrator");
+    expect(() => localUpdateProgress(owner.credentials, "segment-1", true)).not.toThrow();
+  });
+
+  it("jednorazowy kod może zostać użyty tylko raz również przy równoczesnych żądaniach", async () => {
+    const owner = createLocalPlan();
+    const person = join(owner);
+    const access = await localCreateMemberAccess(owner.credentials, person.credentials.memberId);
+    const results = await Promise.allSettled([
+      localRedeemMemberAccess(access.code), localRedeemMemberAccess(access.code),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    await expect(localRedeemMemberAccess(access.code)).rejects.toThrow("nieprawidłowy lub wygasł");
+  });
+
+  it("nie gubi kodów wystawionych równocześnie dla różnych profili", async () => {
+    const owner = createLocalPlan();
+    const first = join(owner);
+    const second = join(owner);
+    const codes = await Promise.all([
+      localCreateMemberAccess(owner.credentials, first.credentials.memberId),
+      localCreateMemberAccess(owner.credentials, second.credentials.memberId),
+    ]);
+    const recovered = await Promise.all(codes.map((access) => localRedeemMemberAccess(access.code)));
+    expect(recovered.map((session) => session.credentials.memberId)).toEqual([first.credentials.memberId, second.credentials.memberId]);
+  });
+
+  it("odrzuca kod po 10 minutach oraz dłuższy kod z poprawnym początkiem", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-10T12:00:00Z"));
+    const owner = createLocalPlan();
+    const person = join(owner);
+    const access = await localCreateMemberAccess(owner.credentials, person.credentials.memberId);
+    expect(Date.parse(access.expiresAt) - Date.now()).toBe(600_000);
+    await expect(localRedeemMemberAccess(access.code + "-ABCD")).rejects.toThrow("format");
+    vi.setSystemTime(Date.now() + 600_000);
+    await expect(localRedeemMemberAccess(access.code)).rejects.toThrow("nieprawidłowy lub wygasł");
+  });
+
+  it("nie pozwala odzyskać usuniętej osoby lub użyć linku wystawionego przez zdegradowanego administratora", async () => {
+    const owner = createLocalPlan();
+    const person = join(owner);
+    const access = await localCreateMemberAccess(owner.credentials, person.credentials.memberId);
+    localRemoveMember(owner.credentials, person.credentials.memberId);
+    await expect(localRedeemMemberAccess(access.code)).rejects.toThrow("nie ma już dostępu");
+    const second = join(owner);
+    localUpdateMemberRole(owner.credentials, second.credentials.memberId, true);
+    const ownerAccess = await localCreateMemberAccess(second.credentials, owner.credentials.memberId);
+    localUpdateMemberRole(owner.credentials, second.credentials.memberId, false);
+    await expect(localRedeemMemberAccess(ownerAccess.code)).rejects.toThrow("nie ma już uprawnień");
+  });
+
+  it("wymaga ważnego tokenu i istniejącego profilu w tej samej grupie", async () => {
+    const owner = createLocalPlan();
+    const foreign = createLocalPlan();
+    await expect(localCreateMemberAccess({ ...owner.credentials, token: "invalid" }, owner.credentials.memberId)).rejects.toThrow();
+    await expect(localCreateMemberAccess(owner.credentials, foreign.credentials.memberId)).rejects.toThrow("Nie znaleziono osoby");
+    expect(() => localUpdateMemberRole(owner.credentials, foreign.credentials.memberId, true)).toThrow("Nie znaleziono osoby");
+  });
+});
 
 describe("tożsamość i kod odzyskiwania", () => {
   beforeEach(() => { vi.stubGlobal("localStorage", memoryStorage()); });
