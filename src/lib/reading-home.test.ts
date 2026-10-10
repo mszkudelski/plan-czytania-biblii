@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Group } from "../types";
-import { formatFragmentCount, getDailyReadingDay, getReadingHomeSummary, getRecoveryEstimate } from "./reading-home";
+import { formatFragmentCount, getDailyReadingDay, getReadingHomeSummary, getRecoveryEstimate, getReadingWeekSummary, formatReadingCount } from "./reading-home";
 import { projectRecoveryPortions } from "./recovery";
 
 const TODAY = "2026-10-10";
@@ -69,10 +69,10 @@ describe("czytanie na stronie głównej", () => {
     expect(getDailyReadingDay(plan, "member", TODAY, "d2")?.id).toBe("d0");
   });
 
-  it("shows a finished calendar portion before offering future reading", () => {
+  it("continues with the first unread reading when today is complete", () => {
     const plan = group();
     plan.progress.member = { "s0-0": "done", "s0-1": "done", "s1-0": "done", "s1-1": "done" };
-    expect(getDailyReadingDay(plan, "member", TODAY)?.id).toBe("d1");
+    expect(getDailyReadingDay(plan, "member", TODAY)?.id).toBe("d2");
   });
 
   it("derives a catch-up estimate from the final projected extra without changing progress", () => {
@@ -85,5 +85,58 @@ describe("czytanie na stronie głównej", () => {
     expect(portions.slice(estimate!.readingDays).every(portion => !portion.extra)).toBe(true);
     expect(JSON.stringify(plan)).toBe(snapshot);
     expect(getRecoveryEstimate([])).toBeNull();
+  });
+});
+
+describe("status czytań i tygodnia", () => {
+  it.each([[1, "+1 czytanie"], [-2, "−2 czytania"], [5, "+5 czytań"], [12, "+12 czytań"], [-22, "−22 czytania"]] as const)(
+    "formats a signed count of %s", (count, expected) => expect(formatReadingCount(count)).toBe(expected),
+  );
+  it("counts whole readings and does not let future reading hide incomplete debt", () => {
+    const plan = group();
+    plan.progress.member = { "s0-0": "done", "s2-0": "done", "s2-1": "done" };
+    expect(getReadingWeekSummary(plan, "member", TODAY)).toEqual({
+      overdueReadings: 1, aheadReadings: 1, weeklyTotal: 3, weeklyCompleted: 1,
+    });
+    plan.progress.member["s0-1"] = "done";
+    expect(getReadingWeekSummary(plan, "member", TODAY).overdueReadings).toBe(0);
+  });
+  it("a three-reading week has no debt until Monday and only later weeks count as ahead", () => {
+    const plan = group();
+    plan.frequency = { kind: "custom", days: [1, 3, 5] };
+    plan.planDays = ["2026-10-05", "2026-10-07", "2026-10-09", "2026-10-12"].map((date, i) => ({
+      id: `d${i}`, index: i, title: "", date,
+      segments: [{ id: `s${i}`, label: `Rdz ${i + 1}`, section: "Biblia" }],
+    }));
+    expect(getReadingWeekSummary(plan, "member", TODAY)).toEqual({
+      overdueReadings: 0, aheadReadings: 0, weeklyTotal: 3, weeklyCompleted: 0,
+    });
+    plan.progress.member = { s0: "done", s1: "done", s2: "done", s3: "done" };
+    expect(getReadingWeekSummary(plan, "member", TODAY)).toEqual({
+      overdueReadings: 0, aheadReadings: 1, weeklyTotal: 3, weeklyCompleted: 3,
+    });
+    delete plan.progress.member.s1;
+    expect(getReadingWeekSummary(plan, "member", "2026-10-12")).toEqual({
+      overdueReadings: 1, aheadReadings: 0, weeklyTotal: 1, weeklyCompleted: 1,
+    });
+  });
+  it("handles Sunday, a year boundary, empty readings and other members", () => {
+    const plan = group();
+    plan.frequency = { kind: "weekdays", days: [1, 2, 3, 4, 5] };
+    plan.planDays[0].date = "2025-12-28";
+    plan.planDays[1].date = "2025-12-29";
+    plan.planDays[2].date = "2026-01-05";
+    plan.planDays.push({ id: "empty", index: 3, date: "2025-12-20", title: "", segments: [] });
+    plan.progress.other = Object.fromEntries(plan.planDays.flatMap(day => day.segments).map(s => [s.id, "done"]));
+    expect(getReadingWeekSummary(plan, "member", "2026-01-04")).toEqual({
+      overdueReadings: 1, aheadReadings: 0, weeklyTotal: 1, weeklyCompleted: 0,
+    });
+    expect(getReadingWeekSummary(plan, "member", "2026-01-05")).toEqual({
+      overdueReadings: 2, aheadReadings: 0, weeklyTotal: 1, weeklyCompleted: 0,
+    });
+    plan.planDays = [];
+    expect(getReadingWeekSummary(plan, "member", TODAY)).toEqual({
+      overdueReadings: 0, aheadReadings: 0, weeklyTotal: 0, weeklyCompleted: 0,
+    });
   });
 });

@@ -49,7 +49,7 @@ test('creating a plan explains group recovery without personal-code options or r
     name: 'e2e.csv', mimeType: 'text/csv', buffer: Buffer.from('Dzień;Stary Testament;Nowy Testament\nDzień 1;Rdz 1;Mt 1'),
   });
   await page.locator('form').getByRole('button', { name: 'Utwórz plan', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
   const credentials = await browserCredentials(page);
   const session = { group: { id: credentials.groupId }, credentials };
   const group = await readGroup(request, session);
@@ -78,7 +78,7 @@ for (const width of [1280, 390]) {
     await page.getByLabel('Twoje imię').fill('  tester   e2e  ');
     await expect(page.locator('.name-match-notice')).toContainText('Dołączenie utworzy osobny profil');
     await page.getByRole('button', { name: 'Dołącz jako nowa osoba', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
     const credentials = await browserCredentials(page);
     expect(credentials.memberId).not.toBe(owner.credentials.memberId);
     const member = { group: owner.group, credentials };
@@ -111,7 +111,7 @@ for (const width of [1280, 390]) {
     const { code } = await access(request, owner, owner.credentials.memberId, second.credentials);
     await saveProgress(request, owner, 's0');
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
     await tab(page, 'Ustawienia').click();
     const panel = page.getByRole('region', { name: 'Odzyskiwanie dostępu', exact: true });
     await expect(panel).toContainText('Anna E2E');
@@ -143,18 +143,18 @@ for (const width of [1280, 390]) {
     await expect(page.getByRole('alert')).toContainText('nieprawidłowy');
     await page.getByLabel('Link lub kod dostępu', { exact: true }).fill(code.toLowerCase().replaceAll('-', ' '));
     await page.getByRole('button', { name: 'Przywróć mój dostęp', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
     const recovered = await browserCredentials(page);
     expect(recovered.memberId).toBe(owner.credentials.memberId);
     expect(recovered.token === owner.credentials.token).toBe(false);
     expect((await readGroup(request, owner)).members).toHaveLength(2);
     await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
     expect((await browserCredentials(page)).token === recovered.token).toBe(true);
     await page.evaluate(() => localStorage.clear());
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
     expect((await browserCredentials(page)).token === recovered.token).toBe(true);
     await reading(page, 'Mt 1').click();
     await expectSaved(request, owner, ['s0', 's1']);
@@ -181,7 +181,7 @@ test('an invitation offers recovery and pairing without silently creating a prof
   await page.getByRole('button', { name: 'Mam link lub kod od administratora', exact: true }).click();
   await page.getByLabel('Link lub kod dostępu', { exact: true }).fill(code);
   await page.getByRole('button', { name: 'Przywróć mój dostęp', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
   expect((await browserCredentials(page)).memberId).toBe(member.credentials.memberId);
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
   await expectSaved(request, member, ['s0']);
@@ -200,7 +200,7 @@ test('existing personal codes stay hidden across settings, reload and logout', a
   const panel = page.getByRole('region', { name: 'Odzyskiwanie dostępu', exact: true });
   await expect(panel).toContainText('Jesteś jedynym administratorem');
   await noPersonalCodeOptions(page);
-  await tab(page, 'Dzisiaj').click();
+  await tab(page, 'Czytaj').click();
   await tab(page, 'Ustawienia').click();
   await noPersonalCodeOptions(page);
   await page.reload();

@@ -165,7 +165,7 @@ for (const width of [1280, 390]) {
       await expect(device.getByRole('heading', { name: 'Przywróć dostęp do profilu', exact: true })).toBeVisible();
       expect(await browserCredentials(device)).toBeNull();
       await device.getByRole('button', { name: 'Przywróć mój dostęp', exact: true }).click();
-      await expect(device.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+      await expect(device.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
       const recovered = await browserCredentials(device);
       expect(recovered.memberId).toBe(member.credentials.memberId);
       expect(recovered.token === member.credentials.token).toBe(false);
@@ -174,7 +174,7 @@ for (const width of [1280, 390]) {
       await expect(device.locator('.member-row')).toHaveCount(3);
       await expect(device.getByRole('button', { name: /Zarządzaj profilem/ })).toHaveCount(0);
       await device.reload();
-      await expect(device.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+      await expect(device.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
       expect((await browserCredentials(device)).memberId).toBe(member.credentials.memberId);
       expect(new URL(device.url()).hash).toBe('');
       await reading(device, 'Mt 1').click();
@@ -212,7 +212,7 @@ for (const width of [1280, 390]) {
     await page.getByRole('button', { name: 'Mam link lub kod od administratora', exact: true }).click();
     await page.getByLabel('Link lub kod dostępu', { exact: true }).fill(new URL('/#restore=' + access.code, page.url()).href);
     await page.getByRole('button', { name: 'Przywróć mój dostęp', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
     expect((await browserCredentials(page)).memberId).toBe(owner.credentials.memberId);
     await tab(page, 'Grupa').click();
     await expect(page.getByRole('button', { name: 'Zaproś', exact: true })).toBeVisible();
@@ -230,7 +230,7 @@ test('access links opened during use require confirmation and invalid links pres
   const member = await join(request, owner);
   const access = await issue(request, owner, member.credentials.memberId);
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
   const original = await browserCredentials(page);
   // Hash-only navigation exercises opening a link while the app is already running.
   await page.goto('/#restore=2222-2222');
@@ -241,10 +241,10 @@ test('access links opened during use require confirmation and invalid links pres
   await expect(page.getByRole('alert')).toContainText('Poproś administratora o nowy');
   expect((await browserCredentials(page)).token === original.token).toBe(true);
   await page.getByRole('button', { name: 'Wróć do wyboru', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
   await page.goto('/#restore=' + access.code);
   await page.getByRole('button', { name: 'Przywróć mój dostęp', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
   expect((await browserCredentials(page)).memberId).toBe(member.credentials.memberId);
   expect((await readGroup(request, owner)).members).toHaveLength(2);
 });

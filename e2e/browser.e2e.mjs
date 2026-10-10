@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   createPlan, createParallelPlan, openPlan, saveProgress, expectSaved, readGroup, reading,
-  extraReading, tab, recoveryKey, TODAY, NOW, holdNextProgress, progressPath,
+  extraReading, browseReading, tab, recoveryKey, TODAY, NOW, holdNextProgress, progressPath,
 } from './helpers.mjs';
 
 test('standard reading is optimistic, saves to backend and survives reload', async ({ page, request }) => {
@@ -173,7 +173,7 @@ test('extra rollback remains correct when leaving and returning to Today during 
     await extraReading(page).click();
     await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
     await tab(page, 'Plan').click();
-    await tab(page, 'Dzisiaj').click();
+    await tab(page, 'Czytaj').click();
   } finally { release(); }
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
@@ -241,12 +241,12 @@ test('completed plan has no future recovery extra', async ({ page, request }) =>
   await openPlan(page, session, { [recoveryKey(session)]: TODAY });
   await expect(page.getByRole('heading', { name: 'Plan ukończony' })).toBeVisible();
   await expect(extraReading(page)).toHaveCount(0);
-  await expect(page.locator('.day-switcher')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Poprzedni dzień', exact: true })).toBeEnabled();
-  await expect(page.getByRole('button', { name: 'Następny dzień', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Poprzedni dzień', exact: true }).click();
+  await expect(page.locator('.reading-navigation')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Poprzednie', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Następne', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
   await expect(reading(page, 'Rdz 5')).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('.day-strip button').last().click();
+  await browseReading(page, 'last');
   await expect(reading(page, 'Rdz 6')).toHaveAttribute('aria-pressed', 'true');
   await expect(extraReading(page)).toHaveCount(0);
 });
@@ -269,31 +269,31 @@ test('recovery advances at midnight without reloading the page', async ({ page, 
 test('future recovery days assume prior extras without saving assumed progress', async ({ page, request }) => {
   const session = await createPlan(request, 'recovery-forecast');
   await openPlan(page, session);
-  const switcher = page.locator('.day-switcher');
-  await switcher.locator('.day-strip button').last().click();
+  const switcher = page.locator('.reading-navigation');
+  await browseReading(page, 'last');
   await expect(reading(page, 'Rdz 6')).toBeVisible();
   await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
-  const dates = switcher.locator('.day-strip button');
-  await expect(dates).toHaveCount(3);
-  await expect(dates.nth(0)).toHaveAttribute('aria-pressed', 'true');
+  const dates = switcher;
+  await expect(dates).toHaveAttribute('data-reading-count', '3');
+  await expect(dates).toHaveAttribute('data-selected-index', '0');
   await expect(extraReading(page)).toContainText('Rdz 2');
-  await expect(page.getByRole('button', { name: 'Poprzedni dzień', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Poprzednie', exact: true })).toBeDisabled();
 
-  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
   await expect(extraReading(page)).toContainText('Rdz 5');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
   await expect(extraReading(page)).toBeDisabled();
   await expect(reading(page, 'Rdz 2')).toHaveCount(0);
-  await dates.last().click();
+  await browseReading(page, 'last');
   await expect(reading(page, 'Rdz 6')).toBeVisible();
   await expect(extraReading(page)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Następny dzień', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Następne', exact: true })).toBeDisabled();
   await expectSaved(request, session, []);
   expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
 
   // Explicitly enable reading ahead; the preview must not mark preceding days.
-  await dates.nth(1).click();
+  await browseReading(page, 1);
   await expect(reading(page, 'Rdz 4')).toBeDisabled();
   await page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true }).click();
   await reading(page, 'Rdz 4').click();
@@ -302,17 +302,17 @@ test('future recovery days assume prior extras without saving assumed progress',
   await extraReading(page).click();
   await expectSaved(request, session, ['s3', 's4']);
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
-  await dates.nth(0).click();
+  await browseReading(page, 0);
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'false');
   await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'false');
   await expect(extraReading(page)).toContainText('Rdz 2');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
   expect(await page.evaluate(key => localStorage.getItem(key), recoveryKey(session) + ':ordered:' + TODAY + ':day')).toBe('d0');
 
-  await dates.last().click();
+  await browseReading(page, 'last');
   await page.getByRole('button', { name: 'Wyłącz plan nadrabiania' }).click();
   await expect(reading(page, 'Rdz 6')).toBeVisible();
-  await expect(switcher.locator('.day-strip button')).toHaveCount(5);
+  await expect(switcher).toHaveAttribute('data-reading-count', '5');
   await expectSaved(request, session, ['s3', 's4']);
   await page.reload();
   await expectSaved(request, session, ['s3', 's4']);
@@ -322,7 +322,7 @@ test('failed rapid future toggles do not restore an earlier optimistic chapter',
   const session = await createPlan(request, 'future-rapid-rejection');
   await openPlan(page, session);
   await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
-  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true }).click();
   let rejected = 0;
   page.on("response", response => {
@@ -350,7 +350,7 @@ test('failed rapid future toggles do not restore an earlier optimistic chapter',
   await reading(page, 'Rdz 4').click();
   await expectSaved(request, session, ['s3']);
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('.day-strip button').first().click();
+  await browseReading(page, 0);
   await expect(extraReading(page)).toContainText('Rdz 2');
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'false');
   await expectSaved(request, session, ['s3']);
@@ -361,7 +361,7 @@ test('future partial ranges can be checked without completing assumed earlier ch
   const session = await createPlan(request, 'recovery-forecast-partial', true);
   await openPlan(page, session);
   await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
-  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
   await expect(extraReading(page)).toContainText('Rdz 4');
   await expect(reading(page, 'Rdz 3')).toBeDisabled();
@@ -373,7 +373,7 @@ test('future partial ranges can be checked without completing assumed earlier ch
   await extraReading(page).click();
   await expectSaved(request, session, ['s3']);
 
-  await page.getByRole('button', { name: 'Poprzedni dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
   await expect(extraReading(page)).toContainText('Rdz 2');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
   await page.reload();
@@ -401,17 +401,17 @@ test('projected navigation respects partial chapters and reload returns to today
   await extraReading(page).click();
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
 
-  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 3')).toBeVisible();
   await expect(extraReading(page)).toContainText('Rdz 4');
-  await page.getByRole('button', { name: 'Poprzedni dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
   await expect(extraReading(page)).toContainText('Rdz 2');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
 
-  await page.locator('.day-strip button').last().click();
+  await browseReading(page, 'last');
   await expect(reading(page, 'Rdz 6')).toBeVisible();
   await page.reload();
-  await expect(page.locator('.day-switcher')).toBeVisible();
+  await expect(page.locator('.reading-navigation')).toBeVisible();
   await expect(reading(page, 'Rdz 1')).toBeVisible();
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
   await expectSaved(request, session, ['s0', 's1']);
@@ -425,19 +425,19 @@ test('standard completed day stays visible until the next day is selected', asyn
   await expectSaved(request, session, ['s0', 's1']);
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('.simple-day header b')).toHaveText('2/2');
-  await expect(page.locator('.day-strip button').nth(0)).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.reading-finished')).toHaveText('Przeczytane');
+  await expect(page.locator('.reading-navigation')).toHaveAttribute('data-selected-index', '0');
 
-  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
   await reading(page, 'Rdz 2').click();
   await expectSaved(request, session, ['s0', 's1', 's2']);
   await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('.day-strip button').nth(1)).toHaveAttribute('aria-pressed', 'true');
-  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await expect(page.locator('.reading-navigation')).toHaveAttribute('data-selected-index', '1');
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
 
-  await page.locator('.day-strip button').nth(0).click();
+  await browseReading(page, 0);
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
 });
@@ -455,19 +455,19 @@ test('completed recovery portion keeps its one extra and advances only through d
   await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(extraReading(page)).toContainText('Rdz 2');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('.simple-day header b')).toHaveText('3/3');
-  await expect(page.locator('.day-strip button').nth(0)).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.reading-finished')).toHaveText('Przeczytane');
+  await expect(page.locator('.reading-navigation')).toHaveAttribute('data-selected-index', '0');
 
-  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
   await expect(extraReading(page)).toContainText('Rdz 5');
   await page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true }).click();
   await reading(page, 'Rdz 4').click();
   await expectSaved(request, session, ['s0', 's1', 's2', 's3']);
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('.day-strip button').nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.reading-navigation')).toHaveAttribute('data-selected-index', '1');
 
-  await page.locator('.day-strip button').nth(0).click();
+  await browseReading(page, 0);
   await expect(extraReading(page)).toContainText('Rdz 2');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
   expect(await page.evaluate(key => localStorage.getItem(key), recoveryKey(session) + ':ordered:' + TODAY + ':day')).toBe('d0');
@@ -479,21 +479,21 @@ test('ten days behind with three streams catches up after thirty extras, without
   await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
   await expect(page.locator('.simple-readings button')).toHaveCount(4);
   await expect(extraReading(page)).toContainText('Rdz 2');
-  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(extraReading(page)).toContainText('Mt 3');
-  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(extraReading(page)).toContainText('Ps 4');
   for (let index = 2; index < 29; index++) {
-    await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+    await page.getByRole('button', { name: 'Następne', exact: true }).click();
   }
   await expect(extraReading(page)).toBeVisible();
-  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(extraReading(page)).toHaveCount(0);
   await expect(page.locator('.simple-readings button')).toHaveCount(3);
   for (const book of ['Rdz', 'Mt', 'Ps']) {
     await expect(reading(page, book + ' 41')).toHaveAttribute('aria-pressed', 'false');
   }
-  await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(extraReading(page)).toHaveCount(0);
   await expectSaved(request, session, []);
   expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
@@ -561,10 +561,10 @@ test('manual refresh cannot erase a progress write confirmed after its request s
   await page.reload();
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('.portion-complete')).toContainText('Dzisiejsza porcja gotowa');
-  await page.getByRole('button', { name: 'Przejdź do kolejnego czytania', exact: true }).click();
+  await expect(page.locator('.reading-finished')).toContainText('Przeczytane');
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
-  await page.getByRole('button', { name: 'Poprzedni dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
   await expectSaved(request, session, ['s0', 's1']);

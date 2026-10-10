@@ -21,15 +21,16 @@ The suite creates plans named E2E <run id> <scenario> <random suffix>, with only
 
 Reports and failure screenshots are uploaded for 7 days. Traces and stored credentials are disabled because request bodies contain member tokens. Do not add token values to test names or logs. Test reports are evidence of a real execution; source review or mocked harnesses are not E2E execution.
 
-Reading home coverage: the current portion appears before overall statistics,
-shows completed fragments and stays finished across reload until the user chooses
-to continue. Past debt, calendar-today work and future completions are separate;
-future progress cannot cancel debt. Desktop and mobile scenarios cover future
-starts, rest days, finished standard plans and browsing completed days. Catch-up
-explains its extra chapter before activation, previews the next three portions and
-estimates catch-up time. Forecast checkboxes stay disabled until reading ahead
-is explicitly enabled; previewing never persists assumed progress. Existing
-rollback, reload, partial-chapter and concurrent-write assertions remain in place.
+Reading home coverage: the plan name heads the reading screen; first unread
+work stays in order, a finished reading survives reload until explicit navigation,
+and dates/overall progress remain in Plan. Negative/positive counts track whole
+readings without cancelling unfinished debt. Daily plans use past days; other
+cadences use closed weeks. Current-week completion stays capped at its scheduled
+goal while future-week readings appear separately. Tests cover both return-arrow
+directions, disappearance at the personal position, transparent borderless controls,
+44px touch targets, week rollover, future starts, rest days and completed plans.
+Desktop/mobile checks retain real persistence, reload, catch-up forecasts and estimates,
+explicit future editing, rollback, partial-chapter and concurrent-write regressions.
 
 Identity coverage: each invitation join creates a separate member and progress,
 including duplicate names and the administrator's name. Legacy recovery API codes restore

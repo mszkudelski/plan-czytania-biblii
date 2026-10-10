@@ -7,6 +7,37 @@ export function formatFragmentCount(count: number) {
   return `${count} ${ending}`;
 }
 
+export function formatReadingCount(count: number) {
+  const value = Math.abs(count);
+  const ending = value === 1 ? "czytanie" : value % 10 >= 2 && value % 10 <= 4 &&
+    !(value % 100 >= 12 && value % 100 <= 14) ? "czytania" : "czytań";
+  return `${count < 0 ? "−" : count > 0 ? "+" : ""}${value} ${ending}`;
+}
+
+export function getReadingWeekSummary(group: Group, memberId: string, today: string) {
+  const start = new Date(`${today}T12:00:00`);
+  start.setDate(start.getDate() - (start.getDay() + 6) % 7);
+  const iso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const weekStart = iso(start);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  const weekEnd = iso(end);
+  const progress = group.progress[memberId] ?? {};
+  const days = group.planDays.filter(day => day.segments.length > 0);
+  const complete = (day: typeof days[number]) => day.segments.every(segment => progress[segment.id]);
+  const weekly = days.filter(day => day.date >= weekStart && day.date < weekEnd);
+  // A less frequent plan has a weekly goal: unfinished work becomes debt
+  // after the week closes. Future work never erases earlier missing readings.
+  const cutoff = group.frequency.kind === "daily" ? today : weekStart;
+  const aheadCutoff = group.frequency.kind === "daily" ? today : weekEnd;
+  return {
+    overdueReadings: days.filter(day => day.date < cutoff && !complete(day)).length,
+    aheadReadings: days.filter(day => (group.frequency.kind === "daily" ? day.date > aheadCutoff : day.date >= aheadCutoff) && complete(day)).length,
+    weeklyTotal: weekly.length,
+    weeklyCompleted: weekly.filter(complete).length,
+  };
+}
+
 export function getReadingHomeSummary(group: Group, memberId: string, today: string) {
   const progress = group.progress[memberId] ?? {};
   const allSegments = group.planDays.flatMap(day => day.segments);
@@ -28,16 +59,12 @@ export function getReadingHomeSummary(group: Group, memberId: string, today: str
   };
 }
 
-export function getDailyReadingDay(group: Group, memberId: string, today: string, savedDayId = "") {
+export function getDailyReadingDay(group: Group, memberId: string, _today: string, savedDayId = "") {
   const progress = group.progress[memberId] ?? {};
   const next = group.planDays.find(day => day.segments.some(segment => !progress[segment.id]));
   const saved = group.planDays.find(day => day.id === savedDayId);
   // Keep a finished daily portion on reload, but do not skip an earlier unread day.
   if (saved && (!next || group.planDays.indexOf(next) >= group.planDays.indexOf(saved))) return saved;
-  if (next && next.date > today) {
-    const scheduledToday = group.planDays.find(day => day.date === today && day.segments.length > 0);
-    if (scheduledToday) return scheduledToday;
-  }
   return next ?? group.planDays.at(-1);
 }
 

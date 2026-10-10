@@ -115,7 +115,7 @@ export async function openPlan(page, session, cache = {}) {
     }
   }, { credentials: session.credentials, cache });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: session.group.name, exact: true })).toBeVisible();
 }
 export const reading = (page, label) => page.locator('.simple-readings button').filter({
   has: page.locator('strong', { hasText: new RegExp('^' + label.replace(/[.*+?^$\{\}()|[\]\\]/g, '\\$&') + '$') }),
@@ -135,4 +135,20 @@ export async function holdNextProgress(page, session) {
     await route.continue();
   }, { times: 1 });
   return { started, release };
+}
+
+
+// Browse through the same previous/next controls as a reader, without writes.
+export async function browseReading(page, target) {
+  const nav = page.getByRole('navigation', { name: 'Przeglądaj czytania', exact: true });
+  const count = Number(await nav.getAttribute('data-reading-count'));
+  const destination = target === 'last' ? count - 1 : target;
+  expect(destination).toBeGreaterThanOrEqual(0);
+  expect(destination).toBeLessThan(count);
+  let current = Number(await nav.getAttribute('data-selected-index'));
+  while (current !== destination) {
+    await nav.getByRole('button', { name: current < destination ? 'Następne' : 'Poprzednie', exact: true }).click();
+    current += current < destination ? 1 : -1;
+    await expect(nav).toHaveAttribute('data-selected-index', String(current));
+  }
 }
