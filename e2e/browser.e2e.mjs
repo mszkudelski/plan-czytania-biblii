@@ -559,6 +559,10 @@ test('manual refresh cannot erase a progress write confirmed after its request s
   await expect(page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true })).toBeEnabled();
   await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
   await page.reload();
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.portion-complete')).toContainText('Dzisiejsza porcja gotowa');
+  await page.getByRole('button', { name: 'Przejdź do kolejnego czytania', exact: true }).click();
   await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
   await page.getByRole('button', { name: 'Poprzedni dzień', exact: true }).click();
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');

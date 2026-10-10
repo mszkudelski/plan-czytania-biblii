@@ -2042,7 +2042,7 @@ function TodayView({
           <Icon name="book" size={28} />
           <div>
             <h2>Plan jeszcze się nie rozpoczął</h2>
-            <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate)}.</p>
+            <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate, "shortYear")}.</p>
             {!browsingDay && displayedDay && <button className="link-button" onClick={() => selectDay(initialIndex)}>Zobacz pierwsze czytanie</button>}
           </div>
         </section>
@@ -2065,7 +2065,7 @@ function TodayView({
               <p className="reading-context">{isRecoveryPortion
                 ? displayedExtra ? "Zwykła porcja oraz jeden dodatkowy rozdział. Plan grupy pozostaje bez zmian." : "Twoja zwykła porcja. Nie potrzebujesz dziś dodatkowego rozdziału."
                 : isForecast ? "Podgląd zakłada wykonanie wcześniejszych porcji nadrabiania."
-                : `Kontynuujesz dzień ${displayedDay.index + 1} planu, zaplanowany na ${formatPolishDate(displayedDay.date)}.`}</p>
+                : `Kontynuujesz dzień ${displayedDay.index + 1} planu, zaplanowany na ${formatPolishDate(displayedDay.date, "shortYear")}.`}</p>
             </div>
             <p className="portion-count" aria-label="Postęp bieżącej porcji">{portionDone} z {portionTotal} {portionTotal === 1 ? "fragmentu" : "fragmentów"}</p>
           </div>
@@ -2132,7 +2132,7 @@ function TodayView({
           <details className="recovery-details">
             <summary>Podgląd najbliższych dni</summary>
             <p>Po zwykłej porcji odznaczasz jeden dodatkowy rozdział, oznaczony plusem. Nadrabiasz wszystkie równoległe części planu, zaczynając od najbardziej zaległej. Podgląd zakłada regularne czytanie i nie zapisuje postępu.</p>
-            {estimate && <p className="recovery-estimate">Szacowane nadrobienie: około {estimate.readingDays} {estimate.readingDays === 1 ? "dnia czytania" : "dni czytania"}, do {formatPolishDate(estimate.date)}.</p>}
+            {estimate && <p className="recovery-estimate">Szacowane nadrobienie: około {estimate.readingDays} {estimate.readingDays === 1 ? "dnia czytania" : "dni czytania"}, do {formatPolishDate(estimate.date, "shortYear")}.</p>}
             <ul className="recovery-preview">
               {previewPortions.slice(0, 3).map(portion => <li key={portion.day.id}>
                 <strong>{formatPolishDate(portion.day.date)}</strong>
