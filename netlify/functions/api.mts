@@ -1,4 +1,5 @@
 import { getStore } from "@netlify/blobs";
+import { changeGroupState, readGroupState, type GroupStateStore } from "../../src/lib/group-state";
 import { applyProgressLog, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
 import type { Config, Context } from "@netlify/functions";
 import { validReminderSettings, validPushSubscription, testReminder } from "../../src/lib/notifications";
@@ -76,6 +77,22 @@ function error(message: string, status = 400) {
 
 function keyFor(groupId: string) {
   return `group-${groupId}`;
+}
+
+function groupStateStore(groupId: string): GroupStateStore<StoredGroup> {
+  const store = groupStore();
+  const prefix = `group-state-v1/${groupId}/`;
+  const versionKey = (version: number) => prefix + String(version).padStart(10, "0");
+  return {
+    baseline: async () => store.get(keyFor(groupId), { type: "json", consistency: "strong" }) as Promise<StoredGroup | null>,
+    versions: async () => {
+      const { blobs } = await store.list({ prefix });
+      return blobs.map((blob) => blob.key.slice(prefix.length))
+        .filter((version) => /^\d{10}$/.test(version)).map(Number);
+    },
+    read: async (version) => store.get(versionKey(version), { type: "json", consistency: "strong" }) as Promise<StoredGroup | null>,
+    create: async (version, group) => (await store.set(versionKey(version), JSON.stringify(group), { onlyIfNew: true })).modified,
+  };
 }
 
 function transferKey(code: string) {
@@ -237,13 +254,10 @@ async function authenticate(
 
 export async function storedGroup(groupId: string) {
   const store = groupStore();
-  const group = await store.get(keyFor(groupId), {
-    type: "json",
-    consistency: "strong",
-  });
-  if (!group) return null;
+  const state = await readGroupState(groupStateStore(groupId));
+  if (!state) return null;
   const { blobs } = await store.list({ prefix: progressLogPrefix(groupId) });
-  return applyProgressLog(group as StoredGroup, blobs.map(blob => blob.key));
+  return applyProgressLog(state.group, blobs.map(blob => blob.key));
 }
 
 async function createGroup(request: Request) {
@@ -477,12 +491,8 @@ async function redeemSessionTransfer(request: Request) {
     return error("Kod jest nieprawidłowy lub wygasł.", 410);
   }
 
-  const claimed = await store.set(
-    key,
-    JSON.stringify({ ...transfer, usedAt: new Date().toISOString() }),
-    { onlyIfMatch: entry.etag },
-  );
-  if (!claimed.modified) return error("Kod został już wykorzystany.", 409);
+  const claimed = await store.set(`used-${key}`, "used", { onlyIfNew: true });
+  if (!claimed.modified) return error("Kod został już wykorzystany.", 410);
 
   let credentials: Credentials | null = null;
   const response = await updateStoredGroup(
@@ -527,27 +537,13 @@ async function updateStoredGroup(
   groupId: string,
   updater: (group: StoredGroup) => Promise<Response | void>,
 ) {
-  const store = groupStore();
-  const key = keyFor(groupId);
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const entry = await store.getWithMetadata(key, {
-      type: "json",
-      consistency: "strong",
-    });
-    if (!entry) return error("Nie znaleziono grupy.", 404);
-    const group = entry.data as StoredGroup;
-    const response = await updater(group);
-    if (response) return response;
-
-    const result = await store.set(key, JSON.stringify(group), {
-      onlyIfMatch: entry.etag,
-    });
-    if (result.modified) {
-      const current = await storedGroup(groupId);
-      return json(publicGroup(current ?? group));
-    }
+  const rejected = await changeGroupState(groupStateStore(groupId), updater);
+  if (rejected) {
+    const body = await rejected.json() as { error: string };
+    return error(body.error, rejected.status);
   }
-  return error("Plan został właśnie zmieniony. Spróbuj ponownie.", 409);
+  const current = await storedGroup(groupId);
+  return current ? json(publicGroup(current)) : error("Nie znaleziono grupy.", 404);
 }
 
 async function updateProgress(request: Request, groupId: string) {

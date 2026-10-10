@@ -115,6 +115,12 @@ rolami i przywracać profile — nadawaj tę rolę osobom, którym ufasz. Samotn
 administrator powinien wyznaczyć drugą osobę, połączyć inne urządzenie lub
 zachować opcjonalny kod awaryjny.
 
+Zmiany członków, ról i tokenów są zapisywane jako kolejne, niezmienne wersje
+metadanych grupy w Netlify Blobs. Równoczesne żądania zajmują osobne wersje
+i ponownie sprawdzają uprawnienia, zamiast nadpisywać całą grupę. Istniejący
+zapis jest punktem wyjścia, więc profile i postęp nie wymagają migracji.
+Jednorazowe kody mają osobny, niezmienny znacznik użycia.
+
 W **Ustawienia → Odzyskiwanie dostępu → Osobisty kod awaryjny (opcjonalnie)**
 możesz dodatkowo zapisać długi kod na wypadek braku pomocy administratora
 i dostępu na innym urządzeniu. Na stronie odzyskiwania rozwiń **Mam osobisty

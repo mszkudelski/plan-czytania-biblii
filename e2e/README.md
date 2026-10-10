@@ -41,6 +41,12 @@ code. Desktop and mobile UI scenarios cover issuing links/QR, role confirmation
 and cancellation, focus restoration, removal visibility, fresh-device recovery,
 reload, preserved progress and explicit profile switching while the app is open.
 Personal recovery codes remain covered as an optional, collapsed backup.
+Metadata mutations claim an immutable, numbered revision with onlyIfNew,
+rather than overwriting the group snapshot. Competing requests reload the
+winner and recheck permissions and the last-administrator rule. Unit tests
+cover concurrent changes and stale listings; E2E repeats the demotion race
+four times on real Blobs. Single-use transfers claim a separate immutable
+used marker. Revision history is not currently compacted.
 
 For every relevant change, maintain these tests and run the complete unit/build/E2E checks; see ../AGENTS.md.
 

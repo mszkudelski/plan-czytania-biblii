@@ -114,16 +114,25 @@ test('simultaneous demotions retain one administrator and existing member progre
   const second = await join(request, owner);
   await role(request, owner, second.credentials.memberId, true);
   await saveProgress(request, second, 's0');
-  const outcomes = await Promise.all([
-    request.post(rolePath(owner, owner.credentials.memberId), { data: { ...owner.credentials, isAdmin: false } }),
-    request.post(rolePath(owner, second.credentials.memberId), { data: { ...second.credentials, isAdmin: false } }),
-  ]);
-  expect(outcomes.filter(response => response.status() === 200)).toHaveLength(1);
-  expect(outcomes.filter(response => [403, 409].includes(response.status()))).toHaveLength(1);
-  const group = await readGroup(request, owner);
-  expect(group.members.filter(person => person.isAdmin)).toHaveLength(1);
-  expect(group.members).toHaveLength(2);
-  await expectSaved(request, second, ['s0']);
+  for (let round = 0; round < 4; round++) {
+    const outcomes = await Promise.all([
+      request.post(rolePath(owner, owner.credentials.memberId), { data: { ...owner.credentials, isAdmin: false } }),
+      request.post(rolePath(owner, second.credentials.memberId), { data: { ...second.credentials, isAdmin: false } }),
+    ]);
+    const statuses = outcomes.map(response => response.status());
+    expect(statuses.filter(status => status === 200)).toHaveLength(1);
+    expect(statuses.filter(status => [403, 409].includes(status))).toHaveLength(1);
+    const group = await readGroup(request, owner);
+    const admins = group.members.filter(person => person.isAdmin);
+    expect(admins).toHaveLength(1);
+    expect(group.members).toHaveLength(2);
+    await expectSaved(request, second, ['s0']);
+    if (round < 3) {
+      const remaining = admins[0].id === owner.credentials.memberId ? owner : second;
+      const demoted = admins[0].id === owner.credentials.memberId ? second : owner;
+      await role(request, owner, demoted.credentials.memberId, true, remaining.credentials);
+    }
+  }
 });
 
 for (const width of [1280, 390]) {
@@ -152,7 +161,7 @@ for (const width of [1280, 390]) {
     const fresh = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: 'block' });
     try {
       const device = await fresh.newPage();
-      await device.goto(link);
+      await device.goto(width === 390 ? link.replace('#restore=', '#RESTORE=') : link);
       await expect(device.getByRole('heading', { name: 'Przywróć dostęp do profilu', exact: true })).toBeVisible();
       expect(await browserCredentials(device)).toBeNull();
       await device.getByRole('button', { name: 'Przywróć mój dostęp', exact: true }).click();

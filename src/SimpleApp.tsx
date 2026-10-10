@@ -241,7 +241,7 @@ export default function SimpleApp() {
   const [transferCode, setTransferCode] = useState<string | null>(() =>
     readSessionTransferFromHash(),
   );
-  const [transferPurpose, setTransferPurpose] = useState<"recovery" | "pairing">(() => window.location.hash.startsWith("#restore=") ? "recovery" : "pairing");
+  const [transferPurpose, setTransferPurpose] = useState<"recovery" | "pairing">(() => /^#restore=/i.test(window.location.hash) ? "recovery" : "pairing");
   const [credentials, setCredentials] = useState<Credentials | null>(() =>
     loadCredentials(),
   );
@@ -268,7 +268,7 @@ export default function SimpleApp() {
   useEffect(() => {
     function readAccessLink() {
       setTransferCode(readSessionTransferFromHash());
-      setTransferPurpose(window.location.hash.startsWith("#restore=") ? "recovery" : "pairing");
+      setTransferPurpose(/^#restore=/i.test(window.location.hash) ? "recovery" : "pairing");
       setJoinInvite(readJoinFromHash());
       setAccessView(null);
     }
