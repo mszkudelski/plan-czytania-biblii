@@ -565,6 +565,13 @@ test('cached startup stays visible and protects newer progress from its initial 
   await openPlan(page, session);
   await reading(page, 'Rdz 1').click();
   await expectSaved(request, session, ['s0']);
+  // An independent backend GET can see the write before its response reaches
+  // this browser. This scenario needs a confirmed cache before the reload;
+  // reload while a committed write response is pending is covered separately.
+  await expect.poll(() => page.evaluate(({ groupId, memberId }) => {
+    const cached = JSON.parse(localStorage.getItem('plan-czytania-biblii-group-' + groupId) ?? 'null');
+    return Boolean(cached?.group?.progress?.[memberId]?.s0);
+  }, { groupId: session.group.id, memberId: session.credentials.memberId })).toBe(true);
   let release, started;
   const gate = new Promise(resolve => { release = resolve; });
   const captured = new Promise(resolve => { started = resolve; });
@@ -647,3 +654,4 @@ test('unchecking a cached extra before session refresh persists the explicit unc
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
   await expectSaved(request, session, ['s0', 's1']);
 });
+
