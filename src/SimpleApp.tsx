@@ -63,6 +63,7 @@ import {
 import { cleanPersonName, normalizePersonName } from "./lib/name";
 import { createOptimisticProgressQueue } from "./lib/optimistic-progress";
 import { buildSchedule, formatPolishDate, todayIso } from "./lib/schedule";
+import { formatFragmentCount, getDailyReadingDay, getReadingHomeSummary, getRecoveryEstimate } from "./lib/reading-home";
 import type {
   Credentials,
   Frequency,
@@ -1701,7 +1702,7 @@ function Dashboard({
       </header>
 
       <main className="simple-content">
-        {syncMessage && <div className="sync-status" role="status">{syncMessage}</div>}
+        {syncMessage && <div className="sync-status" role="status" aria-label="Stan połączenia">{syncMessage}</div>}
         {progressError && <p className="progress-error" role="alert">{progressError}</p>}
         <div hidden={tab !== "today"}>
           <TodayView
@@ -1767,18 +1768,27 @@ function TodayView({
   onError: (message: string) => void;
   onWaitForSegments: (segmentIds: string[]) => Promise<void>;
 }) {
-  const metrics = getMemberMetrics(group, member.id);
-  const nextDay = getNextDay(group, member.id);
+  const today = todayIso();
+  const metrics = getMemberMetrics(group, member.id, today);
+  const home = getReadingHomeSummary(group, member.id, today);
+  const normalPortionKey = `reading-home:${group.id}:${member.id}:${today}`;
+  const [dailyDayId] = useState(() => getDailyReadingDay(
+    group, member.id, today, localStorage.getItem(normalPortionKey) ?? "",
+  )?.id ?? "");
   const progress = group.progress[member.id] ?? {};
-  const initialIndex = nextDay
-    ? group.planDays.findIndex((day) => day.id === nextDay.id)
+  const initialIndex = dailyDayId
+    ? group.planDays.findIndex((day) => day.id === dailyDayId)
     : Math.max(0, group.planDays.length - 1);
   const [selectedIndex, setSelectedIndex] = useState(Math.max(0, initialIndex));
+  const [browsingDay, setBrowsingDay] = useState(false);
+  const [forecastReading, setForecastReading] = useState(false);
   const selectedDay = group.planDays[selectedIndex];
   const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
   const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
   const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
-  const today = todayIso();
+  useEffect(() => {
+    if (dailyDayId && !recoveryStart) localStorage.setItem(normalPortionKey, dailyDayId);
+  }, [dailyDayId, normalPortionKey, recoveryStart]);
   const overdue = getOverdueDays(group, member.id, today);
   const chapterKey = `${recoveryKey}:chapters`;
   const dailyKey = `${recoveryKey}:ordered:${today}`;
@@ -1874,6 +1884,8 @@ function TodayView({
     ? (displayedDay ? Math.max(0, navigationDays.findIndex(day => day.id === displayedDay.id)) : initialIndex)
     : selectedIndex;
   function selectDay(index: number) {
+    setBrowsingDay(true);
+    setForecastReading(false);
     if (!recoveryStart) { setSelectedIndex(index); return; }
     const day = navigationDays[index];
     if (day) setBrowsedRecoveryDayId(day.id === currentPortion?.day.id ? null : day.id);
@@ -1987,6 +1999,8 @@ function TodayView({
     await toggleChapterSelection(segmentId, indices.length ? indices : allIndices, !Boolean(displayedProgress[segmentId]));
   }
   function changeRecovery(start: string) {
+    setBrowsingDay(false);
+    setForecastReading(false);
     if (start) {
       // Activation uses the latest progress, even if this view was opened earlier.
       setBrowsedRecoveryDayId(null);
@@ -2001,56 +2015,85 @@ function TodayView({
     }
     setRecoveryStart(start);
   }
-
+  const showRecoveryControl = overdue.length > 2 || Boolean(recoveryStart);
+  const previewPortions = recoveryStart ? recoveryPortions : showRecoveryControl
+    ? projectRecoveryPortions(group, member.id, today, readChapters, getNextDay(group, member.id)?.id ?? "", undefined, chapterMarks)
+    : [];
+  const estimate = getRecoveryEstimate(previewPortions);
+  const previewMode = isForecast || Boolean(!recoveryStart && displayedDay && displayedDay.date > today);
+  const showReading = Boolean(displayedDay && (recoveryStart || browsingDay ||
+    (!home.notStarted && !(home.restDay && !home.overdueDays))));
+  const portionCompleted = baseComplete && (!displayedExtra || extraComplete);
+  const completedCount = displayedDay?.segments.filter(segment => displayedProgress[segment.id]).length ?? 0;
+  const portionTotal = (displayedDay?.segments.length ?? 0) + (displayedExtra ? 1 : 0);
+  const portionDone = completedCount + (extraComplete ? 1 : 0);
+  const showRestState = home.restDay && !recoveryStart;
 
   return (
     <>
-      <PageTitle title="Dzisiaj" meta={formatPolishDate(todayIso())} />
-      <section className="visual-summary">
-        <ProgressDonut percent={metrics.progressPercent} />
-        <BacklogCard pace={metrics.paceDays} />
-      </section>
-      {(overdue.length > 2 || recoveryStart) && (
-        <section className="recovery-control" aria-label="Plan nadrabiania">
-          <button
-            type="button"
-            className={recoveryStart ? "link-button" : "small-button"}
-            onClick={() => changeRecovery(recoveryStart ? "" : today)}
-          >
-            {recoveryStart ? "Wyłącz plan nadrabiania" : "Włącz plan nadrabiania"}
-          </button>
-          <details className="recovery-details">
-            <summary>Jak to działa?</summary>
-            <p>
-              Czytasz od pierwszego nieukończonego miejsca w swoim planie.
-              Po zwykłej porcji odznaczasz jeden dodatkowy rozdział, oznaczony
-              plusem na dole listy. Nadrabiasz wszystkie równoległe części planu,
-              zaczynając od najbardziej zaległej. Gdy dogonisz plan, dodatkowe czytanie zniknie.
-              Podgląd kolejnych dni zakłada wykonanie wcześniejszych porcji.
-              Możesz też odznaczać czytanie z wyprzedzeniem. Plan grupy pozostaje bez zmian.
-            </p>
-          </details>
-        </section>
-      )}
-      {isForecast && <p className="muted">Zakłada wykonanie wcześniejszych porcji nadrabiania.</p>}
-      {displayedDay ? (
-        <DayCard
-          day={displayedDay}
-          displayDate={isRecoveryPortion ? today : undefined}
-          progress={displayedProgress}
-          onToggle={toggleDisplayedSegment}
-          extraReading={displayedExtra ? {
-            reading: displayedExtra,
-            completed: extraComplete,
-            disabled: recoveryBusy || (!baseComplete && !extraComplete),
-            onToggle: toggleExtra,
-          } : undefined}
-        />
-      ) : (
-        <div className="empty-state">
+      <PageTitle title="Dzisiaj" meta={`${formatPolishDate(today)} · ${group.name}`} />
+      {home.planComplete ? (
+        <section className="reading-state is-finished" role="status">
           <Icon name="check" size={28} />
-          <h2>Plan ukończony</h2>
-        </div>
+          <div><h2>Plan ukończony</h2><p>Cały plan za Tobą. Możesz wrócić do wybranych dni poniżej.</p></div>
+        </section>
+      ) : home.notStarted ? (
+        <section className="reading-state" role="status">
+          <Icon name="book" size={28} />
+          <div>
+            <h2>Plan jeszcze się nie rozpoczął</h2>
+            <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate)}.</p>
+            {!browsingDay && displayedDay && <button className="link-button" onClick={() => selectDay(initialIndex)}>Zobacz pierwsze czytanie</button>}
+          </div>
+        </section>
+      ) : showRestState ? (
+        <section className="reading-state" role="status">
+          <Icon name="book" size={28} />
+          <div>
+            <h2>Dzisiaj dzień wolny</h2>
+            <p>{home.overdueDays ? "Grupa ma przerwę w harmonogramie. Możesz spokojnie kontynuować swoje zaległe czytanie." : "W harmonogramie grupy nie ma dziś czytania. Wróć w kolejnym dniu planu."}</p>
+            {!home.overdueDays && !browsingDay && displayedDay && <button className="link-button" onClick={() => selectDay(initialIndex)}>Zobacz najbliższe czytanie</button>}
+          </div>
+        </section>
+      ) : null}
+      {showReading && displayedDay && (
+        <section className="reading-focus" aria-labelledby="reading-portion-title">
+          <div className="reading-focus-heading">
+            <div>
+              <span className="reading-eyebrow">{recoveryStart ? "Twój rytm nadrabiania" : "Wspólne czytanie"}</span>
+              <h2 id="reading-portion-title">{previewMode ? forecastReading ? "Czytanie z wyprzedzeniem" : "Podgląd kolejnego czytania" : browsingDay ? "Wybrany dzień planu" : "Twoje czytanie na dziś"}</h2>
+              <p className="reading-context">{isRecoveryPortion
+                ? displayedExtra ? "Zwykła porcja oraz jeden dodatkowy rozdział. Plan grupy pozostaje bez zmian." : "Twoja zwykła porcja. Nie potrzebujesz dziś dodatkowego rozdziału."
+                : isForecast ? "Podgląd zakłada wykonanie wcześniejszych porcji nadrabiania."
+                : `Kontynuujesz dzień ${displayedDay.index + 1} planu, zaplanowany na ${formatPolishDate(displayedDay.date)}.`}</p>
+            </div>
+            <p className="portion-count" aria-label="Postęp bieżącej porcji">{portionDone} z {portionTotal} {portionTotal === 1 ? "fragmentu" : "fragmentów"}</p>
+          </div>
+          {previewMode && <div className="forecast-notice">
+            <p>{forecastReading ? "Zaznacz faktycznie przeczytane fragmenty. Wcześniejsze dni zachowają swój postęp." : "Przeglądanie nie zmienia postępu. Możesz osobno zaznaczyć czytanie wykonane wcześniej."}</p>
+            <button className="small-button" onClick={() => setForecastReading(value => !value)}>
+              {forecastReading ? "Wróć do podglądu" : "Zaznacz czytanie z wyprzedzeniem"}
+            </button>
+          </div>}
+          <DayCard
+            day={displayedDay}
+            displayDate={isRecoveryPortion ? today : undefined}
+            progress={displayedProgress}
+            onToggle={toggleDisplayedSegment}
+            readOnly={previewMode && !forecastReading}
+            extraReading={displayedExtra ? {
+              reading: displayedExtra,
+              completed: extraComplete,
+              disabled: recoveryBusy || (!baseComplete && !extraComplete),
+              onToggle: toggleExtra,
+            } : undefined}
+          />
+          {portionCompleted && !home.planComplete && !previewMode && <div className="portion-complete" role="status">
+            <Icon name="check" size={22} />
+            <div><strong>{browsingDay ? "Czytanie ukończone" : "Dzisiejsza porcja gotowa"}</strong><p>Możesz zakończyć na dziś.</p></div>
+            {displayedIndex < navigationDays.length - 1 && <button className="small-button" onClick={() => selectDay(displayedIndex + 1)}>Przejdź do kolejnego czytania</button>}
+          </div>}
+        </section>
       )}
       {group.planDays.length > 0 && (
         <DaySwitcher
@@ -2059,6 +2102,46 @@ function TodayView({
           selectedIndex={displayedIndex}
           onChange={selectDay}
         />
+      )}
+      <section className="reading-overview" aria-label="Postęp planu">
+        <div>
+          <span>Cały Twój plan</span><strong>{formatProgressPercent(metrics.progressPercent)}%</strong>
+          <div className="wide-progress" role="progressbar" aria-label="Postęp całego planu" aria-valuenow={metrics.progressPercent} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${metrics.progressPercent}%` }} /></div>
+        </div>
+        <div>
+          <span>Zaległości do wczoraj</span><strong data-testid="overdue-days">{home.overdueDays} {home.overdueDays === 1 ? "dzień" : "dni"}</strong>
+          <small>{home.overdueSegments ? `${formatFragmentCount(home.overdueSegments)} do przeczytania` : "Wcześniejsze czytanie ukończone"}</small>
+        </div>
+        <div>
+          <span>Plan grupy na dziś</span><strong data-testid="calendar-today">{home.todaySegments ? `${home.todayCompletedSegments} z ${home.todaySegments}` : home.notStarted ? "Przed startem" : "Dzień wolny"}</strong>
+          <small>{home.todaySegments ? "ukończonych fragmentów" : "bez zaplanowanej porcji"}</small>
+        </div>
+        {home.aheadSegments > 0 && <p className="reading-ahead" data-testid="reading-ahead">Czytanie z wyprzedzeniem: {formatFragmentCount(home.aheadSegments)}.</p>}
+      </section>
+      {showRecoveryControl && !home.planComplete && (
+        <section className="recovery-control" aria-label="Plan nadrabiania">
+          <div className="recovery-intro">
+            <div><h2>{recoveryStart ? "Nadrabiasz w swoim tempie" : "Chcesz łagodnie nadrobić?"}</h2>
+              <p>{recoveryStart ? "Czytasz zwykłą porcję i dodajesz jeden rozdział dziennie. Plan grupy pozostaje taki sam." : "Zachowasz zwykłą porcję i dodasz jeden rozdział dziennie. Plan grupy pozostanie taki sam."}</p>
+            </div>
+            <button type="button" className={recoveryStart ? "link-button" : "small-button"}
+              onClick={() => changeRecovery(recoveryStart ? "" : today)}>
+              {recoveryStart ? "Wyłącz plan nadrabiania" : "Włącz plan nadrabiania"}
+            </button>
+          </div>
+          <details className="recovery-details">
+            <summary>Podgląd najbliższych dni</summary>
+            <p>Po zwykłej porcji odznaczasz jeden dodatkowy rozdział, oznaczony plusem. Nadrabiasz wszystkie równoległe części planu, zaczynając od najbardziej zaległej. Podgląd zakłada regularne czytanie i nie zapisuje postępu.</p>
+            {estimate && <p className="recovery-estimate">Szacowane nadrobienie: około {estimate.readingDays} {estimate.readingDays === 1 ? "dnia czytania" : "dni czytania"}, do {formatPolishDate(estimate.date)}.</p>}
+            <ul className="recovery-preview">
+              {previewPortions.slice(0, 3).map(portion => <li key={portion.day.id}>
+                <strong>{formatPolishDate(portion.day.date)}</strong>
+                <span>{portion.day.segments.map(segment => segment.label).join(" · ")}</span>
+                <small>{portion.extra ? `+ ${portion.extra.label} · 1 rozdział` : "Bez dodatkowego rozdziału"}</small>
+              </li>)}
+            </ul>
+          </details>
+        </section>
       )}
     </>
   );
@@ -2375,11 +2458,13 @@ function DayCard({
   progress,
   onToggle,
   extraReading,
+  readOnly = false,
 }: {
   day: PlanDay;
   displayDate?: string;
   progress: Record<string, string>;
   onToggle: (segmentId: string) => Promise<void>;
+  readOnly?: boolean;
   extraReading?: {
     reading: RecoveryReading;
     completed: boolean;
@@ -2404,7 +2489,7 @@ function DayCard({
             label={segment.label}
             section={segment.section}
             completed={Boolean(progress[segment.id])}
-            disabled={false}
+            disabled={readOnly}
             onToggle={() => onToggle(segment.id)}
           />
         ))}
@@ -2413,7 +2498,7 @@ function DayCard({
             label={extraReading.reading.label}
             section="Nadrabianie"
             completed={extraReading.completed}
-            disabled={extraReading.disabled}
+            disabled={readOnly || extraReading.disabled}
             onToggle={extraReading.onToggle}
             isExtra
           />
@@ -2606,34 +2691,6 @@ function PageTitle({
   );
 }
 
-function ProgressDonut({ percent }: { percent: number }) {
-  return (
-    <div className="viz-card donut-card">
-      <div
-        className="progress-donut"
-        style={{ "--value": `${percent * 3.6}deg` } as React.CSSProperties}
-      >
-        <strong>{formatProgressPercent(percent)}%</strong>
-      </div>
-      <span>Postęp</span>
-    </div>
-  );
-}
-
-function BacklogCard({ pace }: { pace: number }) {
-  const ahead = pace > 0;
-  const behind = pace < 0;
-  const value = Math.abs(pace);
-  const tone = getPaceTone(pace);
-  return (
-    <div className={`viz-card backlog-card pace-${tone}`}>
-      <span>{ahead ? "Do przodu" : behind ? "Zaległość" : "Na bieżąco"}</span>
-      <strong>{ahead ? `+${value}` : value}</strong>
-      <small>{value === 1 ? "dzień" : "dni"}</small>
-    </div>
-  );
-}
-
 function DaySwitcher({
   days,
   progress,
@@ -2648,7 +2705,7 @@ function DaySwitcher({
   const start = Math.max(0, Math.min(selectedIndex - 2, days.length - 5));
   const visible = days.slice(start, start + 5);
   return (
-    <div className="day-switcher">
+    <nav className="day-switcher" aria-label="Przeglądaj dni planu">
       <button
         aria-label="Poprzedni dzień"
         disabled={selectedIndex === 0}
@@ -2663,6 +2720,7 @@ function DaySwitcher({
           return (
             <button
               key={day.id}
+              aria-label={formatPolishDate(day.date)}
               aria-pressed={index === selectedIndex}
               className={`${index === selectedIndex ? "active" : ""} ${
                 complete ? "complete" : ""
@@ -2686,7 +2744,7 @@ function DaySwitcher({
       >
         <Icon name="right" size={18} />
       </button>
-    </div>
+    </nav>
   );
 }
 

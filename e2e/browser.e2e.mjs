@@ -292,8 +292,10 @@ test('future recovery days assume prior extras without saving assumed progress',
   await expectSaved(request, session, []);
   expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
 
-  // Future rows remain actionable, but do not mark the assumed preceding days.
+  // Explicitly enable reading ahead; the preview must not mark preceding days.
   await dates.nth(1).click();
+  await expect(reading(page, 'Rdz 4')).toBeDisabled();
+  await page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true }).click();
   await reading(page, 'Rdz 4').click();
   await expectSaved(request, session, ['s3']);
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
@@ -321,6 +323,7 @@ test('failed rapid future toggles do not restore an earlier optimistic chapter',
   await openPlan(page, session);
   await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
   await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
+  await page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true }).click();
   let rejected = 0;
   page.on("response", response => {
     if (new URL(response.url()).pathname === progressPath(session) && response.status() === 401) rejected++;
@@ -361,6 +364,8 @@ test('future partial ranges can be checked without completing assumed earlier ch
   await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
   await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
   await expect(extraReading(page)).toContainText('Rdz 4');
+  await expect(reading(page, 'Rdz 3')).toBeDisabled();
+  await page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true }).click();
   await reading(page, 'Rdz 3').click();
   await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'true');
   await expectSaved(request, session, []); // Rdz 2 was assumed, never actually checked.
@@ -456,6 +461,7 @@ test('completed recovery portion keeps its one extra and advances only through d
   await page.getByRole('button', { name: 'Następny dzień', exact: true }).click();
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
   await expect(extraReading(page)).toContainText('Rdz 5');
+  await page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true }).click();
   await reading(page, 'Rdz 4').click();
   await expectSaved(request, session, ['s0', 's1', 's2', 's3']);
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
@@ -601,11 +607,11 @@ test('failed refresh shows the last real cached plan and can reconnect', async (
   // Simulate a network failure, never a successful API response.
   await page.route('**/api/session', route => route.abort(), { times: 1 });
   await page.reload();
-  await expect(page.getByRole('status')).toContainText('Brak połączenia');
+  await expect(page.getByRole('status', { name: 'Stan połączenia', exact: true })).toContainText('Brak połączenia');
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true })).toBeEnabled();
-  await expect(page.getByRole('status')).toHaveCount(0);
+  await expect(page.getByRole('status', { name: 'Stan połączenia', exact: true })).toHaveCount(0);
   await expectSaved(request, session, ['s0']);
 });
 

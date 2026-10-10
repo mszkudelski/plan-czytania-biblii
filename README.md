@@ -8,7 +8,7 @@ postęp, zaznacza fragmenty oddzielnie i widzi zaległość lub wyprzedzenie.
 - import własnego planu z CSV;
 - harmonogram codzienny, od poniedziałku do piątku albo we własne dni;
 - osobne checkboxy dla każdego fragmentu danego dnia;
-- procent całego planu oraz zaległość lub wyprzedzenie w dniach;
+- procent całego planu; osobno zaległości do wczoraj, plan grupy na dziś i czytanie z wyprzedzeniem;
 - przełączanie dni strzałkami i paskiem dat;
 - data startu i automatycznie wyliczana data końca planu;
 - prosty wykres postępu oraz porównanie postępu osób w grupie;
@@ -18,6 +18,28 @@ postęp, zaznacza fragmenty oddzielnie i widzi zaległość lub wyprzedzenie.
 - lokalny tryb demonstracyjny oparty o `localStorage`.
 - instalowalna aplikacja PWA z cache’owaną powłoką interfejsu i obsługą offline.
 - osobiste powiadomienia push o dzisiejszym czytaniu z wyborem godziny.
+
+## Codzienne czytanie
+
+Ekran **Dzisiaj** zaczyna się od konkretnej porcji oraz licznika ukończonych
+fragmentów. Jeśli kontynuujesz zaległy dzień, widzisz jego numer i pierwotną
+datę w harmonogramie grupy. Po zaznaczeniu całej porcji dostajesz komunikat
+**Dzisiejsza porcja gotowa**; dalsze czytanie jest opcjonalne. Ukończona porcja
+pozostaje na tym urządzeniu po przeładowaniu strony. Nowa data rozpoczyna
+wybór kolejnej porcji. Pasek dat służy do przeglądania pozostałych dni.
+
+Mniejszy podgląd pod czytaniem rozdziela procent całego planu, nieukończone dni
+sprzed dzisiejszej daty, wykonanie fragmentów zaplanowanych na dziś oraz
+przeczytane przyszłe fragmenty. Wyprzedzenie nie odejmuje wcześniejszych zaległości.
+Przed startem, w dniu wolnym i po ukończeniu planu ekran pokazuje właściwy stan
+oraz możliwość przejrzenia czytania.
+
+Przy ponad dwóch zaległych dniach możesz włączyć **Plan nadrabiania**.
+Przed włączeniem widzisz zasadę: zwykła porcja oraz jeden dodatkowy rozdział
+dziennie, bez zmiany wspólnego planu. Rozwijany podgląd pokazuje trzy najbliższe
+porcje i szacowaną datę nadrobienia przy regularnym czytaniu.
+Przeglądanie przyszłych porcji nie zapisuje postępu. Dopiero **Zaznacz czytanie
+z wyprzedzeniem** udostępnia checkboxy; zaznaczasz faktycznie wykonane fragmenty.
 
 ## Przypomnienia o czytaniu
 
