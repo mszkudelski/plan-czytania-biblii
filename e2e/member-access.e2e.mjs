@@ -135,10 +135,10 @@ for (const width of [1280, 390]) {
     await saveProgress(request, member, 's0');
     await page.goto('/');
     await tab(page, 'Grupa').click();
-    const row = page.locator('.member-row').filter({ hasText: 'Anna E2E' }).filter({ hasText: '16,7% planu' });
+    const row = page.locator('.member-row').filter({ hasText: 'Anna E2E' }).filter({ hasText: '16,5% planu' });
     await row.getByRole('button', { name: 'Zarządzaj profilem Anna E2E', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Anna E2E', exact: true });
-    await expect(dialog).toContainText('Uczestnik · 16,7% planu');
+    await expect(dialog).toContainText('Uczestnik · 16,5% planu');
     await dialog.getByRole('button', { name: 'Utwórz link dostępu', exact: true }).click();
     await expect(dialog.getByRole('img', { name: 'Kod QR do przywrócenia dostępu', exact: true })).toBeVisible();
     const link = await dialog.getByLabel('Link dostępu', { exact: true }).inputValue();
