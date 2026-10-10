@@ -112,8 +112,7 @@ postępu. Drugi administrator może przywrócić dostęp również twórcy grupy
 Nie można odebrać roli ostatniemu administratorowi; administratora można usunąć
 dopiero po odebraniu mu roli. Administratorzy mogą zapraszać osoby, zarządzać
 rolami i przywracać profile — nadawaj tę rolę osobom, którym ufasz. Samotny
-administrator powinien wyznaczyć drugą osobę, połączyć inne urządzenie lub
-zachować opcjonalny kod awaryjny.
+administrator powinien wyznaczyć drugą osobę lub połączyć inne urządzenie.
 
 Zmiany członków, ról i tokenów są zapisywane jako kolejne, niezmienne wersje
 metadanych grupy w Netlify Blobs. Równoczesne żądania zajmują osobne wersje
@@ -121,19 +120,17 @@ i ponownie sprawdzają uprawnienia, zamiast nadpisywać całą grupę. Istnieją
 zapis jest punktem wyjścia, więc profile i postęp nie wymagają migracji.
 Jednorazowe kody mają osobny, niezmienny znacznik użycia.
 
-W **Ustawienia → Odzyskiwanie dostępu → Osobisty kod awaryjny (opcjonalnie)**
-możesz dodatkowo zapisać długi kod na wypadek braku pomocy administratora
-i dostępu na innym urządzeniu. Na stronie odzyskiwania rozwiń **Mam osobisty
-kod odzyskiwania** i wklej zapisany kod. Kod pozostaje ważny do utworzenia nowego; wymiana wymaga
-potwierdzenia i unieważnia tylko poprzedni kod, zachowując dostęp urządzeń.
-Kod jest pokazywany po utworzeniu, nie jest przechowywany w przeglądarce,
-a serwer przechowuje wyłącznie jego SHA-256 w osobnym, prywatnym store
+Osobiste kody awaryjne są na razie ukryte w interfejsie. Ustawienia i ekran
+odzyskiwania prowadzą do pomocy administratora grupy lub połączenia urządzeń.
+Istniejące dane kodów oraz API pozostają dostępne dla zgodności ze starszymi
+wersjami aplikacji; ukrycie opcji nie unieważnia kodów ani tokenów urządzeń.
+Serwer nadal przechowuje wyłącznie SHA-256 kodu w osobnym, prywatnym store
 `plan-czytania-biblii-recovery`. Usuniętej osoby nie można odzyskać kodem.
 
 Sesja może też wrócić z bezpiecznego cookie po utracie samego lokalnego zapisu.
 Wylogowanie usuwa lokalny dostęp i cookie na tym urządzeniu. Samo imię lub
-zaproszenie nie przywraca profilu; potrzebny jest link od administratora,
-osobisty kod awaryjny albo dostęp na innym urządzeniu. Bez żadnej z tych
+zaproszenie nie przywraca profilu; w aplikacji potrzebny jest link od administratora
+albo dostęp na innym urządzeniu. Bez żadnej z tych
 możliwości odzyskanie profilu nie jest możliwe.
 
 ### Łączenie urządzeń
@@ -147,8 +144,8 @@ Gdy masz dostęp na pierwszym urządzeniu:
    urządzenie** i zeskanuj kod QR lub wpisz kod połączenia.
 
 Oba urządzenia mają dostęp do tego samego profilu. Kod połączenia jest
-jednorazowy i krótkotrwały; kod odzyskiwania służy do zachowania dostępu
-na później. Są to dwa oddzielne mechanizmy.
+jednorazowy i krótkotrwały. Łączenie urządzeń oraz link od administratora
+nie wymagają wcześniejszego zapisywania osobistego kodu.
 
 Sam Vite używa lokalnego zapisu w przeglądarce. Aby testować dokładnie ten sam
 backend co na Netlify:

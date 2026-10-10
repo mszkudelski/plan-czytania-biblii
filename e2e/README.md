@@ -22,13 +22,15 @@ The suite creates plans named E2E <run id> <scenario> <random suffix>, with only
 Reports and failure screenshots are uploaded for 7 days. Traces and stored credentials are disabled because request bodies contain member tokens. Do not add token values to test names or logs. Test reports are evidence of a real execution; source review or mocked harnesses are not E2E execution.
 
 Identity coverage: each invitation join creates a separate member and progress,
-including duplicate names and the administrator's name. Recovery codes restore
+including duplicate names and the administrator's name. Legacy recovery API codes restore
 the original member, role, progress and secure cookie on a fresh device while
 preserving old device tokens. Tests cover format, unauthorized issuance, code
 reuse, rotation, per-member isolation and removed-member rejection. Browser
-scenarios cover creation, invitation entry, saving/hiding a code, logout
+scenarios cover creation, invitation entry, administrator-assisted recovery after logout,
 confirmation, invalid-code feedback, reload and cookie restoration on desktop
-and mobile. Recovery UI tests disable screenshots so access codes are not
+and mobile. Personal codes are absent from settings, recovery and logout,
+including profiles with an existing legacy code, and the browser makes no requests
+to the personal-code endpoints. Recovery UI tests disable screenshots so access codes are not
 included in failure reports.
 
 Administrator-assisted recovery coverage: restore the selected duplicate-name
@@ -40,7 +42,8 @@ administrator restores the original administrator without a saved personal
 code. Desktop and mobile UI scenarios cover issuing links/QR, role confirmation
 and cancellation, focus restoration, removal visibility, fresh-device recovery,
 reload, preserved progress and explicit profile switching while the app is open.
-Personal recovery codes remain covered as an optional, collapsed backup.
+Legacy personal recovery codes remain covered through the API for compatibility,
+including rotation, while their browser options are hidden.
 Metadata mutations claim an immutable, numbered revision with onlyIfNew,
 rather than overwriting the group snapshot. Competing requests reload the
 winner and recheck permissions and the last-administrator rule. Unit tests

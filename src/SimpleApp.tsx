@@ -19,7 +19,6 @@ import {
   joinGroup,
   loadCredentials,
   redeemSessionTransfer,
-  redeemRecoveryCode,
   removeMember,
   saveCredentials,
   saveSession,
@@ -28,8 +27,7 @@ import {
   updateMemberRole,
 } from "./lib/api";
 import { parsePlanCsv } from "./lib/csv";
-import { normalizeRecoveryCode } from "./lib/access-recovery";
-import RecoveryCodeSettings from "./RecoveryCodeSettings";
+import GroupAccessSettings from "./GroupAccessSettings";
 import MemberAccessModal from "./MemberAccessModal";
 import { BASIC_PLAN_CSV } from "./lib/basic-plan";
 import QRCode from "qrcode";
@@ -417,7 +415,7 @@ export default function SimpleApp() {
   let content: React.ReactNode;
 
   if (accessView === "recover") {
-    content = <RecoverAccessSetup onRecovered={enter} onBack={() => setAccessView(null)}
+    content = <RecoverAccessSetup onBack={() => setAccessView(null)}
       onAdminCode={() => setAccessView("admin")}
       onTransfer={() => setAccessView("transfer")} theme={theme} onThemeChange={setTheme} />;
   } else if (accessView === "transfer" || accessView === "admin") {
@@ -863,31 +861,14 @@ function JoinSetup({
 }
 
 function RecoverAccessSetup({
-  onRecovered, onBack, onTransfer, onAdminCode, theme, onThemeChange,
+  onBack, onTransfer, onAdminCode, theme, onThemeChange,
 }: {
-  onRecovered: (group: Group, credentials: Credentials) => void;
   onBack: () => void;
   onTransfer: () => void;
   onAdminCode: () => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
 }) {
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const normalized = normalizeRecoveryCode(code);
-    if (!normalized) { setError("Wklej pełny kod odzyskiwania: 8 grup po 4 znaki."); return; }
-    setBusy(true);
-    setError("");
-    try {
-      const result = await redeemRecoveryCode(normalized);
-      onRecovered(result.group, result.credentials);
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Nie udało się odzyskać dostępu. Sprawdź połączenie i spróbuj ponownie.");
-    } finally { setBusy(false); }
-  }
   return (
     <main className="setup-page">
       <div className="setup-box join-box">
@@ -899,22 +880,6 @@ function RecoverAccessSetup({
           Wrócisz do swojego postępu, bez zakładania nowego profilu.
         </p>
         <button className="main-button" onClick={onAdminCode}>Mam link lub kod od administratora</button>
-        <details className="backup-access">
-          <summary>Mam osobisty kod odzyskiwania</summary>
-          <div className="backup-access-content">
-        <form onSubmit={submit}>
-          {error && <div className="simple-alert" role="alert">{error}</div>}
-          <Field label="Kod odzyskiwania">
-            <input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())}
-              autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
-              maxLength={128} placeholder="8 grup po 4 znaki" required />
-          </Field>
-          <button className="main-button" disabled={busy || !normalizeRecoveryCode(code)}>
-            {busy ? "Odzyskiwanie…" : "Odzyskaj dostęp"}
-          </button>
-        </form>
-          </div>
-        </details>
         <div className="access-entry-options">
           <p>Jeśli plan działa na innym urządzeniu, połącz je kodem lub QR z ustawień.</p>
           <button className="link-button" onClick={onTransfer}>Mam dostęp na innym urządzeniu</button>
@@ -1353,7 +1318,7 @@ function Setup({
   }
 
   if (view === "recover") {
-    return <RecoverAccessSetup onRecovered={onRecovered} onBack={() => setView("choices")}
+    return <RecoverAccessSetup onBack={() => setView("choices")}
       onAdminCode={() => setView("admin")}
       onTransfer={() => setView("transfer")} theme={theme} onThemeChange={onThemeChange} />;
   }
@@ -2330,7 +2295,7 @@ function SettingsView({
         <Setting label="Dni czytania" value={frequency} />
       </section>
       <NotificationSettings credentials={credentials} />
-      <RecoveryCodeSettings credentials={credentials} group={group} member={member} copyText={copyText} />
+      <GroupAccessSettings group={group} member={member} />
       <h2 className="settings-heading">Połącz inne urządzenie</h2>
       <section className="settings-card transfer-card">
         <p>
@@ -2389,9 +2354,9 @@ function SettingsView({
       <h2 className="settings-heading">Konto</h2>
       <section className="settings-card">
         {logoutConfirm ? <div className="logout-confirm" role="alert">
-          <p>Po wylogowaniu możesz wrócić przez link od administratora grupy, połączenie z innym urządzeniem lub osobisty kod awaryjny. Samo imię nie przywróci dostępu.</p>
+          <p>Po wylogowaniu możesz wrócić przez link od administratora grupy lub połączenie z innym urządzeniem. Samo imię nie przywróci dostępu.</p>
           {member.isAdmin && !group.members.some((person) => person.isAdmin && person.id !== member.id) &&
-            <p>Jesteś jedynym administratorem. Zanim się wylogujesz, wyznacz drugiego administratora, połącz inne urządzenie albo zapisz osobisty kod awaryjny.</p>}
+            <p>Jesteś jedynym administratorem. Zanim się wylogujesz, wyznacz drugiego administratora lub połącz inne urządzenie.</p>}
           <div className="access-actions">
             <button className="logout-button" onClick={onLeave}>Wyloguj z tego urządzenia</button>
             <button className="link-button" onClick={() => setLogoutConfirm(false)}>Anuluj</button>
