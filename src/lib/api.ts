@@ -7,10 +7,13 @@ import type {
 } from "../types";
 import {
   localCreateGroup,
+  localCreateRecoveryCode,
   localEnsureInvite,
   localGetGroup,
   localJoinGroup,
   localRemoveMember,
+  localRecoveryCodeStatus,
+  localRedeemRecoveryCode,
   localUpdateProgress,
 } from "./local-store";
 import type { ReminderSettings, PushSubscriptionData } from "./notifications";
@@ -153,6 +156,27 @@ export async function redeemSessionTransfer(code: string) {
   );
 }
 
+export async function recoveryCodeStatus(credentials: Credentials) {
+  if (useLocalOnly()) return localRecoveryCodeStatus(credentials);
+  return request<{ hasCode: boolean }>("/session/recovery-code/status", {
+    method: "POST", body: JSON.stringify(credentials),
+  });
+}
+
+export async function createRecoveryCode(credentials: Credentials) {
+  if (useLocalOnly()) return localCreateRecoveryCode(credentials);
+  return request<{ code: string }>("/session/recovery-code", {
+    method: "POST", body: JSON.stringify(credentials),
+  });
+}
+
+export async function redeemRecoveryCode(code: string) {
+  if (useLocalOnly()) return localRedeemRecoveryCode(code);
+  return request<Session>("/session/recovery-code/redeem", {
+    method: "POST", body: JSON.stringify({ code }),
+  });
+}
+
 export async function createGroup(input: {
   name: string;
   ownerName: string;
@@ -248,3 +272,4 @@ export async function removeMember(
     return localRemoveMember(credentials, memberId);
   }
 }
+

@@ -89,16 +89,41 @@ Po wdrożeniu aplikację można zainstalować z menu przeglądarki. Service work
 jest rejestrowany tylko w buildzie produkcyjnym; w trybie deweloperskim pozostaje
 wyłączony, żeby nie zakłócać HMR.
 
-### Przenoszenie sesji na inne urządzenie
+### Profil i odzyskiwanie dostępu
 
-Nowe instalacje mogą odzyskać sesję z bezpiecznego cookie ustawianego po
-utworzeniu planu lub dołączeniu do niego. Aby przenieść sesję:
+Imię jest nazwą wyświetlaną w grupie. Każde dołączenie przez zaproszenie
+tworzy nowy profil (`memberId`) z własnym postępem, nawet przy takim samym
+imieniu jak istniejąca osoba lub administrator. Nie przywraca wcześniejszego
+profilu ani jego uprawnień. Istniejące profile, tokeny i postęp pozostają ważne.
+
+W **Ustawienia → Odzyskiwanie dostępu** utwórz kod i zapisz go w bezpiecznym
+miejscu. Po utracie urządzenia lub danych przeglądarki wybierz na stronie
+startowej **Odzyskaj dostęp do mojego planu** i wklej kod. Otworzy ten sam
+profil, rolę i postęp, wydając osobny token dla tego urządzenia. Nie jest
+potrzebny e-mail. Kod pozostaje ważny do utworzenia nowego; wymiana wymaga
+potwierdzenia i unieważnia tylko poprzedni kod, zachowując dostęp urządzeń.
+Kod jest pokazywany po utworzeniu, nie jest przechowywany w przeglądarce,
+a serwer przechowuje wyłącznie jego SHA-256 w osobnym, prywatnym store
+`plan-czytania-biblii-recovery`. Usuniętej osoby nie można odzyskać kodem.
+
+Sesja może też wrócić z bezpiecznego cookie po utracie samego lokalnego zapisu.
+Wylogowanie usuwa lokalny dostęp i cookie na tym urządzeniu. Samo imię lub
+zaproszenie nie przywraca profilu; potrzebny jest kod odzyskiwania albo dostęp
+na innym urządzeniu. Bez żadnego z nich odzyskanie profilu nie jest możliwe.
+
+### Łączenie urządzeń
+
+Gdy masz dostęp na pierwszym urządzeniu:
 
 1. Otwórz działający plan na pierwszym urządzeniu.
-2. Przejdź do **Ustawienia → Przeniesienie sesji**.
+2. Przejdź do **Ustawienia → Połącz inne urządzenie**.
 3. Utwórz jednorazowy kod ważny przez 10 minut.
-4. Na drugim urządzeniu wybierz **Przenieś sesję z innego urządzenia** i
-   zeskanuj kod QR.
+4. Na drugim urządzeniu wybierz **Mam już plan na innym urządzeniu → połącz
+   urządzenie** i zeskanuj kod QR lub wpisz kod połączenia.
+
+Oba urządzenia mają dostęp do tego samego profilu. Kod połączenia jest
+jednorazowy i krótkotrwały; kod odzyskiwania służy do zachowania dostępu
+na później. Są to dwa oddzielne mechanizmy.
 
 Sam Vite używa lokalnego zapisu w przeglądarce. Aby testować dokładnie ten sam
 backend co na Netlify:
@@ -143,9 +168,13 @@ To pragmatyczny model dla zaufanej, prywatnej grupy:
 - identyfikator grupy jest losowym UUID;
 - każda osoba ma oddzielny, długi token zapisany wyłącznie jako hash po stronie
   serwera;
-- token znajduje się w części `#invite=` linku, więc przeglądarka nie wysyła go
-  jako część adresu w żądaniu HTTP;
-- osoba z linkiem może zmieniać wyłącznie własny postęp;
+- token urządzenia jest przypisany do `memberId`, a nie imienia; jest zapisany
+  w przeglądarce i bezpiecznym cookie sesji;
+- token zaproszenia znajduje się w części `#join=` linku, więc przeglądarka
+  nie wysyła go jako część adresu w żądaniu HTTP;
+- link zaproszenia daje możliwość utworzenia własnego profilu;
+- token urządzenia lub kod odzyskiwania daje dostęp wyłącznie do przypisanego
+  profilu, wraz z jego rolą; kod odzyskiwania ma 160 bitów losowości;
 - administrator może tworzyć kolejne zaproszenia.
 
 Nazwy osób i zbiorczy postęp są widoczne dla każdego, kto zna niezgadywalny
@@ -164,3 +193,4 @@ nie są migrowane ani nadpisywane.
 Opis planu: https://www.mcheyne.app/
 Nazwy ksiąg dostosowano do polskich skrótów. Plik do pobrania: `/plan-podstawowy.csv`.
 Stary adres `/plan-przykladowy.csv` pozostaje zgodny i udostępnia ten sam roczny plan.
+

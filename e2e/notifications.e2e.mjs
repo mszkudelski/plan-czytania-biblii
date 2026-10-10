@@ -137,6 +137,7 @@ test('logout disables only this device reminder', async ({ page, request }) => {
     await openPlan(page, session);
     await tab(page, 'Ustawienia').click();
     await page.getByRole('button', { name: 'Wyloguj', exact: true }).click();
+    await page.getByRole('button', { name: 'Wyloguj z tego urządzenia', exact: true }).click();
     await expect.poll(() => page.evaluate(() => localStorage.getItem('plan-czytania-biblii-credentials'))).toBeNull();
     expect(await (await request.post(path(session), { data: body(session, deviceId, 'read') })).json()).toBeNull();
     expect(await (await request.post(path(session), { data: body(session, otherDevice, 'read') })).json()).toEqual(settings);
@@ -216,3 +217,4 @@ test('unsupported browser explains the next action without a dead enable button'
   await expect(panel).toContainText('Otwórz plan w aktualnej wersji');
   await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toHaveCount(0);
 });
+

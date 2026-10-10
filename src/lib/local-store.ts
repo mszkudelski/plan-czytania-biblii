@@ -6,7 +6,11 @@ import type {
   Member,
   PlanDay,
 } from "../types";
-import { cleanPersonName, normalizePersonName } from "./name";
+import { cleanPersonName } from "./name";
+import {
+  formatRecoveryCode, generateRecoveryCode, hashRecoveryCode,
+  normalizeRecoveryCode,
+} from "./access-recovery";
 
 type LocalGroup = Group & {
   tokens: Record<string, string | string[]>;
@@ -14,6 +18,7 @@ type LocalGroup = Group & {
 };
 
 const STORAGE_KEY = "plan-czytania-biblii-local-groups";
+const RECOVERY_KEY = "plan-czytania-biblii-local-recovery";
 const COLORS = ["#47634f", "#bf6f54", "#65778e", "#9a7245", "#765b7d"];
 
 function randomId() {
@@ -140,33 +145,10 @@ export function localJoinGroup(
     throw new Error("Link zaproszenia jest nieprawidłowy.");
   }
   if (group.members.length >= 100) {
-    const existing = group.members.find(
-      (member) =>
-        normalizePersonName(member.name) === normalizePersonName(cleanName),
-    );
-    if (!existing) throw new Error("Grupa osiągnęła limit 100 osób.");
+    throw new Error("Grupa osiągnęła limit 100 osób.");
   }
   const memberId = randomId();
   const token = randomToken();
-  const existingMember = group.members.find(
-    (member) =>
-      normalizePersonName(member.name) === normalizePersonName(cleanName),
-  );
-  if (existingMember) {
-    group.tokens[existingMember.id] = [
-      ...memberTokens(group, existingMember.id),
-      token,
-    ];
-    saveAll(all);
-    return {
-      group: publicGroup(group),
-      credentials: {
-        groupId: group.id,
-        memberId: existingMember.id,
-        token,
-      },
-    };
-  }
   group.members.push({
     id: memberId,
     name: cleanName,
@@ -214,3 +196,58 @@ export function localRemoveMember(
   saveAll(all);
   return publicGroup(group);
 }
+
+type LocalRecovery = { groupId: string; memberId: string; codeHash: string };
+
+function recoveryRecords(): Record<string, LocalRecovery> {
+  return JSON.parse(localStorage.getItem(RECOVERY_KEY) ?? "{}");
+}
+
+function recoveryProfileKey(credentials: Pick<Credentials, "groupId" | "memberId">) {
+  return `${credentials.groupId}:${credentials.memberId}`;
+}
+
+function requireLocalMember(credentials: Credentials) {
+  const group = loadAll()[credentials.groupId];
+  if (!group?.members.some((member) => member.id === credentials.memberId) ||
+      !memberTokens(group, credentials.memberId).includes(credentials.token)) {
+    throw new Error("Nieprawidłowy dostęp.");
+  }
+}
+
+export function localRecoveryCodeStatus(credentials: Credentials) {
+  requireLocalMember(credentials);
+  return { hasCode: Boolean(recoveryRecords()[recoveryProfileKey(credentials)]) };
+}
+
+export async function localCreateRecoveryCode(credentials: Credentials) {
+  requireLocalMember(credentials);
+  const code = generateRecoveryCode();
+  const records = recoveryRecords();
+  records[recoveryProfileKey(credentials)] = {
+    groupId: credentials.groupId, memberId: credentials.memberId,
+    codeHash: await hashRecoveryCode(code),
+  };
+  localStorage.setItem(RECOVERY_KEY, JSON.stringify(records));
+  return { code: formatRecoveryCode(code) };
+}
+
+export async function localRedeemRecoveryCode(value: string) {
+  const code = normalizeRecoveryCode(value);
+  if (!code) throw new Error("Kod odzyskiwania ma nieprawidłowy format.");
+  const codeHash = await hashRecoveryCode(code);
+  const record = Object.values(recoveryRecords()).find((entry) => entry.codeHash === codeHash);
+  const all = loadAll();
+  const group = record ? all[record.groupId] : undefined;
+  if (!record || !group?.members.some((member) => member.id === record.memberId)) {
+    throw new Error("Kod odzyskiwania jest nieprawidłowy lub został zastąpiony nowym.");
+  }
+  const token = randomToken();
+  group.tokens[record.memberId] = [...memberTokens(group, record.memberId), token];
+  saveAll(all);
+  return {
+    group: publicGroup(group),
+    credentials: { groupId: group.id, memberId: record.memberId, token },
+  };
+}
+

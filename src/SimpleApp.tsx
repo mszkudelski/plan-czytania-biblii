@@ -19,6 +19,7 @@ import {
   joinGroup,
   loadCredentials,
   redeemSessionTransfer,
+  redeemRecoveryCode,
   removeMember,
   saveCredentials,
   saveSession,
@@ -26,6 +27,8 @@ import {
   updateProgress,
 } from "./lib/api";
 import { parsePlanCsv } from "./lib/csv";
+import { normalizeRecoveryCode } from "./lib/access-recovery";
+import RecoveryCodeSettings from "./RecoveryCodeSettings";
 import { BASIC_PLAN_CSV } from "./lib/basic-plan";
 import QRCode from "qrcode";
 import {
@@ -57,7 +60,7 @@ import {
   getNextDay,
   getPaceTone,
 } from "./lib/metrics";
-import { cleanPersonName } from "./lib/name";
+import { cleanPersonName, normalizePersonName } from "./lib/name";
 import { createOptimisticProgressQueue } from "./lib/optimistic-progress";
 import { buildSchedule, formatPolishDate, todayIso } from "./lib/schedule";
 import type {
@@ -253,6 +256,8 @@ export default function SimpleApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [syncMessage, setSyncMessage] = useState("");
+  const [accessView, setAccessView] = useState<"recover" | "transfer" | null>(null);
+  const [showAccessHint, setShowAccessHint] = useState(false);
   const [retry, setRetry] = useState(0);
   const skipSessionRestore = useRef(false);
   const groupWriteVersion = useRef(0);
@@ -375,6 +380,8 @@ export default function SimpleApp() {
   ]);
 
   function enter(groupData: Group, nextCredentials: Credentials) {
+    setAccessView(null);
+    setShowAccessHint(false);
     saveCredentials(nextCredentials);
     setCredentials(nextCredentials);
     setGroupAndCache(groupData);
@@ -384,6 +391,11 @@ export default function SimpleApp() {
     if (window.location.hash) {
       window.history.replaceState(null, "", window.location.pathname);
     }
+  }
+
+  function enterNew(groupData: Group, nextCredentials: Credentials) {
+    enter(groupData, nextCredentials);
+    setShowAccessHint(true);
   }
 
   const changeCredentials = useCallback((nextCredentials: Credentials) => {
@@ -397,11 +409,23 @@ export default function SimpleApp() {
 
   let content: React.ReactNode;
 
-  if (joinInvite && !canResumeInvite) {
+  if (accessView === "recover") {
+    content = <RecoverAccessSetup onRecovered={enter} onBack={() => setAccessView(null)}
+      onTransfer={() => setAccessView("transfer")} theme={theme} onThemeChange={setTheme} />;
+  } else if (accessView === "transfer") {
+    content = <TransferSetup onRecovered={enter} onBack={() => setAccessView(null)}
+      theme={theme} onThemeChange={setTheme} />;
+  } else if (joinInvite && !canResumeInvite) {
     content = (
       <JoinSetup
         invite={joinInvite}
-        onJoined={enter}
+        onJoined={enterNew}
+        onRecover={() => setAccessView("recover")}
+        onTransfer={() => setAccessView("transfer")}
+        onBack={() => {
+          setJoinInvite(null);
+          window.history.replaceState(null, "", window.location.pathname);
+        }}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -434,6 +458,8 @@ export default function SimpleApp() {
         refreshing={refreshing}
         syncMessage={syncMessage}
         onRefresh={() => setRetry((current) => current + 1)}
+        showAccessHint={showAccessHint}
+        onDismissAccessHint={() => setShowAccessHint(false)}
         onLeave={async () => {
           skipSessionRestore.current = true;
           await notificationSettings(credentials, reminderDeviceId(), "disable").catch(() => undefined);
@@ -451,6 +477,8 @@ export default function SimpleApp() {
     content = (
       <SessionRecovery
         error={error}
+        onRecover={() => setAccessView("recover")}
+        onTransfer={() => setAccessView("transfer")}
         onRetry={() => setRetry((current) => current + 1)}
         onReset={() => {
           clearCachedGroup(credentials.groupId);
@@ -468,7 +496,7 @@ export default function SimpleApp() {
   } else {
     content = (
       <Setup
-        onCreated={enter}
+        onCreated={enterNew}
         onRecovered={enter}
         onJoinInvite={(invite) => setJoinInvite(invite)}
         error={error}
@@ -662,12 +690,16 @@ function InstallApp() {
 
 function SessionRecovery({
   error,
+  onRecover,
+  onTransfer,
   onRetry,
   onReset,
   theme,
   onThemeChange,
 }: {
   error: string;
+  onRecover: () => void;
+  onTransfer: () => void;
   onRetry: () => void;
   onReset: () => void;
   theme: Theme;
@@ -695,6 +727,8 @@ function SessionRecovery({
           <button className="link-button" onClick={onReset}>
             Wyczyść zapisane połączenie
           </button>
+          <button className="link-button" onClick={onRecover}>Odzyskaj dostęp kodem</button>
+          <button className="link-button" onClick={onTransfer}>Połącz z działającym urządzeniem</button>
         </div>
       </div>
     </main>
@@ -726,17 +760,33 @@ function formatCacheTime(value: string) {
 function JoinSetup({
   invite,
   onJoined,
+  onRecover,
+  onTransfer,
+  onBack,
   theme,
   onThemeChange,
 }: {
   invite: JoinInvite;
   onJoined: (group: Group, credentials: Credentials) => void;
+  onRecover: () => void;
+  onTransfer: () => void;
+  onBack: () => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
 }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const [invitedGroup, setInvitedGroup] = useState<Group | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getGroup(invite.groupId).then((value) => { if (!cancelled) setInvitedGroup(value); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [invite.groupId]);
+  const matchingName = invitedGroup?.members.some((member) =>
+    normalizePersonName(member.name) === normalizePersonName(name),
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -747,8 +797,8 @@ function JoinSetup({
     try {
       const result = await joinGroup(invite, cleanName);
       onJoined(result.group, result.credentials);
-    } catch {
-      setError("Nie udało się dołączyć do planu.");
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Nie udało się dołączyć do planu. Spróbuj ponownie.");
     } finally {
       setBusy(false);
     }
@@ -762,6 +812,8 @@ function JoinSetup({
           <ThemeToggle theme={theme} onChange={onThemeChange} />
         </div>
         <h1>Dołącz do planu</h1>
+        {invitedGroup && <p className="setup-description">{invitedGroup.name}</p>}
+        <p className="setup-description">Dołączysz jako nowa osoba z własnym postępem. Imię jest nazwą widoczną dla grupy.</p>
         <form onSubmit={submit}>
           {error && <div className="simple-alert">{error}</div>}
           <Field label="Twoje imię">
@@ -777,13 +829,78 @@ function JoinSetup({
               required
             />
           </Field>
+          {matchingName && <p className="name-match-notice" role="status">
+            W grupie jest już osoba o takiej nazwie. Dołączenie utworzy osobny profil.
+            Jeśli to Twój wcześniejszy profil, odzyskaj dostęp poniżej.
+          </p>}
           <button
             className="main-button"
             disabled={busy || !cleanPersonName(name)}
           >
-            {busy ? "Dołączanie…" : "Dołącz"}
+            {busy ? "Dołączanie…" : "Dołącz jako nowa osoba"}
           </button>
         </form>
+        <div className="access-entry-options">
+          <strong>Masz już profil w tym planie?</strong>
+          <button className="link-button" onClick={onRecover}>Odzyskaj dostęp kodem</button>
+          <button className="link-button" onClick={onTransfer}>Mam dostęp na innym urządzeniu</button>
+          <button className="link-button" onClick={onBack}>Wróć do wyboru</button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function RecoverAccessSetup({
+  onRecovered, onBack, onTransfer, theme, onThemeChange,
+}: {
+  onRecovered: (group: Group, credentials: Credentials) => void;
+  onBack: () => void;
+  onTransfer: () => void;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const normalized = normalizeRecoveryCode(code);
+    if (!normalized) { setError("Wklej pełny kod odzyskiwania: 8 grup po 4 znaki."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await redeemRecoveryCode(normalized);
+      onRecovered(result.group, result.credentials);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Nie udało się odzyskać dostępu. Sprawdź połączenie i spróbuj ponownie.");
+    } finally { setBusy(false); }
+  }
+  return (
+    <main className="setup-page">
+      <div className="setup-box join-box">
+        <div className="setup-top"><Brand /><ThemeToggle theme={theme} onChange={onThemeChange} /></div>
+        <h1>Odzyskaj mój dostęp</h1>
+        <p className="setup-description">
+          Wklej zapisany kod odzyskiwania. Otworzysz swój dotychczasowy profil i jego postęp.
+          Imię ani link zaproszenia nie służą do odzyskiwania dostępu.
+        </p>
+        <form onSubmit={submit}>
+          {error && <div className="simple-alert" role="alert">{error}</div>}
+          <Field label="Kod odzyskiwania">
+            <input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())}
+              autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
+              maxLength={128} placeholder="8 grup po 4 znaki" required autoFocus />
+          </Field>
+          <button className="main-button" disabled={busy || !normalizeRecoveryCode(code)}>
+            {busy ? "Odzyskiwanie…" : "Odzyskaj dostęp"}
+          </button>
+        </form>
+        <div className="access-entry-options">
+          <p>Nie masz kodu? Jeśli plan działa na innym urządzeniu, połącz je kodem lub QR z ustawień.</p>
+          <button className="link-button" onClick={onTransfer}>Mam dostęp na innym urządzeniu</button>
+          <button className="link-button" onClick={onBack}>Wróć do wyboru</button>
+        </div>
       </div>
     </main>
   );
@@ -846,7 +963,7 @@ function TransferSetup({
     (value: string) => {
       const scannedCode = parseSessionTransfer(value);
       if (!scannedCode) {
-        setError("Ten kod QR nie zawiera kodu przeniesienia sesji.");
+        setError("Ten kod QR nie zawiera kodu połączenia urządzenia.");
         return;
       }
       setScannerOpen(false);
@@ -862,10 +979,10 @@ function TransferSetup({
           <Brand />
           <ThemeToggle theme={theme} onChange={onThemeChange} />
         </div>
-        <h1>Przenieś sesję</h1>
+        <h1>Połącz inne urządzenie</h1>
         <p className="setup-description">
           Zeskanuj kod QR wyświetlony na urządzeniu, na którym działa Twój
-          plan. Otwórz aparat albo wklej kod ręcznie.
+          plan: Ustawienia → Połącz inne urządzenie. Oba urządzenia zachowają dostęp do tego samego profilu.
         </p>
         {scannerOpen && (
           <TransferQrScanner
@@ -887,7 +1004,7 @@ function TransferSetup({
               Otwórz aparat i zeskanuj kod QR
             </button>
           )}
-          <Field label="Kod przeniesienia">
+          <Field label="Kod połączenia">
             <input
               value={code}
               onChange={(event) => setCode(event.target.value.toUpperCase())}
@@ -901,7 +1018,7 @@ function TransferSetup({
             />
           </Field>
           <button className="main-button" disabled={busy || code.replace(/[^A-Z0-9]/gi, "").length < 8}>
-            {busy ? "Przenoszenie…" : "Przenieś plan"}
+            {busy ? "Łączenie…" : "Otwórz mój plan"}
           </button>
           <button type="button" className="link-button" onClick={onBack}>
             Wróć do wyboru
@@ -1065,7 +1182,7 @@ function LandingPage({
   onThemeChange,
 }: {
   error: string;
-  onChoose: (choice: "transfer" | "create" | "join") => void;
+  onChoose: (choice: "transfer" | "create" | "join" | "recover") => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
 }) {
@@ -1094,7 +1211,10 @@ function LandingPage({
             </button>
           </div>
           <button type="button" className="link-button landing-transfer" onClick={() => onChoose("transfer")}>
-            Mam już plan na innym urządzeniu → przenieś sesję
+            Mam już plan na innym urządzeniu → połącz urządzenie
+          </button>
+          <button type="button" className="link-button landing-recover" onClick={() => onChoose("recover")}>
+            Odzyskaj dostęp do mojego planu
           </button>
         </section>
 
@@ -1150,7 +1270,7 @@ function Setup({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
   const [view, setView] = useState<
-    "choices" | "create" | "transfer" | "join"
+    "choices" | "create" | "transfer" | "join" | "recover"
   >("choices");
   const rows = useMemo(() => parsePlanCsv(csvText), [csvText]);
 
@@ -1201,6 +1321,10 @@ function Setup({
     }
   }
 
+  if (view === "recover") {
+    return <RecoverAccessSetup onRecovered={onRecovered} onBack={() => setView("choices")}
+      onTransfer={() => setView("transfer")} theme={theme} onThemeChange={onThemeChange} />;
+  }
   if (view === "transfer") {
     return (
       <TransferSetup
@@ -1435,6 +1559,8 @@ function Dashboard({
   syncMessage,
   onRefresh,
   onLeave,
+  showAccessHint,
+  onDismissAccessHint,
 }: {
   credentials: Credentials;
   group: Group;
@@ -1446,6 +1572,8 @@ function Dashboard({
   syncMessage: string;
   onRefresh: () => void;
   onLeave: () => void;
+  showAccessHint: boolean;
+  onDismissAccessHint: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("today");
   const [today, setToday] = useState(todayIso);
@@ -1573,6 +1701,14 @@ function Dashboard({
       </header>
 
       <main className="simple-content">
+        {showAccessHint && <aside className="access-hint" role="status">
+          <div><strong>Zabezpiecz swój dostęp</strong>
+            <p>Zapisz kod odzyskiwania, aby wrócić do swojego profilu po utracie urządzenia.</p></div>
+          <div className="access-actions">
+            <button className="small-button" onClick={() => { setTab("settings"); onDismissAccessHint(); }}>Zapisz kod odzyskiwania</button>
+            <button className="link-button" onClick={onDismissAccessHint}>Później</button>
+          </div>
+        </aside>}
         {syncMessage && <div className="sync-status" role="status">{syncMessage}</div>}
         {progressError && <p className="progress-error" role="alert">{progressError}</p>}
         <div hidden={tab !== "today"}>
@@ -2100,6 +2236,7 @@ function SettingsView({
   const [transferBusy, setTransferBusy] = useState(false);
   const [transferError, setTransferError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [logoutConfirm, setLogoutConfirm] = useState(false);
 
   async function prepareTransfer() {
     setTransferBusy(true);
@@ -2108,7 +2245,7 @@ function SettingsView({
     try {
       setTransfer(await createSessionTransfer(credentials));
     } catch {
-      setTransferError("Nie udało się utworzyć kodu przeniesienia.");
+      setTransferError("Nie udało się utworzyć kodu połączenia.");
     } finally {
       setTransferBusy(false);
     }
@@ -2135,18 +2272,19 @@ function SettingsView({
         <Setting label="Dni czytania" value={frequency} />
       </section>
       <NotificationSettings credentials={credentials} />
-      <h2 className="settings-heading">Przeniesienie sesji</h2>
+      <RecoveryCodeSettings credentials={credentials} copyText={copyText} />
+      <h2 className="settings-heading">Połącz inne urządzenie</h2>
       <section className="settings-card transfer-card">
         <p>
           Utwórz jednorazowy kod, a następnie zeskanuj go na drugim urządzeniu.
-          Kod jest ważny przez 10 minut. Po wygaśnięciu możesz utworzyć nowy.
+          Kod jest ważny przez 10 minut. Oba urządzenia zachowają dostęp do tego samego profilu.
         </p>
         {transferError && <div className="simple-alert">{transferError}</div>}
         {transfer ? (
           <div className="transfer-result">
             <QrCode
               value={createSessionTransferLink(transfer.code)}
-              label="Kod QR do przeniesienia sesji"
+              label="Kod QR do połączenia urządzenia"
             />
             <strong>{transfer.code}</strong>
             <span>
@@ -2186,15 +2324,21 @@ function SettingsView({
             disabled={transferBusy}
             onClick={prepareTransfer}
           >
-            {transferBusy ? "Tworzenie…" : "Utwórz kod przeniesienia"}
+            {transferBusy ? "Tworzenie…" : "Utwórz kod połączenia"}
           </button>
         )}
       </section>
       <h2 className="settings-heading">Konto</h2>
       <section className="settings-card">
-        <button className="logout-button" onClick={onLeave}>
+        {logoutConfirm ? <div className="logout-confirm" role="alert">
+          <p>Po wylogowaniu potrzebujesz kodu odzyskiwania lub dostępu na innym urządzeniu, aby wrócić do tego profilu. Samo imię nie przywróci dostępu.</p>
+          <div className="access-actions">
+            <button className="logout-button" onClick={onLeave}>Wyloguj z tego urządzenia</button>
+            <button className="link-button" onClick={() => setLogoutConfirm(false)}>Anuluj</button>
+          </div>
+        </div> : <button className="logout-button" onClick={() => setLogoutConfirm(true)}>
           <Icon name="logout" size={18} /> Wyloguj
-        </button>
+        </button>}
       </section>
     </>
   );
@@ -2381,8 +2525,11 @@ async function copyText(value: string) {
   input.style.opacity = "0";
   document.body.appendChild(input);
   input.select();
-  document.execCommand("copy");
-  input.remove();
+  try {
+    if (!document.execCommand("copy")) throw new Error("Nie udało się skopiować tekstu.");
+  } finally {
+    input.remove();
+  }
 }
 
 function TabButton({
@@ -2580,3 +2727,4 @@ function formatFrequency(frequency: Frequency) {
     .map((day) => names[day])
     .join(", ");
 }
+

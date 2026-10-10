@@ -10,7 +10,11 @@ import type {
   Member,
   PlanDay,
 } from "../../src/types";
-import { cleanPersonName, normalizePersonName } from "../../src/lib/name";
+import { cleanPersonName } from "../../src/lib/name";
+import {
+  formatRecoveryCode, generateRecoveryCode, hashRecoveryCode,
+  normalizeRecoveryCode,
+} from "../../src/lib/access-recovery";
 
 type StoredMember = Member & {
   tokenHash?: string;
@@ -27,6 +31,7 @@ type SessionTransfer = {
   expiresAt: string;
   usedAt?: string;
 };
+type AccessRecovery = { groupId: string; memberId: string };
 
 const COLORS = ["#47634f", "#bf6f54", "#65778e", "#9a7245", "#765b7d"];
 const SESSION_COOKIE = "plan-czytania-session";
@@ -39,6 +44,14 @@ function groupStore() {
     name: "plan-czytania-biblii-groups",
     consistency: "strong",
   });
+}
+
+function recoveryStore() {
+  return getStore({ name: "plan-czytania-biblii-recovery", consistency: "strong" });
+}
+
+function recoveryProfileKey(credentials: Pick<Credentials, "groupId" | "memberId">) {
+  return `profile-${credentials.groupId}-${credentials.memberId}`;
 }
 
 function json(
@@ -342,6 +355,66 @@ function clearSession() {
   );
 }
 
+async function recoveryCodeStatus(request: Request) {
+  const credentials = cleanCredentials(await request.json());
+  if (!credentials) return error("Nieprawidłowy dostęp.", 401);
+  const group = await storedGroup(credentials.groupId);
+  if (!group || !(await authenticate(group, credentials))) {
+    return error("Nieprawidłowy dostęp.", 401);
+  }
+  const record = await recoveryStore().get(recoveryProfileKey(credentials), { type: "json" });
+  return json({ hasCode: Boolean(record) });
+}
+
+async function createRecoveryCode(request: Request) {
+  const credentials = cleanCredentials(await request.json());
+  if (!credentials) return error("Nieprawidłowy dostęp.", 401);
+  const group = await storedGroup(credentials.groupId);
+  if (!group || !(await authenticate(group, credentials))) {
+    return error("Nieprawidłowy dostęp.", 401);
+  }
+  const store = recoveryStore();
+  const code = generateRecoveryCode();
+  const codeHash = await hashRecoveryCode(code);
+  const record: AccessRecovery = {
+    groupId: credentials.groupId, memberId: credentials.memberId,
+  };
+  const created = await store.set(`code-${codeHash}`, JSON.stringify(record), { onlyIfNew: true });
+  if (!created.modified) return error("Nie udało się utworzyć kodu. Spróbuj ponownie.", 409);
+  // One pointer per profile makes a newly issued code replace the old one.
+  // Plaintext codes are never stored, including in the lookup record.
+  await store.set(recoveryProfileKey(credentials), JSON.stringify({ codeHash }));
+  return json({ code: formatRecoveryCode(code) }, 201);
+}
+
+async function redeemRecoveryCode(request: Request) {
+  const body = (await request.json()) as { code?: unknown } | null;
+  const code = normalizeRecoveryCode(body?.code);
+  if (!code) return error("Kod odzyskiwania ma nieprawidłowy format.", 400);
+  const store = recoveryStore();
+  const codeHash = await hashRecoveryCode(code);
+  const record = await store.get(`code-${codeHash}`, { type: "json" }) as AccessRecovery | null;
+  if (!record) return error("Kod odzyskiwania jest nieprawidłowy lub został zastąpiony nowym.", 401);
+  let credentials: Credentials | null = null;
+  const response = await updateStoredGroup(record.groupId, async (group) => {
+    const active = await store.get(recoveryProfileKey(record), { type: "json" }) as { codeHash: string } | null;
+    const member = group.members.find((candidate) => candidate.id === record.memberId);
+    if (!member || active?.codeHash !== codeHash) {
+      return error("Kod odzyskiwania jest nieprawidłowy lub został zastąpiony nowym.", 401);
+    }
+    const token = randomToken();
+    member.tokenHashes = [...tokenHashes(member), await hashToken(token)];
+    delete member.tokenHash;
+    credentials = { groupId: record.groupId, memberId: record.memberId, token };
+  });
+  if (response.status === 404) return error("Kod odzyskiwania jest nieprawidłowy lub został zastąpiony nowym.", 401);
+  if (response.status !== 200 || !credentials) return response;
+  return json(
+    { group: await response.json(), credentials }, 201,
+    { "set-cookie": sessionCookie(credentials) },
+  );
+}
+
 async function createSessionTransfer(request: Request) {
   const store = groupStore();
   const credentials = cleanCredentials(await request.json());
@@ -550,25 +623,6 @@ async function joinGroup(request: Request, groupId: string) {
     }
     const memberId = crypto.randomUUID();
     const token = randomToken();
-    const existingMember = group.members.find(
-      (member) =>
-        normalizePersonName(member.name) === normalizePersonName(name),
-    );
-
-    if (existingMember) {
-      existingMember.tokenHashes = [
-        ...tokenHashes(existingMember),
-        await hashToken(token),
-      ];
-      delete existingMember.tokenHash;
-      createdCredentials = {
-        groupId,
-        memberId: existingMember.id,
-        token,
-      };
-      return;
-    }
-
     if (group.members.length >= 100) {
       return error("Grupa osiągnęła limit 100 osób.", 409);
     }
@@ -720,6 +774,23 @@ export default async (request: Request, context: Context) => {
       request.method === "POST" &&
       route.length === 2 &&
       route[0] === "session" &&
+      route[1] === "recovery-code"
+    ) {
+      return createRecoveryCode(request);
+    }
+    if (
+      request.method === "POST" &&
+      route.length === 3 &&
+      route[0] === "session" &&
+      route[1] === "recovery-code"
+    ) {
+      if (route[2] === "status") return recoveryCodeStatus(request);
+      if (route[2] === "redeem") return redeemRecoveryCode(request);
+    }
+    if (
+      request.method === "POST" &&
+      route.length === 2 &&
+      route[0] === "session" &&
       route[1] === "transfers"
     ) {
       return createSessionTransfer(request);
@@ -782,3 +853,4 @@ export default async (request: Request, context: Context) => {
 export const config: Config = {
   path: "/api/*",
 };
+

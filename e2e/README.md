@@ -21,6 +21,16 @@ The suite creates plans named E2E <run id> <scenario> <random suffix>, with only
 
 Reports and failure screenshots are uploaded for 7 days. Traces and stored credentials are disabled because request bodies contain member tokens. Do not add token values to test names or logs. Test reports are evidence of a real execution; source review or mocked harnesses are not E2E execution.
 
+Identity coverage: each invitation join creates a separate member and progress,
+including duplicate names and the administrator's name. Recovery codes restore
+the original member, role, progress and secure cookie on a fresh device while
+preserving old device tokens. Tests cover format, unauthorized issuance, code
+reuse, rotation, per-member isolation and removed-member rejection. Browser
+scenarios cover creation, invitation entry, saving/hiding a code, logout
+confirmation, invalid-code feedback, reload and cookie restoration on desktop
+and mobile. Recovery UI tests disable screenshots so access codes are not
+included in failure reports.
+
 For every relevant change, maintain these tests and run the complete unit/build/E2E checks; see ../AGENTS.md.
 
 ## Required GitHub check
@@ -48,3 +58,4 @@ Recovery keeps the full normal chapter quota for each parallel CSV column/sectio
 Production pushes run unit/build checks and a read-only deployment check: exact commit, production context, HTML, application assets and a missing-plan API GET. Writable E2E runs on develop and PR previews before promotion. Cache/refresh regressions cover reconnecting after a failed read and preserving writes confirmed after a stale session read started.
 
 The first persistence verification GET has its own 30-second HTTP deadline, followed by the unchanged persistence polling assertions. A failed HTTP request fails the test; no request retry or fallback is accepted. E2E jobs for the same commit run sequentially to avoid duplicated PR/push jobs putting simultaneous load on Netlify.
+

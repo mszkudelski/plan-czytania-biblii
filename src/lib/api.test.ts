@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSession,
+  createRecoveryCode,
+  recoveryCodeStatus,
+  redeemRecoveryCode,
   redeemSessionTransfer,
   restoreSession,
   saveSession,
@@ -120,4 +123,33 @@ describe("remote session API", () => {
       }),
     );
   });
+
+  it("issues and checks recovery codes only with the authenticated credentials", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ hasCode: false }))
+      .mockResolvedValueOnce(jsonResponse({ code: "saved-recovery-code" }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(recoveryCodeStatus(credentials)).resolves.toEqual({ hasCode: false });
+    await expect(createRecoveryCode(credentials)).resolves.toEqual({ code: "saved-recovery-code" });
+    for (const [index, path] of ["/status", ""].entries()) {
+      expect(fetchMock).toHaveBeenNthCalledWith(index + 1, "/api/session/recovery-code" + path,
+        expect.objectContaining({ method: "POST", body: JSON.stringify(credentials), credentials: "same-origin" }));
+    }
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  it("redeems a saved recovery code without a name or invite", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ group, credentials }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(redeemRecoveryCode("saved-recovery-code")).resolves.toEqual({ group, credentials });
+    expect(fetchMock).toHaveBeenCalledWith("/api/session/recovery-code/redeem",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ code: "saved-recovery-code" }) }));
+  });
+
+  it("does not mask a deployed recovery rejection with a local fallback", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ error: "Kod nie działa." }, 401)));
+    await expect(redeemRecoveryCode("invalid")).rejects.toMatchObject({ message: "Kod nie działa.", status: 401 });
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+  });
 });
+
