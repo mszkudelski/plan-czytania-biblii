@@ -7,15 +7,39 @@ import type {
 } from "../types";
 import {
   localCreateGroup,
+  localCreateRecoveryCode,
+  localCreateMemberAccess,
   localEnsureInvite,
   localGetGroup,
   localJoinGroup,
   localRemoveMember,
+  localRecoveryCodeStatus,
+  localRedeemRecoveryCode,
+  localRedeemMemberAccess,
+  localUpdateMemberRole,
   localUpdateProgress,
 } from "./local-store";
+import type { ReminderSettings, PushSubscriptionData } from "./notifications";
 
 const CREDENTIALS_KEY = "plan-czytania-biblii-credentials";
 type Session = { group: Group; credentials: Credentials };
+
+export function getNotificationConfig() {
+  return request<{ publicKey: string | null; scheduled: boolean }>("/notifications/config");
+}
+
+export function notificationSettings(
+  credentials: Credentials,
+  deviceId: string,
+  action: "read" | "save" | "disable" | "test",
+  settings?: ReminderSettings,
+  subscription?: PushSubscriptionData,
+) {
+  return request<ReminderSettings | null>(`/groups/${credentials.groupId}/notifications`, {
+    method: "POST",
+    body: JSON.stringify({ ...credentials, deviceId, action, settings, subscription }),
+  });
+}
 
 export class ApiError extends Error {
   constructor(
@@ -124,7 +148,7 @@ export async function createSessionTransfer(credentials: Credentials) {
 
 export async function redeemSessionTransfer(code: string) {
   if (useLocalOnly()) {
-    throw new Error("Przenoszenie sesji jest dostępne po wdrożeniu aplikacji.");
+    return localRedeemMemberAccess(code);
   }
   return request<{ group: Group; credentials: Credentials }>(
     "/session/transfers/redeem",
@@ -133,6 +157,41 @@ export async function redeemSessionTransfer(code: string) {
       body: JSON.stringify({ code }),
     },
   );
+}
+
+export async function createMemberAccess(credentials: Credentials, memberId: string) {
+  if (useLocalOnly()) return localCreateMemberAccess(credentials, memberId);
+  return request<{ code: string; expiresAt: string }>(`/groups/${credentials.groupId}/members/${memberId}/access`, {
+    method: "POST", body: JSON.stringify(credentials),
+  });
+}
+
+export async function updateMemberRole(credentials: Credentials, memberId: string, isAdmin: boolean) {
+  if (useLocalOnly()) return localUpdateMemberRole(credentials, memberId, isAdmin);
+  return request<Group>(`/groups/${credentials.groupId}/members/${memberId}/role`, {
+    method: "POST", body: JSON.stringify({ ...credentials, isAdmin }),
+  });
+}
+
+export async function recoveryCodeStatus(credentials: Credentials) {
+  if (useLocalOnly()) return localRecoveryCodeStatus(credentials);
+  return request<{ hasCode: boolean }>("/session/recovery-code/status", {
+    method: "POST", body: JSON.stringify(credentials),
+  });
+}
+
+export async function createRecoveryCode(credentials: Credentials) {
+  if (useLocalOnly()) return localCreateRecoveryCode(credentials);
+  return request<{ code: string }>("/session/recovery-code", {
+    method: "POST", body: JSON.stringify(credentials),
+  });
+}
+
+export async function redeemRecoveryCode(code: string) {
+  if (useLocalOnly()) return localRedeemRecoveryCode(code);
+  return request<Session>("/session/recovery-code/redeem", {
+    method: "POST", body: JSON.stringify({ code }),
+  });
 }
 
 export async function createGroup(input: {
@@ -230,3 +289,4 @@ export async function removeMember(
     return localRemoveMember(credentials, memberId);
   }
 }
+

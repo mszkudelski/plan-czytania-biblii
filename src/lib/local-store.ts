@@ -6,7 +6,11 @@ import type {
   Member,
   PlanDay,
 } from "../types";
-import { cleanPersonName, normalizePersonName } from "./name";
+import { cleanPersonName } from "./name";
+import {
+  formatRecoveryCode, generateRecoveryCode, hashRecoveryCode,
+  normalizeRecoveryCode,
+} from "./access-recovery";
 
 type LocalGroup = Group & {
   tokens: Record<string, string | string[]>;
@@ -14,6 +18,8 @@ type LocalGroup = Group & {
 };
 
 const STORAGE_KEY = "plan-czytania-biblii-local-groups";
+const RECOVERY_KEY = "plan-czytania-biblii-local-recovery";
+const MEMBER_ACCESS_KEY = "plan-czytania-biblii-local-member-access";
 const COLORS = ["#47634f", "#bf6f54", "#65778e", "#9a7245", "#765b7d"];
 
 function randomId() {
@@ -140,33 +146,10 @@ export function localJoinGroup(
     throw new Error("Link zaproszenia jest nieprawidłowy.");
   }
   if (group.members.length >= 100) {
-    const existing = group.members.find(
-      (member) =>
-        normalizePersonName(member.name) === normalizePersonName(cleanName),
-    );
-    if (!existing) throw new Error("Grupa osiągnęła limit 100 osób.");
+    throw new Error("Grupa osiągnęła limit 100 osób.");
   }
   const memberId = randomId();
   const token = randomToken();
-  const existingMember = group.members.find(
-    (member) =>
-      normalizePersonName(member.name) === normalizePersonName(cleanName),
-  );
-  if (existingMember) {
-    group.tokens[existingMember.id] = [
-      ...memberTokens(group, existingMember.id),
-      token,
-    ];
-    saveAll(all);
-    return {
-      group: publicGroup(group),
-      credentials: {
-        groupId: group.id,
-        memberId: existingMember.id,
-        token,
-      },
-    };
-  }
   group.members.push({
     id: memberId,
     name: cleanName,
@@ -214,3 +197,120 @@ export function localRemoveMember(
   saveAll(all);
   return publicGroup(group);
 }
+
+type LocalRecovery = { groupId: string; memberId: string; codeHash: string };
+
+function recoveryRecords(): Record<string, LocalRecovery> {
+  return JSON.parse(localStorage.getItem(RECOVERY_KEY) ?? "{}");
+}
+
+function recoveryProfileKey(credentials: Pick<Credentials, "groupId" | "memberId">) {
+  return `${credentials.groupId}:${credentials.memberId}`;
+}
+
+function requireLocalMember(credentials: Credentials) {
+  const group = loadAll()[credentials.groupId];
+  if (!group?.members.some((member) => member.id === credentials.memberId) ||
+      !memberTokens(group, credentials.memberId).includes(credentials.token)) {
+    throw new Error("Nieprawidłowy dostęp.");
+  }
+}
+
+export function localRecoveryCodeStatus(credentials: Credentials) {
+  requireLocalMember(credentials);
+  return { hasCode: Boolean(recoveryRecords()[recoveryProfileKey(credentials)]) };
+}
+
+export async function localCreateRecoveryCode(credentials: Credentials) {
+  requireLocalMember(credentials);
+  const code = generateRecoveryCode();
+  const records = recoveryRecords();
+  records[recoveryProfileKey(credentials)] = {
+    groupId: credentials.groupId, memberId: credentials.memberId,
+    codeHash: await hashRecoveryCode(code),
+  };
+  localStorage.setItem(RECOVERY_KEY, JSON.stringify(records));
+  return { code: formatRecoveryCode(code) };
+}
+
+export async function localRedeemRecoveryCode(value: string) {
+  const code = normalizeRecoveryCode(value);
+  if (!code) throw new Error("Kod odzyskiwania ma nieprawidłowy format.");
+  const codeHash = await hashRecoveryCode(code);
+  const record = Object.values(recoveryRecords()).find((entry) => entry.codeHash === codeHash);
+  const all = loadAll();
+  const group = record ? all[record.groupId] : undefined;
+  if (!record || !group?.members.some((member) => member.id === record.memberId)) {
+    throw new Error("Kod odzyskiwania jest nieprawidłowy lub został zastąpiony nowym.");
+  }
+  const token = randomToken();
+  group.tokens[record.memberId] = [...memberTokens(group, record.memberId), token];
+  saveAll(all);
+  return {
+    group: publicGroup(group),
+    credentials: { groupId: group.id, memberId: record.memberId, token },
+  };
+}
+
+function requireLocalAdmin(credentials: Credentials) {
+  requireLocalMember(credentials);
+  const group = loadAll()[credentials.groupId];
+  if (!group.members.find((member) => member.id === credentials.memberId)?.isAdmin) {
+    throw new Error("Tylko administrator może zarządzać dostępem.");
+  }
+  return group;
+}
+
+export function localUpdateMemberRole(credentials: Credentials, memberId: string, isAdmin: boolean) {
+  const group = requireLocalAdmin(credentials);
+  const member = group.members.find((person) => person.id === memberId);
+  if (!member) throw new Error("Nie znaleziono osoby.");
+  if (!isAdmin && member.isAdmin && !group.members.some((person) => person.id !== memberId && person.isAdmin)) {
+    throw new Error("Grupa musi mieć co najmniej jednego administratora.");
+  }
+  member.isAdmin = isAdmin;
+  const all = loadAll();
+  all[group.id] = group;
+  saveAll(all);
+  return publicGroup(group);
+}
+
+type LocalMemberAccess = {
+  groupId: string; memberId: string; issuedByAdminId: string; expiresAt: string; usedAt?: string;
+};
+
+export async function localCreateMemberAccess(credentials: Credentials, memberId: string) {
+  const group = requireLocalAdmin(credentials);
+  if (!group.members.some((person) => person.id === memberId)) throw new Error("Nie znaleziono osoby.");
+  const code = generateRecoveryCode().slice(0, 8);
+  const hash = await hashRecoveryCode(code);
+  const records: Record<string, LocalMemberAccess> = JSON.parse(localStorage.getItem(MEMBER_ACCESS_KEY) ?? "{}");
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  records[hash] = { groupId: group.id, memberId, issuedByAdminId: credentials.memberId, expiresAt };
+  localStorage.setItem(MEMBER_ACCESS_KEY, JSON.stringify(records));
+  return { code: formatRecoveryCode(code), expiresAt };
+}
+
+export async function localRedeemMemberAccess(value: string): Promise<{ group: Group; credentials: Credentials }> {
+  const code = value.toUpperCase().replace(/[\s-]/g, "");
+  if (!/^[2-9A-HJ-NP-Z]{8}$/.test(code)) throw new Error("Kod ma nieprawidłowy format.");
+  const hash = await hashRecoveryCode(code);
+  const records: Record<string, LocalMemberAccess> = JSON.parse(localStorage.getItem(MEMBER_ACCESS_KEY) ?? "{}");
+  const record = records[hash];
+  if (!record || record.usedAt || Date.parse(record.expiresAt) <= Date.now()) throw new Error("Kod jest nieprawidłowy lub wygasł.");
+  // Claim before asynchronous work so concurrent redemptions cannot both pass.
+  record.usedAt = new Date().toISOString();
+  localStorage.setItem(MEMBER_ACCESS_KEY, JSON.stringify(records));
+  const all = loadAll();
+  const group = all[record.groupId];
+  if (!group?.members.some((person) => person.id === record.issuedByAdminId && person.isAdmin)) {
+    throw new Error("Administrator nie ma już uprawnień.");
+  }
+  const member = group.members.find((person) => person.id === record.memberId);
+  if (!member) throw new Error("Użytkownik nie ma już dostępu.");
+  const token = randomToken();
+  group.tokens[member.id] = [...memberTokens(group, member.id), token];
+  saveAll(all);
+  return { group: publicGroup(group), credentials: { groupId: group.id, memberId: member.id, token } };
+}
+

@@ -21,9 +21,63 @@ The suite creates plans named E2E <run id> <scenario> <random suffix>, with only
 
 Reports and failure screenshots are uploaded for 7 days. Traces and stored credentials are disabled because request bodies contain member tokens. Do not add token values to test names or logs. Test reports are evidence of a real execution; source review or mocked harnesses are not E2E execution.
 
+Reading home coverage: the plan name heads the reading screen; first unread
+work stays in order, a finished reading survives reload until explicit navigation,
+and dates/overall progress remain in Plan. Negative/positive counts track whole
+readings without cancelling unfinished debt. Daily plans use past days; other
+cadences use closed weeks. Current-week completion includes overdue readings finished this week and work
+pre-read for this week, counts complete readings once, and stays capped at the
+weekly goal. The bar updates on check/uncheck and survives reload. Tests cover both return-arrow
+directions, disappearance at the personal position, transparent borderless controls,
+44px touch targets, week rollover, future starts, rest days and completed plans.
+Desktop/mobile checks retain real persistence, reload, one-day catch-up examples,
+immediately editable future readings, rollback, partial-chapter and concurrent-write regressions.
+
+Identity coverage: each invitation join creates a separate member and progress,
+including duplicate names and the administrator's name. Legacy recovery API codes restore
+the original member, role, progress and secure cookie on a fresh device while
+preserving old device tokens. Tests cover format, unauthorized issuance, code
+reuse, rotation, per-member isolation and removed-member rejection. Browser
+scenarios cover creation, invitation entry, administrator-assisted recovery after logout,
+confirmation, invalid-code feedback, reload and cookie restoration on desktop
+and mobile. Personal codes are absent from settings, recovery and logout,
+including profiles with an existing legacy code, and the browser makes no requests
+to the personal-code endpoints. Recovery UI tests disable screenshots so access codes are not
+included in failure reports.
+
+Administrator-assisted recovery coverage: restore the selected duplicate-name
+profile without inheriting the issuer's invitation secret, 10-minute expiry
+metadata, strict code length, single-use and simultaneous redemption,
+unauthorized issuance/role changes, group scope, removed targets and demoted
+issuers. Concurrent role changes cannot remove the last administrator. A second
+administrator restores the original administrator without a saved personal
+code. Desktop and mobile UI scenarios cover issuing links/QR, role confirmation
+and cancellation, focus restoration, removal visibility, fresh-device recovery,
+reload, preserved progress and explicit profile switching while the app is open.
+Legacy personal recovery codes remain covered through the API for compatibility,
+including rotation, while their browser options are hidden.
+Metadata mutations claim an immutable, numbered revision with onlyIfNew,
+rather than overwriting the group snapshot. Competing requests reload the
+winner and recheck permissions and the last-administrator rule. Unit tests
+cover concurrent changes and stale listings; E2E repeats the demotion race
+four times on real Blobs. Single-use transfers claim a separate immutable
+used marker. Revision history is not currently compacted.
+
 For every relevant change, maintain these tests and run the complete unit/build/E2E checks; see ../AGENTS.md.
 
 ## Required GitHub check
+
+Notification coverage: saved hour and time zone through the deployed API,
+reload, disable, denied permission, iOS install guidance, mobile layout,
+input/endpoint validation and per-member/device privacy. Synthetic push
+subscriptions are created only in preview scope and deleted in finally blocks;
+these tests do not claim delivery through a browser push provider. Scheduler
+timing, local dates, deduplication, retries and expired subscriptions have unit tests.
+
+Notification browser tests use full Chromium in its new headless mode, because
+the separate headless shell reports notification permission as denied. Native
+permission states are set for the test's own browser context; API responses and
+settings persistence still use the real Netlify backend.
 
 The workflow provides a stable **Required CI** check which fails unless both Unit tests and build and E2E with real backend pass. Configure Settings > Rules > Rulesets for develop and main, enable Require status checks to pass, select **Required CI**, and require the branch to be up to date. A reviewable REST ruleset payload is in ../.github/required-ci.ruleset.json.
 
@@ -36,3 +90,4 @@ Recovery keeps the full normal chapter quota for each parallel CSV column/sectio
 Production pushes run unit/build checks and a read-only deployment check: exact commit, production context, HTML, application assets and a missing-plan API GET. Writable E2E runs on develop and PR previews before promotion. Cache/refresh regressions cover reconnecting after a failed read and preserving writes confirmed after a stale session read started.
 
 The first persistence verification GET has its own 30-second HTTP deadline, followed by the unchanged persistence polling assertions. A failed HTTP request fails the test; no request retry or fallback is accepted. E2E jobs for the same commit run sequentially to avoid duplicated PR/push jobs putting simultaneous load on Netlify.
+

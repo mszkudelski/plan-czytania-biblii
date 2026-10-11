@@ -1,4 +1,4 @@
-import { getRecoveryDay, getOverdueDays, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion } from "./lib/recovery";
+import { getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -24,8 +24,11 @@ import {
   saveSession,
   restoreSession,
   updateProgress,
+  updateMemberRole,
 } from "./lib/api";
 import { parsePlanCsv } from "./lib/csv";
+import GroupAccessSettings from "./GroupAccessSettings";
+import MemberAccessModal from "./MemberAccessModal";
 import { BASIC_PLAN_CSV } from "./lib/basic-plan";
 import QRCode from "qrcode";
 import {
@@ -47,6 +50,9 @@ import {
   saveCachedGroup,
 } from "./lib/plan-cache";
 import QrScanner from "qr-scanner";
+import NotificationSettings from "./NotificationSettings";
+import { reminderDeviceId } from "./lib/push-client";
+import { notificationSettings } from "./lib/api";
 import {
   calculateProgressPercent,
   formatProgressPercent,
@@ -54,9 +60,10 @@ import {
   getNextDay,
   getPaceTone,
 } from "./lib/metrics";
-import { cleanPersonName } from "./lib/name";
+import { cleanPersonName, normalizePersonName } from "./lib/name";
 import { createOptimisticProgressQueue } from "./lib/optimistic-progress";
 import { buildSchedule, formatPolishDate, todayIso } from "./lib/schedule";
+import { formatReadingCount, getDailyReadingDay, getReadingHomeSummary, getReadingWeekSummary } from "./lib/reading-home";
 import type {
   Credentials,
   Frequency,
@@ -85,6 +92,8 @@ type IconName =
   | "sun"
   | "left"
   | "right"
+  | "double-left"
+  | "double-right"
   | "install"
   | "share"
   | "refresh";
@@ -152,6 +161,8 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     ),
     left: <path d="m15 18-6-6 6-6" />,
     right: <path d="m9 18 6-6-6-6" />,
+    "double-left": <path d="m11 17-5-5 5-5m7 10-5-5 5-5" />,
+    "double-right": <path d="m6 17 5-5-5-5m7 10 5-5-5-5" />,
     install: (
       <>
         <path d="M12 3v12M7 10l5 5 5-5" />
@@ -233,6 +244,7 @@ export default function SimpleApp() {
   const [transferCode, setTransferCode] = useState<string | null>(() =>
     readSessionTransferFromHash(),
   );
+  const [transferPurpose, setTransferPurpose] = useState<"recovery" | "pairing">(() => /^#restore=/i.test(window.location.hash) ? "recovery" : "pairing");
   const [credentials, setCredentials] = useState<Credentials | null>(() =>
     loadCredentials(),
   );
@@ -250,10 +262,22 @@ export default function SimpleApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [syncMessage, setSyncMessage] = useState("");
+  const [accessView, setAccessView] = useState<"recover" | "transfer" | "admin" | null>(null);
   const [retry, setRetry] = useState(0);
   const skipSessionRestore = useRef(false);
   const groupWriteVersion = useRef(0);
   const latestGroup = useRef<Group | null>(initialCachedGroup?.group ?? null);
+
+  useEffect(() => {
+    function readAccessLink() {
+      setTransferCode(readSessionTransferFromHash());
+      setTransferPurpose(/^#restore=/i.test(window.location.hash) ? "recovery" : "pairing");
+      setJoinInvite(readJoinFromHash());
+      setAccessView(null);
+    }
+    window.addEventListener("hashchange", readAccessLink);
+    return () => window.removeEventListener("hashchange", readAccessLink);
+  }, []);
 
   const setGroupAndCache = useCallback((nextGroup: Group) => {
     latestGroup.current = nextGroup;
@@ -372,6 +396,7 @@ export default function SimpleApp() {
   ]);
 
   function enter(groupData: Group, nextCredentials: Credentials) {
+    setAccessView(null);
     saveCredentials(nextCredentials);
     setCredentials(nextCredentials);
     setGroupAndCache(groupData);
@@ -394,19 +419,37 @@ export default function SimpleApp() {
 
   let content: React.ReactNode;
 
-  if (joinInvite && !canResumeInvite) {
+  if (accessView === "recover") {
+    content = <RecoverAccessSetup onBack={() => setAccessView(null)}
+      onAdminCode={() => setAccessView("admin")}
+      onTransfer={() => setAccessView("transfer")} theme={theme} onThemeChange={setTheme} />;
+  } else if (accessView === "transfer" || accessView === "admin") {
+    content = <TransferSetup onRecovered={enter} onBack={() => setAccessView(null)}
+      purpose={accessView === "admin" ? "recovery" : "pairing"}
+      theme={theme} onThemeChange={setTheme} />;
+  } else if (joinInvite && !canResumeInvite) {
     content = (
       <JoinSetup
         invite={joinInvite}
         onJoined={enter}
+        onRecover={() => setAccessView("recover")}
+        onTransfer={() => setAccessView("transfer")}
+        onBack={() => {
+          setJoinInvite(null);
+          window.history.replaceState(null, "", window.location.pathname);
+        }}
         theme={theme}
         onThemeChange={setTheme}
       />
     );
-  } else if (transferCode && !credentials) {
+  } else if (transferCode) {
     content = (
       <TransferSetup
+        key={`${transferPurpose}:${transferCode}`}
         initialCode={transferCode}
+        purpose={transferPurpose}
+        autoRedeem={transferPurpose === "pairing" && !credentials}
+        hasCurrentProfile={Boolean(credentials)}
         onRecovered={enter}
         onBack={() => {
           setTransferCode(null);
@@ -433,6 +476,7 @@ export default function SimpleApp() {
         onRefresh={() => setRetry((current) => current + 1)}
         onLeave={async () => {
           skipSessionRestore.current = true;
+          await notificationSettings(credentials, reminderDeviceId(), "disable").catch(() => undefined);
           await clearSession().catch(() => undefined);
           clearCachedGroup(credentials.groupId);
           clearCredentials();
@@ -447,6 +491,8 @@ export default function SimpleApp() {
     content = (
       <SessionRecovery
         error={error}
+        onRecover={() => setAccessView("recover")}
+        onTransfer={() => setAccessView("transfer")}
         onRetry={() => setRetry((current) => current + 1)}
         onReset={() => {
           clearCachedGroup(credentials.groupId);
@@ -658,12 +704,16 @@ function InstallApp() {
 
 function SessionRecovery({
   error,
+  onRecover,
+  onTransfer,
   onRetry,
   onReset,
   theme,
   onThemeChange,
 }: {
   error: string;
+  onRecover: () => void;
+  onTransfer: () => void;
   onRetry: () => void;
   onReset: () => void;
   theme: Theme;
@@ -691,6 +741,8 @@ function SessionRecovery({
           <button className="link-button" onClick={onReset}>
             Wyczyść zapisane połączenie
           </button>
+          <button className="link-button" onClick={onRecover}>Odzyskaj mój dostęp</button>
+          <button className="link-button" onClick={onTransfer}>Połącz z działającym urządzeniem</button>
         </div>
       </div>
     </main>
@@ -722,17 +774,33 @@ function formatCacheTime(value: string) {
 function JoinSetup({
   invite,
   onJoined,
+  onRecover,
+  onTransfer,
+  onBack,
   theme,
   onThemeChange,
 }: {
   invite: JoinInvite;
   onJoined: (group: Group, credentials: Credentials) => void;
+  onRecover: () => void;
+  onTransfer: () => void;
+  onBack: () => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
 }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const [invitedGroup, setInvitedGroup] = useState<Group | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getGroup(invite.groupId).then((value) => { if (!cancelled) setInvitedGroup(value); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [invite.groupId]);
+  const matchingName = invitedGroup?.members.some((member) =>
+    normalizePersonName(member.name) === normalizePersonName(name),
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -743,8 +811,8 @@ function JoinSetup({
     try {
       const result = await joinGroup(invite, cleanName);
       onJoined(result.group, result.credentials);
-    } catch {
-      setError("Nie udało się dołączyć do planu.");
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Nie udało się dołączyć do planu. Spróbuj ponownie.");
     } finally {
       setBusy(false);
     }
@@ -758,6 +826,8 @@ function JoinSetup({
           <ThemeToggle theme={theme} onChange={onThemeChange} />
         </div>
         <h1>Dołącz do planu</h1>
+        {invitedGroup && <p className="setup-description">{invitedGroup.name}</p>}
+        <p className="setup-description">Dołączysz jako nowa osoba z własnym postępem. Imię jest nazwą widoczną dla grupy.</p>
         <form onSubmit={submit}>
           {error && <div className="simple-alert">{error}</div>}
           <Field label="Twoje imię">
@@ -773,13 +843,53 @@ function JoinSetup({
               required
             />
           </Field>
+          {matchingName && <p className="name-match-notice" role="status">
+            W grupie jest już osoba o takiej nazwie. Dołączenie utworzy osobny profil.
+            Jeśli to Twój wcześniejszy profil, odzyskaj dostęp poniżej.
+          </p>}
           <button
             className="main-button"
             disabled={busy || !cleanPersonName(name)}
           >
-            {busy ? "Dołączanie…" : "Dołącz"}
+            {busy ? "Dołączanie…" : "Dołącz jako nowa osoba"}
           </button>
         </form>
+        <div className="access-entry-options">
+          <strong>Masz już profil w tym planie?</strong>
+          <button className="link-button" onClick={onRecover}>Odzyskaj mój dostęp</button>
+          <button className="link-button" onClick={onTransfer}>Mam dostęp na innym urządzeniu</button>
+          <button className="link-button" onClick={onBack}>Wróć do wyboru</button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function RecoverAccessSetup({
+  onBack, onTransfer, onAdminCode, theme, onThemeChange,
+}: {
+  onBack: () => void;
+  onTransfer: () => void;
+  onAdminCode: () => void;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+}) {
+  return (
+    <main className="setup-page">
+      <div className="setup-box join-box">
+        <div className="setup-top"><Brand /><ThemeToggle theme={theme} onChange={onThemeChange} /></div>
+        <h1>Odzyskaj mój dostęp</h1>
+        <p className="setup-description">
+          Poproś administratora swojej grupy o jednorazowy link dostępu.
+          W zakładce Grupa wybierze Twój profil i opcję Zarządzaj → Przywróć dostęp.
+          Wrócisz do swojego postępu, bez zakładania nowego profilu.
+        </p>
+        <button className="main-button" onClick={onAdminCode}>Mam link lub kod od administratora</button>
+        <div className="access-entry-options">
+          <p>Jeśli plan działa na innym urządzeniu, połącz je kodem lub QR z ustawień.</p>
+          <button className="link-button" onClick={onTransfer}>Mam dostęp na innym urządzeniu</button>
+          <button className="link-button" onClick={onBack}>Wróć do wyboru</button>
+        </div>
       </div>
     </main>
   );
@@ -787,12 +897,18 @@ function JoinSetup({
 
 function TransferSetup({
   initialCode = "",
+  purpose = "pairing",
+  autoRedeem = true,
+  hasCurrentProfile = false,
   onRecovered,
   onBack,
   theme,
   onThemeChange,
 }: {
   initialCode?: string;
+  purpose?: "pairing" | "recovery";
+  autoRedeem?: boolean;
+  hasCurrentProfile?: boolean;
   onRecovered: (group: Group, credentials: Credentials) => void;
   onBack: () => void;
   theme: Theme;
@@ -806,8 +922,8 @@ function TransferSetup({
 
   const redeem = useCallback(
     async (nextCode: string) => {
-      const normalizedCode = nextCode.replace(/[^A-Z0-9]/gi, "").toUpperCase();
-      if (normalizedCode.length !== 8) return;
+      const normalizedCode = parseSessionTransfer(nextCode);
+      if (!normalizedCode) { setError("Wklej pełny link lub kod z 8 znaków."); return; }
       setCode(normalizedCode);
       setBusy(true);
       setError("");
@@ -816,22 +932,24 @@ function TransferSetup({
         onRecovered(result.group, result.credentials);
       } catch (caught) {
         setError(
-          caught instanceof ApiError && caught.status === 410
-            ? "Kod wygasł. Utwórz nowy kod na urządzeniu, na którym działa plan."
-            : "Kod jest nieprawidłowy lub został już wykorzystany.",
+          caught instanceof ApiError && caught.status === 403
+            ? caught.message
+            : purpose === "recovery"
+              ? "Link lub kod jest nieprawidłowy, wygasł albo został już wykorzystany. Poproś administratora o nowy."
+              : "Kod jest nieprawidłowy, wygasł albo został już wykorzystany. Utwórz nowy kod na urządzeniu, na którym działa plan.",
         );
       } finally {
         setBusy(false);
       }
     },
-    [onRecovered],
+    [onRecovered, purpose],
   );
 
   useEffect(() => {
-    if (!initialCode || submittedCode.current === initialCode) return;
+    if (!autoRedeem || !initialCode || submittedCode.current === initialCode) return;
     submittedCode.current = initialCode;
     void redeem(initialCode);
-  }, [initialCode, redeem]);
+  }, [initialCode, autoRedeem, redeem]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -842,7 +960,7 @@ function TransferSetup({
     (value: string) => {
       const scannedCode = parseSessionTransfer(value);
       if (!scannedCode) {
-        setError("Ten kod QR nie zawiera kodu przeniesienia sesji.");
+        setError("Ten kod QR nie zawiera linku dostępu ani kodu połączenia urządzenia.");
         return;
       }
       setScannerOpen(false);
@@ -858,11 +976,13 @@ function TransferSetup({
           <Brand />
           <ThemeToggle theme={theme} onChange={onThemeChange} />
         </div>
-        <h1>Przenieś sesję</h1>
+        <h1>{purpose === "recovery" ? "Przywróć dostęp do profilu" : "Połącz inne urządzenie"}</h1>
         <p className="setup-description">
-          Zeskanuj kod QR wyświetlony na urządzeniu, na którym działa Twój
-          plan. Otwórz aparat albo wklej kod ręcznie.
+          {purpose === "recovery"
+            ? "Wklej link lub kod od administratora albo zeskanuj jego QR. Dostęp jest jednorazowy i ważny przez 10 minut. Otworzysz swój dotychczasowy profil i postęp."
+            : "Zeskanuj kod QR wyświetlony na urządzeniu, na którym działa Twój plan: Ustawienia → Połącz inne urządzenie. Oba urządzenia zachowają dostęp do tego samego profilu."}
         </p>
+        {hasCurrentProfile && <p className="simple-alert">Masz już otwarty profil na tym urządzeniu. Po potwierdzeniu przełączysz się na profil wskazany w linku.</p>}
         {scannerOpen && (
           <TransferQrScanner
             onScan={handleScan}
@@ -870,7 +990,7 @@ function TransferSetup({
           />
         )}
         <form onSubmit={submit}>
-          {error && <div className="simple-alert">{error}</div>}
+          {error && <div className="simple-alert" role="alert">{error}</div>}
           {!scannerOpen && (
             <button
               type="button"
@@ -883,21 +1003,23 @@ function TransferSetup({
               Otwórz aparat i zeskanuj kod QR
             </button>
           )}
-          <Field label="Kod przeniesienia">
+          <Field label={purpose === "recovery" ? "Link lub kod dostępu" : "Kod połączenia"}>
             <input
               value={code}
-              onChange={(event) => setCode(event.target.value.toUpperCase())}
+              onChange={(event) => setCode(event.target.value)}
               autoCapitalize="characters"
               autoCorrect="off"
               inputMode="text"
-              maxLength={9}
+              maxLength={2048}
+              autoComplete="off"
+              spellCheck={false}
               placeholder="ABCD-EFGH"
               autoFocus={!initialCode}
               required
             />
           </Field>
-          <button className="main-button" disabled={busy || code.replace(/[^A-Z0-9]/gi, "").length < 8}>
-            {busy ? "Przenoszenie…" : "Przenieś plan"}
+          <button className="main-button" disabled={busy || !parseSessionTransfer(code)}>
+            {busy ? "Łączenie…" : purpose === "recovery" ? "Przywróć mój dostęp" : "Otwórz mój plan"}
           </button>
           <button type="button" className="link-button" onClick={onBack}>
             Wróć do wyboru
@@ -1061,7 +1183,7 @@ function LandingPage({
   onThemeChange,
 }: {
   error: string;
-  onChoose: (choice: "transfer" | "create" | "join") => void;
+  onChoose: (choice: "transfer" | "create" | "join" | "recover") => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
 }) {
@@ -1090,7 +1212,10 @@ function LandingPage({
             </button>
           </div>
           <button type="button" className="link-button landing-transfer" onClick={() => onChoose("transfer")}>
-            Mam już plan na innym urządzeniu → przenieś sesję
+            Mam już plan na innym urządzeniu → połącz urządzenie
+          </button>
+          <button type="button" className="link-button landing-recover" onClick={() => onChoose("recover")}>
+            Odzyskaj dostęp do mojego planu
           </button>
         </section>
 
@@ -1146,7 +1271,7 @@ function Setup({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
   const [view, setView] = useState<
-    "choices" | "create" | "transfer" | "join"
+    "choices" | "create" | "transfer" | "join" | "recover" | "admin"
   >("choices");
   const rows = useMemo(() => parsePlanCsv(csvText), [csvText]);
 
@@ -1197,9 +1322,15 @@ function Setup({
     }
   }
 
-  if (view === "transfer") {
+  if (view === "recover") {
+    return <RecoverAccessSetup onBack={() => setView("choices")}
+      onAdminCode={() => setView("admin")}
+      onTransfer={() => setView("transfer")} theme={theme} onThemeChange={onThemeChange} />;
+  }
+  if (view === "transfer" || view === "admin") {
     return (
       <TransferSetup
+        purpose={view === "admin" ? "recovery" : "pairing"}
         onRecovered={onRecovered}
         onBack={() => setView("choices")}
         theme={theme}
@@ -1533,8 +1664,14 @@ function Dashboard({
     }
   }
 
+  async function changeRole(memberId: string, isAdmin: boolean) {
+    const requestRevision = progressQueue.revision;
+    const nextGroup = await updateMemberRole(credentials, memberId, isAdmin);
+    setGroup(progressQueue.replaceGroup(nextGroup, requestRevision));
+  }
+
   const tabs: Array<{ id: Tab; label: string; icon: IconName }> = [
-    { id: "today", label: "Dzisiaj", icon: "today" },
+    { id: "today", label: "Czytaj", icon: "book" },
     { id: "plan", label: "Plan", icon: "plan" },
     { id: "group", label: "Grupa", icon: "group" },
     { id: "settings", label: "Ustawienia", icon: "settings" },
@@ -1568,8 +1705,8 @@ function Dashboard({
         </div>
       </header>
 
-      <main className="simple-content">
-        {syncMessage && <div className="sync-status" role="status">{syncMessage}</div>}
+      <main className={`simple-content ${tab === "today" ? "reading-home-content" : ""}`}>
+        {syncMessage && <div className="sync-status" role="status" aria-label="Stan połączenia">{syncMessage}</div>}
         {progressError && <p className="progress-error" role="alert">{progressError}</p>}
         <div hidden={tab !== "today"}>
           <TodayView
@@ -1586,10 +1723,12 @@ function Dashboard({
         )}
         {tab === "group" && (
           <GroupView
+            credentials={credentials}
             group={visibleGroup}
             member={member}
             onInvite={() => setInviteOpen(true)}
             onRemove={remove}
+            onRoleChange={changeRole}
             busyMember={busyMember}
           />
         )}
@@ -1633,19 +1772,25 @@ function TodayView({
   onError: (message: string) => void;
   onWaitForSegments: (segmentIds: string[]) => Promise<void>;
 }) {
-  const metrics = getMemberMetrics(group, member.id);
-  const nextDay = getNextDay(group, member.id);
+  const today = todayIso();
+  const home = getReadingHomeSummary(group, member.id, today);
+  const week = getReadingWeekSummary(group, member.id, today);
+  const normalPortionKey = `reading-home:${group.id}:${member.id}:${today}`;
+  const [dailyDayId] = useState(() => getDailyReadingDay(
+    group, member.id, today, localStorage.getItem(normalPortionKey) ?? "",
+  )?.id ?? "");
   const progress = group.progress[member.id] ?? {};
-  const initialIndex = nextDay
-    ? group.planDays.findIndex((day) => day.id === nextDay.id)
+  const initialIndex = dailyDayId
+    ? group.planDays.findIndex((day) => day.id === dailyDayId)
     : Math.max(0, group.planDays.length - 1);
   const [selectedIndex, setSelectedIndex] = useState(Math.max(0, initialIndex));
   const selectedDay = group.planDays[selectedIndex];
   const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
   const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
   const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
-  const today = todayIso();
-  const overdue = getOverdueDays(group, member.id, today);
+  useEffect(() => {
+    if (dailyDayId && !recoveryStart) localStorage.setItem(normalPortionKey, dailyDayId);
+  }, [dailyDayId, normalPortionKey, recoveryStart]);
   const chapterKey = `${recoveryKey}:chapters`;
   const dailyKey = `${recoveryKey}:ordered:${today}`;
   const [recoveryDayAnchor, setRecoveryDayAnchor] = useState(() =>
@@ -1867,66 +2012,108 @@ function TodayView({
     }
     setRecoveryStart(start);
   }
-
+  const showRecoveryControl = week.overdueReadings > 2 || Boolean(recoveryStart);
+  const previewPortions = recoveryStart ? recoveryPortions : showRecoveryControl
+    ? projectRecoveryPortions(group, member.id, today, readChapters, getNextDay(group, member.id)?.id ?? "", undefined, chapterMarks)
+    : [];
+  const showReading = Boolean(displayedDay);
+  const portionCompleted = baseComplete && (!displayedExtra || extraComplete);
+  const completedCount = displayedDay?.segments.filter(segment => displayedProgress[segment.id]).length ?? 0;
+  const portionTotal = (displayedDay?.segments.length ?? 0) + (displayedExtra ? 1 : 0);
+  const portionDone = completedCount + (extraComplete ? 1 : 0);
+  const nextUnread = group.planDays.findIndex(day => day.segments.some(segment => !progress[segment.id]));
+  const returnIndex = recoveryStart
+    ? navigationDays.findIndex(day => day.id === currentPortion?.day.id)
+    : nextUnread;
+  const showReturn = returnIndex >= 0 && displayedIndex !== returnIndex;
 
   return (
-    <>
-      <PageTitle title="Dzisiaj" meta={formatPolishDate(todayIso())} />
-      <section className="visual-summary">
-        <ProgressDonut percent={metrics.progressPercent} />
-        <BacklogCard pace={metrics.paceDays} />
-      </section>
-      {(overdue.length > 2 || recoveryStart) && (
-        <section className="recovery-control" aria-label="Plan nadrabiania">
-          <button
-            type="button"
-            className={recoveryStart ? "link-button" : "small-button"}
-            onClick={() => changeRecovery(recoveryStart ? "" : today)}
-          >
-            {recoveryStart ? "Wyłącz plan nadrabiania" : "Włącz plan nadrabiania"}
+    <div className="reading-home">
+      <PageTitle title={group.name} />
+      <p className="reading-balance" data-testid="reading-balance" aria-live="polite">
+        {week.overdueReadings > 0 && <span data-testid="overdue-readings">{formatReadingCount(-week.overdueReadings)}</span>}
+        {week.overdueReadings > 0 && week.aheadReadings > 0 && " · "}
+        {week.aheadReadings > 0 && <span data-testid="ahead-readings">{formatReadingCount(week.aheadReadings)}</span>}
+        {!week.overdueReadings && !week.aheadReadings && "Na bieżąco"}
+      </p>
+      {home.planComplete ? (
+        <section className="reading-state is-finished" role="status">
+          <Icon name="check" size={28} />
+          <div><h2>Plan ukończony</h2></div>
+        </section>
+      ) : home.notStarted ? (
+        <section className="reading-state" role="status">
+          <Icon name="book" size={28} />
+          <div>
+            <h2>Plan jeszcze się nie rozpoczął</h2>
+            <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate, "shortYear")}.</p>
+          </div>
+        </section>
+      ) : null}
+      {showReading && displayedDay && (
+        <section className="reading-focus" aria-label="Wybrane czytanie">
+          <DayCard
+            day={displayedDay}
+            progress={displayedProgress}
+            onToggle={toggleDisplayedSegment}
+            extraReading={displayedExtra ? {
+              reading: displayedExtra,
+              completed: extraComplete,
+              disabled: recoveryBusy || (!baseComplete && !extraComplete),
+              onToggle: toggleExtra,
+            } : undefined}
+          />
+          <div className="reading-footer" aria-live="polite">
+            {portionCompleted ? <span className="reading-finished"><Icon name="check" size={16} />Przeczytane</span>
+              : <span aria-label="Postęp wybranego czytania">{portionDone} z {portionTotal} {portionTotal === 1 ? "fragmentu" : "fragmentów"}</span>}
+          </div>
+        </section>
+      )}
+      {group.planDays.length > 0 && (
+        <nav className="reading-navigation" aria-label="Przeglądaj czytania" data-selected-index={displayedIndex} data-reading-count={navigationDays.length}>
+          <button type="button" disabled={displayedIndex === 0} onClick={() => selectDay(displayedIndex - 1)}>
+            <Icon name="left" size={18} />Poprzednie
           </button>
+          {showReturn && <button type="button" className="reading-return" aria-label="Wróć do swojego miejsca"
+            title="Wróć do swojego miejsca" onClick={() => selectDay(returnIndex)}>
+            <Icon name={returnIndex < displayedIndex ? "double-left" : "double-right"} size={20} />
+          </button>}
+          <button type="button" disabled={displayedIndex >= navigationDays.length - 1} onClick={() => selectDay(displayedIndex + 1)}>
+            Następne<Icon name="right" size={18} />
+          </button>
+        </nav>
+      )}
+      <section className="reading-week" aria-label="Postęp tygodnia">
+        <div><span>{week.weeklyTotal > 0 && week.weeklyCompleted === week.weeklyTotal ? "Tydzień ukończony" : "W tym tygodniu"}</span>
+          <strong data-testid="weekly-readings">{week.weeklyCompleted} z {week.weeklyTotal} czytań</strong></div>
+        {week.weeklyTotal > 0 && <div className="reading-week-track" role="progressbar" aria-label="Ukończone czytania w tym tygodniu"
+          aria-valuenow={week.weeklyCompleted} aria-valuemin={0} aria-valuemax={week.weeklyTotal}>
+          {Array.from({ length: week.weeklyTotal }, (_, index) => <span key={index} className={index < week.weeklyCompleted ? "done" : ""} />)}
+        </div>}
+      </section>
+      {showRecoveryControl && !home.planComplete && (
+        <section className="recovery-control" aria-label="Plan nadrabiania">
+          <div className="recovery-intro">
+            <div><h2>Nadrabianie</h2></div>
+            <button type="button" className={recoveryStart ? "link-button" : "small-button"}
+              onClick={() => changeRecovery(recoveryStart ? "" : today)}>
+              {recoveryStart ? "Wyłącz plan nadrabiania" : "Włącz plan nadrabiania"}
+            </button>
+          </div>
           <details className="recovery-details">
-            <summary>Jak to działa?</summary>
-            <p>
-              Czytasz od pierwszego nieukończonego miejsca w swoim planie.
-              Po zwykłej porcji odznaczasz jeden dodatkowy rozdział, oznaczony
-              plusem na dole listy. Nadrabiasz wszystkie równoległe części planu,
-              zaczynając od najbardziej zaległej. Gdy dogonisz plan, dodatkowe czytanie zniknie.
-              Podgląd kolejnych dni zakłada wykonanie wcześniejszych porcji.
-              Możesz też odznaczać czytanie z wyprzedzeniem. Plan grupy pozostaje bez zmian.
-            </p>
+            <summary>Przykładowy dzień</summary>
+            <p>Zwykłe czytanie + jeden dodatkowy rozdział.</p>
+            <ul className="recovery-preview">
+              {previewPortions.slice(0, 1).map(portion => <li key={portion.day.id}>
+                <strong>{formatPolishDate(portion.day.date)}</strong>
+                <span>{portion.day.segments.map(segment => segment.label).join(" · ")}</span>
+                <small>{portion.extra ? `+ ${portion.extra.label}` : "Bez dodatkowego rozdziału"}</small>
+              </li>)}
+            </ul>
           </details>
         </section>
       )}
-      {isForecast && <p className="muted">Zakłada wykonanie wcześniejszych porcji nadrabiania.</p>}
-      {displayedDay ? (
-        <DayCard
-          day={displayedDay}
-          displayDate={isRecoveryPortion ? today : undefined}
-          progress={displayedProgress}
-          onToggle={toggleDisplayedSegment}
-          extraReading={displayedExtra ? {
-            reading: displayedExtra,
-            completed: extraComplete,
-            disabled: recoveryBusy || (!baseComplete && !extraComplete),
-            onToggle: toggleExtra,
-          } : undefined}
-        />
-      ) : (
-        <div className="empty-state">
-          <Icon name="check" size={28} />
-          <h2>Plan ukończony</h2>
-        </div>
-      )}
-      {group.planDays.length > 0 && (
-        <DaySwitcher
-          days={navigationDays}
-          progress={progress}
-          selectedIndex={displayedIndex}
-          onChange={selectDay}
-        />
-      )}
-    </>
+    </div>
   );
 }
 
@@ -1961,7 +2148,7 @@ function PlanView({
           <span>Cały plan</span>
           <strong>{formatProgressPercent(percent)}%</strong>
         </div>
-        <div className="wide-progress">
+        <div className="wide-progress" role="progressbar" aria-label="Postęp całego planu" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
           <span style={{ width: `${percent}%` }} />
         </div>
       </div>
@@ -1993,18 +2180,25 @@ function PlanView({
 }
 
 function GroupView({
+  credentials,
   group,
   member,
   onInvite,
   onRemove,
+  onRoleChange,
   busyMember,
 }: {
+  credentials: Credentials;
   group: Group;
   member: Member;
   onInvite: () => void;
   onRemove: (member: Member) => void;
+  onRoleChange: (memberId: string, isAdmin: boolean) => Promise<void>;
   busyMember: string;
 }) {
+  const [managedId, setManagedId] = useState<string | null>(null);
+  const managedPerson = group.members.find((person) => person.id === managedId);
+  const admins = group.members.filter((person) => person.isAdmin);
   const ranking = group.members
     .map((person) => ({
       ...person,
@@ -2031,6 +2225,13 @@ function GroupView({
           ) : undefined
         }
       />
+      <aside className="group-access-help">
+        <strong>{member.isAdmin ? "Grupa pomaga odzyskać dostęp" : "Potrzebujesz odzyskać dostęp?"}</strong>
+        <p>{member.isAdmin
+          ? "Wybierz Zarządzaj przy właściwej osobie, aby przywrócić jej profil jednorazowym linkiem lub QR."
+          : `Poproś administratora (${admins.map((person) => person.name).join(", ")}) o jednorazowy link. Otworzy Twój profil z dotychczasowym postępem.`}</p>
+        {member.isAdmin && admins.length === 1 && <p>Jesteś jedynym administratorem. Nadaj tę rolę zaufanej osobie, aby mogła pomóc również Tobie.</p>}
+      </aside>
       <section className="simple-list">
         {ranking.map((person, index) => (
           <div className="member-row" key={person.id}>
@@ -2043,6 +2244,7 @@ function GroupView({
                 {person.name}
                 {person.id === member.id && <small> Ty</small>}
               </strong>
+              {person.isAdmin && <span className="admin-badge">Administrator</span>}
               <span>
                 {formatProgressPercent(person.metrics.progressPercent)}% planu
               </span>
@@ -2057,7 +2259,11 @@ function GroupView({
                 {person.metrics.paceDays > 0 ? "+" : ""}
                 {person.metrics.paceDays} d.
               </b>
-              {member.isAdmin && person.id !== member.id && (
+              {member.isAdmin && person.id !== member.id && <button
+                className="small-button manage-member-button"
+                aria-label={`Zarządzaj profilem ${person.name}`}
+                onClick={() => setManagedId(person.id)}>Zarządzaj</button>}
+              {member.isAdmin && !person.isAdmin && person.id !== member.id && (
                 <button
                   className="remove-member-button"
                   disabled={busyMember === person.id}
@@ -2071,6 +2277,16 @@ function GroupView({
           </div>
         ))}
       </section>
+      {member.isAdmin && managedPerson && <MemberAccessModal
+        key={managedPerson.id}
+        credentials={credentials}
+        person={managedPerson}
+        progressPercent={formatProgressPercent(getMemberMetrics(group, managedPerson.id).progressPercent)}
+        onRoleChange={onRoleChange}
+        onClose={() => setManagedId(null)}
+        copyText={copyText}
+        renderQr={(value) => <QrCode value={value} label="Kod QR do przywrócenia dostępu" />}
+      />}
     </>
   );
 }
@@ -2096,6 +2312,7 @@ function SettingsView({
   const [transferBusy, setTransferBusy] = useState(false);
   const [transferError, setTransferError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [logoutConfirm, setLogoutConfirm] = useState(false);
 
   async function prepareTransfer() {
     setTransferBusy(true);
@@ -2104,7 +2321,7 @@ function SettingsView({
     try {
       setTransfer(await createSessionTransfer(credentials));
     } catch {
-      setTransferError("Nie udało się utworzyć kodu przeniesienia.");
+      setTransferError("Nie udało się utworzyć kodu połączenia.");
     } finally {
       setTransferBusy(false);
     }
@@ -2130,18 +2347,20 @@ function SettingsView({
         />
         <Setting label="Dni czytania" value={frequency} />
       </section>
-      <h2 className="settings-heading">Przeniesienie sesji</h2>
+      <NotificationSettings credentials={credentials} />
+      <GroupAccessSettings group={group} member={member} />
+      <h2 className="settings-heading">Połącz inne urządzenie</h2>
       <section className="settings-card transfer-card">
         <p>
           Utwórz jednorazowy kod, a następnie zeskanuj go na drugim urządzeniu.
-          Kod jest ważny przez 10 minut. Po wygaśnięciu możesz utworzyć nowy.
+          Kod jest ważny przez 10 minut. Oba urządzenia zachowają dostęp do tego samego profilu.
         </p>
         {transferError && <div className="simple-alert">{transferError}</div>}
         {transfer ? (
           <div className="transfer-result">
             <QrCode
               value={createSessionTransferLink(transfer.code)}
-              label="Kod QR do przeniesienia sesji"
+              label="Kod QR do połączenia urządzenia"
             />
             <strong>{transfer.code}</strong>
             <span>
@@ -2181,15 +2400,23 @@ function SettingsView({
             disabled={transferBusy}
             onClick={prepareTransfer}
           >
-            {transferBusy ? "Tworzenie…" : "Utwórz kod przeniesienia"}
+            {transferBusy ? "Tworzenie…" : "Utwórz kod połączenia"}
           </button>
         )}
       </section>
       <h2 className="settings-heading">Konto</h2>
       <section className="settings-card">
-        <button className="logout-button" onClick={onLeave}>
+        {logoutConfirm ? <div className="logout-confirm" role="alert">
+          <p>Po wylogowaniu możesz wrócić przez link od administratora grupy lub połączenie z innym urządzeniem. Samo imię nie przywróci dostępu.</p>
+          {member.isAdmin && !group.members.some((person) => person.isAdmin && person.id !== member.id) &&
+            <p>Jesteś jedynym administratorem. Zanim się wylogujesz, wyznacz drugiego administratora lub połącz inne urządzenie.</p>}
+          <div className="access-actions">
+            <button className="logout-button" onClick={onLeave}>Wyloguj z tego urządzenia</button>
+            <button className="link-button" onClick={() => setLogoutConfirm(false)}>Anuluj</button>
+          </div>
+        </div> : <button className="logout-button" onClick={() => setLogoutConfirm(true)}>
           <Icon name="logout" size={18} /> Wyloguj
-        </button>
+        </button>}
       </section>
     </>
   );
@@ -2197,13 +2424,11 @@ function SettingsView({
 
 function DayCard({
   day,
-  displayDate,
   progress,
   onToggle,
   extraReading,
 }: {
   day: PlanDay;
-  displayDate?: string;
   progress: Record<string, string>;
   onToggle: (segmentId: string) => Promise<void>;
   extraReading?: {
@@ -2213,16 +2438,8 @@ function DayCard({
     onToggle: () => Promise<void>;
   };
 }) {
-  const completed = day.segments.filter((segment) => progress[segment.id]).length
-    + (extraReading?.completed ? 1 : 0);
-  const total = day.segments.length + (extraReading ? 1 : 0);
-  const complete = completed === total;
   return (
-    <section className={`simple-day ${complete ? "is-complete" : ""}`}>
-      <header>
-        <strong>{formatPolishDate(displayDate ?? day.date)}</strong>
-        <b>{completed}/{total}</b>
-      </header>
+    <section className="simple-day">
       <div className="simple-readings">
         {day.segments.map((segment) => (
           <ReadingRow
@@ -2279,14 +2496,9 @@ function ReadingRow({
         {completed && <Icon name="check" size={16} />}
       </span>
       <span>
-        <small>
-          {isExtra ? (
-            <span className="reading-extra-label">
-              <Icon name="plus" size={12} />
-              {section} · 1 rozdział
-            </span>
-          ) : section}
-        </small>
+        {isExtra && <small><span className="reading-extra-label">
+          <Icon name="plus" size={12} />{section} · 1 rozdział
+        </span></small>}
         <strong>{label}</strong>
       </span>
     </button>
@@ -2376,8 +2588,11 @@ async function copyText(value: string) {
   input.style.opacity = "0";
   document.body.appendChild(input);
   input.select();
-  document.execCommand("copy");
-  input.remove();
+  try {
+    if (!document.execCommand("copy")) throw new Error("Nie udało się skopiować tekstu.");
+  } finally {
+    input.remove();
+  }
 }
 
 function TabButton({
@@ -2425,90 +2640,6 @@ function PageTitle({
         {meta && <span>{meta}</span>}
       </div>
       {action}
-    </div>
-  );
-}
-
-function ProgressDonut({ percent }: { percent: number }) {
-  return (
-    <div className="viz-card donut-card">
-      <div
-        className="progress-donut"
-        style={{ "--value": `${percent * 3.6}deg` } as React.CSSProperties}
-      >
-        <strong>{formatProgressPercent(percent)}%</strong>
-      </div>
-      <span>Postęp</span>
-    </div>
-  );
-}
-
-function BacklogCard({ pace }: { pace: number }) {
-  const ahead = pace > 0;
-  const behind = pace < 0;
-  const value = Math.abs(pace);
-  const tone = getPaceTone(pace);
-  return (
-    <div className={`viz-card backlog-card pace-${tone}`}>
-      <span>{ahead ? "Do przodu" : behind ? "Zaległość" : "Na bieżąco"}</span>
-      <strong>{ahead ? `+${value}` : value}</strong>
-      <small>{value === 1 ? "dzień" : "dni"}</small>
-    </div>
-  );
-}
-
-function DaySwitcher({
-  days,
-  progress,
-  selectedIndex,
-  onChange,
-}: {
-  days: PlanDay[];
-  progress: Record<string, string>;
-  selectedIndex: number;
-  onChange: (index: number) => void;
-}) {
-  const start = Math.max(0, Math.min(selectedIndex - 2, days.length - 5));
-  const visible = days.slice(start, start + 5);
-  return (
-    <div className="day-switcher">
-      <button
-        aria-label="Poprzedni dzień"
-        disabled={selectedIndex === 0}
-        onClick={() => onChange(selectedIndex - 1)}
-      >
-        <Icon name="left" size={18} />
-      </button>
-      <div className="day-strip">
-        {visible.map((day) => {
-          const index = days.findIndex((candidate) => candidate.id === day.id);
-          const complete = day.segments.every((segment) => progress[segment.id]);
-          return (
-            <button
-              key={day.id}
-              aria-pressed={index === selectedIndex}
-              className={`${index === selectedIndex ? "active" : ""} ${
-                complete ? "complete" : ""
-              }`}
-              onClick={() => onChange(index)}
-            >
-              <small>
-                {new Intl.DateTimeFormat("pl-PL", { weekday: "short" })
-                  .format(new Date(`${day.date}T12:00:00`))
-                  .replace(".", "")}
-              </small>
-              <strong>{new Date(`${day.date}T12:00:00`).getDate()}</strong>
-            </button>
-          );
-        })}
-      </div>
-      <button
-        aria-label="Następny dzień"
-        disabled={selectedIndex === days.length - 1}
-        onClick={() => onChange(selectedIndex + 1)}
-      >
-        <Icon name="right" size={18} />
-      </button>
     </div>
   );
 }
@@ -2575,3 +2706,4 @@ function formatFrequency(frequency: Frequency) {
     .map((day) => names[day])
     .join(", ");
 }
+
