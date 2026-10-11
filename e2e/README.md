@@ -25,12 +25,13 @@ Reading home coverage: the plan name heads the reading screen; first unread
 work stays in order, a finished reading survives reload until explicit navigation,
 and dates/overall progress remain in Plan. Negative/positive counts track whole
 readings without cancelling unfinished debt. Daily plans use past days; other
-cadences use closed weeks. Current-week completion stays capped at its scheduled
-goal while future-week readings appear separately. Tests cover both return-arrow
+cadences use closed weeks. Current-week completion includes overdue readings finished this week and work
+pre-read for this week, counts complete readings once, and stays capped at the
+weekly goal. The bar updates on check/uncheck and survives reload. Tests cover both return-arrow
 directions, disappearance at the personal position, transparent borderless controls,
 44px touch targets, week rollover, future starts, rest days and completed plans.
-Desktop/mobile checks retain real persistence, reload, catch-up forecasts and estimates,
-explicit future editing, rollback, partial-chapter and concurrent-write regressions.
+Desktop/mobile checks retain real persistence, reload, one-day catch-up examples,
+immediately editable future readings, rollback, partial-chapter and concurrent-write regressions.
 
 Identity coverage: each invitation join creates a separate member and progress,
 including duplicate names and the administrator's name. Legacy recovery API codes restore

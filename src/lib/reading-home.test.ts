@@ -120,6 +120,42 @@ describe("status czytań i tygodnia", () => {
       overdueReadings: 1, aheadReadings: 0, weeklyTotal: 1, weeklyCompleted: 1,
     });
   });
+  it("counts overdue work completed this week, only after its final fragment", () => {
+    const plan = group();
+    plan.planDays[0].date = "2026-09-28";
+    plan.progress.member = { "s0-0": "2026-10-04T12:00:00Z" };
+    expect(getReadingWeekSummary(plan, "member", TODAY).weeklyCompleted).toBe(0);
+    plan.progress.member["s0-1"] = "2026-10-10T12:00:00Z";
+    expect(getReadingWeekSummary(plan, "member", TODAY)).toMatchObject({ weeklyCompleted: 1, weeklyTotal: 2, overdueReadings: 0 });
+    delete plan.progress.member["s0-1"];
+    expect(getReadingWeekSummary(plan, "member", TODAY)).toMatchObject({ weeklyCompleted: 0, overdueReadings: 1 });
+  });
+  it("keeps pre-read weekly work and counts each reading once, capped at the goal", () => {
+    const plan = group();
+    plan.progress.member = Object.fromEntries(plan.planDays.flatMap(day => day.segments).map(segment => [segment.id, "2026-10-10T12:00:00Z"]));
+    expect(getReadingWeekSummary(plan, "member", TODAY).weeklyCompleted).toBe(3);
+    plan.planDays[0].date = "2026-09-28";
+    plan.planDays[2].date = "2026-10-12";
+    expect(getReadingWeekSummary(plan, "member", TODAY)).toMatchObject({ weeklyCompleted: 1, weeklyTotal: 1 });
+    expect(getReadingWeekSummary(plan, "member", "2026-10-12")).toMatchObject({ weeklyCompleted: 1, weeklyTotal: 1 });
+  });
+  it("does not credit old completions, invalid dates, unknown fragments or other members", () => {
+    const plan = group();
+    plan.planDays[0].date = "2026-09-28";
+    plan.progress.member = { "s0-0": "2026-10-04T12:00:00Z", "s0-1": "2026-10-04T12:00:00Z", unknown: "2026-10-10T12:00:00Z" };
+    plan.progress.other = { "s1-0": "2026-10-10T12:00:00Z", "s1-1": "2026-10-10T12:00:00Z" };
+    expect(getReadingWeekSummary(plan, "member", TODAY).weeklyCompleted).toBe(0);
+    plan.progress.member["s0-1"] = "done";
+    expect(getReadingWeekSummary(plan, "member", TODAY).weeklyCompleted).toBe(0);
+  });
+  it("keeps a catch-up goal after the scheduled end, including after completion", () => {
+    const plan = group();
+    plan.planDays.forEach((day, index) => { day.date = `2026-09-${28 + index}`; });
+    expect(getReadingWeekSummary(plan, "member", TODAY)).toMatchObject({ weeklyTotal: 3, weeklyCompleted: 0 });
+    plan.progress.member = Object.fromEntries(plan.planDays.flatMap(day => day.segments).map(segment => [segment.id, "2026-10-10T12:00:00Z"]));
+    expect(getReadingWeekSummary(plan, "member", TODAY)).toMatchObject({ weeklyTotal: 3, weeklyCompleted: 3 });
+    expect(getReadingWeekSummary(plan, "member", "2026-10-12")).toMatchObject({ weeklyTotal: 0, weeklyCompleted: 0 });
+  });
   it("handles Sunday, a year boundary, empty readings and other members", () => {
     const plan = group();
     plan.frequency = { kind: "weekdays", days: [1, 2, 3, 4, 5] };

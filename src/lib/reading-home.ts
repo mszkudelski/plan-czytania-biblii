@@ -26,6 +26,22 @@ export function getReadingWeekSummary(group: Group, memberId: string, today: str
   const days = group.planDays.filter(day => day.segments.length > 0);
   const complete = (day: typeof days[number]) => day.segments.every(segment => progress[segment.id]);
   const weekly = days.filter(day => day.date >= weekStart && day.date < weekEnd);
+  // Use the final fragment's completion date, in the same local timezone as
+  // the calendar. Catching up counts as reading this week too; pre-read work
+  // already assigned to this week remains complete without being counted twice.
+  const completedOn = (day: typeof days[number]) => {
+    const dates = day.segments.map(segment => new Date(progress[segment.id]));
+    return dates.every(date => !Number.isNaN(date.getTime()))
+      ? iso(new Date(Math.max(...dates.map(date => date.getTime())))) : "";
+  };
+  const completedThisWeek = (day: typeof days[number]) => {
+    const date = completedOn(day);
+    return complete(day) && date >= weekStart && date < weekEnd;
+  };
+  // Keep a weekly goal when the scheduled end has passed but work remains.
+  const remainingAtWeekStart = days.filter(day => !complete(day) || completedOn(day) >= weekStart).length;
+  const weeklyTotal = weekly.length || (today > (days.at(-1)?.date ?? today)
+    ? Math.min(group.frequency.days.length, remainingAtWeekStart) : 0);
   // A less frequent plan has a weekly goal: unfinished work becomes debt
   // after the week closes. Future work never erases earlier missing readings.
   const cutoff = group.frequency.kind === "daily" ? today : weekStart;
@@ -33,8 +49,9 @@ export function getReadingWeekSummary(group: Group, memberId: string, today: str
   return {
     overdueReadings: days.filter(day => day.date < cutoff && !complete(day)).length,
     aheadReadings: days.filter(day => (group.frequency.kind === "daily" ? day.date > aheadCutoff : day.date >= aheadCutoff) && complete(day)).length,
-    weeklyTotal: weekly.length,
-    weeklyCompleted: weekly.filter(complete).length,
+    weeklyTotal,
+    weeklyCompleted: Math.min(weeklyTotal, days.filter(day => complete(day) &&
+      ((day.date >= weekStart && day.date < weekEnd) || completedThisWeek(day))).length),
   };
 }
 

@@ -836,18 +836,15 @@ button {
 .reading-home .simple-readings strong { font-size: 1.12rem; font-weight: 500; overflow-wrap: anywhere; }
 .reading-home .simple-readings > button.checked { background: transparent; }
 .reading-home .simple-readings .checked strong { color: var(--muted); }
-.forecast-notice { display: flex; justify-content: flex-start; margin-bottom: 14px; }
-.forecast-notice .small-button { height: auto; min-height: 44px; max-width: 100%; padding: 8px 12px; }
 .recovery-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .recovery-intro > div { min-width: 0; }
 .recovery-intro h2 { margin: 0 0 8px; font-size: 1rem; }
 .recovery-intro p { max-width: 62ch; margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.6; }
 .recovery-intro > button { flex-shrink: 0; }
-.recovery-preview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
+.recovery-preview { display: grid; grid-template-columns: 1fr; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
 .recovery-preview li { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--paper); overflow-wrap: anywhere; }
 .recovery-preview strong, .recovery-preview span { font-size: 0.78rem; line-height: 1.55; }
 .recovery-preview small { color: var(--green); font-size: 0.72rem; line-height: 1.55; }
-.recovery-estimate { color: var(--ink); font-weight: 600; }
 @media (max-width: 600px) {
   .recovery-intro { gap: 12px; }
   .recovery-intro > button { flex-shrink: 1; max-width: 100%; }

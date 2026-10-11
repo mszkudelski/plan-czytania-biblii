@@ -292,10 +292,9 @@ test('future recovery days assume prior extras without saving assumed progress',
   await expectSaved(request, session, []);
   expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
 
-  // Explicitly enable reading ahead; the preview must not mark preceding days.
+  // Reading ahead is immediately available; browsing must not mark preceding days.
   await browseReading(page, 1);
-  await expect(reading(page, 'Rdz 4')).toBeDisabled();
-  await page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true }).click();
+  await expect(reading(page, 'Rdz 4')).toBeEnabled();
   await reading(page, 'Rdz 4').click();
   await expectSaved(request, session, ['s3']);
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
@@ -323,7 +322,6 @@ test('failed rapid future toggles do not restore an earlier optimistic chapter',
   await openPlan(page, session);
   await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
   await page.getByRole('button', { name: 'Następne', exact: true }).click();
-  await page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true }).click();
   let rejected = 0;
   page.on("response", response => {
     if (new URL(response.url()).pathname === progressPath(session) && response.status() === 401) rejected++;
@@ -364,8 +362,7 @@ test('future partial ranges can be checked without completing assumed earlier ch
   await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
   await expect(extraReading(page)).toContainText('Rdz 4');
-  await expect(reading(page, 'Rdz 3')).toBeDisabled();
-  await page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true }).click();
+  await expect(reading(page, 'Rdz 3')).toBeEnabled();
   await reading(page, 'Rdz 3').click();
   await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'true');
   await expectSaved(request, session, []); // Rdz 2 was assumed, never actually checked.
@@ -448,9 +445,11 @@ test('completed recovery portion keeps its one extra and advances only through d
   await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
   await reading(page, 'Rdz 1').click();
   await reading(page, 'Mt 1').click();
+  await expect(page.getByTestId('weekly-readings')).toHaveText('1 z 5 czytań');
   await expect(extraReading(page)).toBeEnabled();
   await extraReading(page).click();
   await expectSaved(request, session, ['s0', 's1', 's2']);
+  await expect(page.getByTestId('weekly-readings')).toHaveText('2 z 5 czytań');
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(extraReading(page)).toContainText('Rdz 2');
@@ -461,7 +460,6 @@ test('completed recovery portion keeps its one extra and advances only through d
   await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
   await expect(extraReading(page)).toContainText('Rdz 5');
-  await page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true }).click();
   await reading(page, 'Rdz 4').click();
   await expectSaved(request, session, ['s0', 's1', 's2', 's3']);
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');

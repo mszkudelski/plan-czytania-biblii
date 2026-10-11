@@ -63,7 +63,7 @@ import {
 import { cleanPersonName, normalizePersonName } from "./lib/name";
 import { createOptimisticProgressQueue } from "./lib/optimistic-progress";
 import { buildSchedule, formatPolishDate, todayIso } from "./lib/schedule";
-import { formatReadingCount, getDailyReadingDay, getReadingHomeSummary, getReadingWeekSummary, getRecoveryEstimate } from "./lib/reading-home";
+import { formatReadingCount, getDailyReadingDay, getReadingHomeSummary, getReadingWeekSummary } from "./lib/reading-home";
 import type {
   Credentials,
   Frequency,
@@ -1784,8 +1784,6 @@ function TodayView({
     ? group.planDays.findIndex((day) => day.id === dailyDayId)
     : Math.max(0, group.planDays.length - 1);
   const [selectedIndex, setSelectedIndex] = useState(Math.max(0, initialIndex));
-  const [browsingDay, setBrowsingDay] = useState(false);
-  const [forecastReading, setForecastReading] = useState(false);
   const selectedDay = group.planDays[selectedIndex];
   const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
   const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
@@ -1887,8 +1885,6 @@ function TodayView({
     ? (displayedDay ? Math.max(0, navigationDays.findIndex(day => day.id === displayedDay.id)) : initialIndex)
     : selectedIndex;
   function selectDay(index: number) {
-    setBrowsingDay(true);
-    setForecastReading(false);
     if (!recoveryStart) { setSelectedIndex(index); return; }
     const day = navigationDays[index];
     if (day) setBrowsedRecoveryDayId(day.id === currentPortion?.day.id ? null : day.id);
@@ -2002,8 +1998,6 @@ function TodayView({
     await toggleChapterSelection(segmentId, indices.length ? indices : allIndices, !Boolean(displayedProgress[segmentId]));
   }
   function changeRecovery(start: string) {
-    setBrowsingDay(false);
-    setForecastReading(false);
     if (start) {
       // Activation uses the latest progress, even if this view was opened earlier.
       setBrowsedRecoveryDayId(null);
@@ -2022,9 +2016,7 @@ function TodayView({
   const previewPortions = recoveryStart ? recoveryPortions : showRecoveryControl
     ? projectRecoveryPortions(group, member.id, today, readChapters, getNextDay(group, member.id)?.id ?? "", undefined, chapterMarks)
     : [];
-  const estimate = getRecoveryEstimate(previewPortions);
-  const previewMode = isForecast || Boolean(!recoveryStart && displayedDay && displayedDay.date > today);
-  const showReading = Boolean(displayedDay && (recoveryStart || browsingDay || !home.notStarted));
+  const showReading = Boolean(displayedDay);
   const portionCompleted = baseComplete && (!displayedExtra || extraComplete);
   const completedCount = displayedDay?.segments.filter(segment => displayedProgress[segment.id]).length ?? 0;
   const portionTotal = (displayedDay?.segments.length ?? 0) + (displayedExtra ? 1 : 0);
@@ -2055,22 +2047,15 @@ function TodayView({
           <div>
             <h2>Plan jeszcze się nie rozpoczął</h2>
             <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate, "shortYear")}.</p>
-            {!browsingDay && displayedDay && <button className="link-button" onClick={() => selectDay(initialIndex)}>Zobacz pierwsze czytanie</button>}
           </div>
         </section>
       ) : null}
       {showReading && displayedDay && (
         <section className="reading-focus" aria-label="Wybrane czytanie">
-          {previewMode && <div className="forecast-notice">
-            <button className="small-button" onClick={() => setForecastReading(value => !value)}>
-              {forecastReading ? "Wróć do podglądu" : "Zaznacz czytanie z wyprzedzeniem"}
-            </button>
-          </div>}
           <DayCard
             day={displayedDay}
             progress={displayedProgress}
             onToggle={toggleDisplayedSegment}
-            readOnly={previewMode && !forecastReading}
             extraReading={displayedExtra ? {
               reading: displayedExtra,
               completed: extraComplete,
@@ -2099,9 +2084,9 @@ function TodayView({
         </nav>
       )}
       <section className="reading-week" aria-label="Postęp tygodnia">
-        <div><span>{week.weeklyTotal > 0 && week.weeklyCompleted === week.weeklyTotal ? "Tydzień ukończony" : "Plan na ten tydzień"}</span>
+        <div><span>{week.weeklyTotal > 0 && week.weeklyCompleted === week.weeklyTotal ? "Tydzień ukończony" : "W tym tygodniu"}</span>
           <strong data-testid="weekly-readings">{week.weeklyCompleted} z {week.weeklyTotal} czytań</strong></div>
-        {week.weeklyTotal > 0 && <div className="reading-week-track" role="progressbar" aria-label="Czytania zaplanowane na ten tydzień"
+        {week.weeklyTotal > 0 && <div className="reading-week-track" role="progressbar" aria-label="Ukończone czytania w tym tygodniu"
           aria-valuenow={week.weeklyCompleted} aria-valuemin={0} aria-valuemax={week.weeklyTotal}>
           {Array.from({ length: week.weeklyTotal }, (_, index) => <span key={index} className={index < week.weeklyCompleted ? "done" : ""} />)}
         </div>}
@@ -2116,15 +2101,13 @@ function TodayView({
             </button>
           </div>
           <details className="recovery-details">
-            <summary>Podgląd najbliższych dni</summary>
-            <p>Zachowasz zwykłą porcję i dodasz jeden rozdział dziennie. Plan grupy pozostanie taki sam.</p>
-            <p>Po zwykłej porcji odznaczasz jeden dodatkowy rozdział, oznaczony plusem. Nadrabiasz wszystkie równoległe części planu, zaczynając od najbardziej zaległej. Podgląd zakłada regularne czytanie i nie zapisuje postępu.</p>
-            {estimate && <p className="recovery-estimate">Szacowane nadrobienie: około {estimate.readingDays} {estimate.readingDays === 1 ? "dnia czytania" : "dni czytania"}, do {formatPolishDate(estimate.date, "shortYear")}.</p>}
+            <summary>Przykładowy dzień</summary>
+            <p>Zwykłe czytanie + jeden dodatkowy rozdział.</p>
             <ul className="recovery-preview">
-              {previewPortions.slice(0, 3).map(portion => <li key={portion.day.id}>
+              {previewPortions.slice(0, 1).map(portion => <li key={portion.day.id}>
                 <strong>{formatPolishDate(portion.day.date)}</strong>
                 <span>{portion.day.segments.map(segment => segment.label).join(" · ")}</span>
-                <small>{portion.extra ? `+ ${portion.extra.label} · 1 rozdział` : "Bez dodatkowego rozdziału"}</small>
+                <small>{portion.extra ? `+ ${portion.extra.label}` : "Bez dodatkowego rozdziału"}</small>
               </li>)}
             </ul>
           </details>
@@ -2444,12 +2427,10 @@ function DayCard({
   progress,
   onToggle,
   extraReading,
-  readOnly = false,
 }: {
   day: PlanDay;
   progress: Record<string, string>;
   onToggle: (segmentId: string) => Promise<void>;
-  readOnly?: boolean;
   extraReading?: {
     reading: RecoveryReading;
     completed: boolean;
@@ -2466,7 +2447,7 @@ function DayCard({
             label={segment.label}
             section={segment.section}
             completed={Boolean(progress[segment.id])}
-            disabled={readOnly}
+            disabled={false}
             onToggle={() => onToggle(segment.id)}
           />
         ))}
@@ -2475,7 +2456,7 @@ function DayCard({
             label={extraReading.reading.label}
             section="Nadrabianie"
             completed={extraReading.completed}
-            disabled={readOnly || extraReading.disabled}
+            disabled={extraReading.disabled}
             onToggle={extraReading.onToggle}
             isExtra
           />
