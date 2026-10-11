@@ -441,15 +441,19 @@ test('standard completed day stays visible until the next day is selected', asyn
 
 test('completed recovery portion keeps its one extra and advances only through day navigation', async ({ page, request }) => {
   const session = await createPlan(request, 'recovery-completed-day');
+  const monday = new Date(NOW);
+  monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7);
+  const scheduledThisWeek = session.group.planDays.filter(day => day.date >= monday.toISOString().slice(0, 10)).length;
+  const weeklyGoal = scheduledThisWeek || session.group.planDays.length;
   await openPlan(page, session);
   await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
   await reading(page, 'Rdz 1').click();
   await reading(page, 'Mt 1').click();
-  await expect(page.getByTestId('weekly-readings')).toHaveText('1 z 5 czytań');
+  await expect(page.getByTestId('weekly-readings')).toHaveText(`${Math.min(1, weeklyGoal)} z ${weeklyGoal} czytań`);
   await expect(extraReading(page)).toBeEnabled();
   await extraReading(page).click();
   await expectSaved(request, session, ['s0', 's1', 's2']);
-  await expect(page.getByTestId('weekly-readings')).toHaveText('2 z 5 czytań');
+  await expect(page.getByTestId('weekly-readings')).toHaveText(`${Math.min(2, weeklyGoal)} z ${weeklyGoal} czytań`);
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(extraReading(page)).toContainText('Rdz 2');
