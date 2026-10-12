@@ -20,6 +20,7 @@ import {
 
 type StoredMember = Member & {
   recoveryPrompt?: RecoveryPromptPreference;
+  recoveryPromptSnoozeVersion?: number;
   tokenHash?: string;
   tokenHashes?: string[];
 };
@@ -142,6 +143,7 @@ function publicGroup(group: StoredGroup): Group {
     members: members.map(
       ({
         recoveryPrompt: _recoveryPrompt,
+        recoveryPromptSnoozeVersion: _recoveryPromptSnoozeVersion,
         tokenHash: _tokenHash,
         tokenHashes: _tokenHashes,
         ...member
@@ -711,23 +713,28 @@ async function updateMemberRole(request: Request, groupId: string, memberId: str
   });
 }
 
-async function recoveryPrompt(request: Request, groupId: string) {
+async function recoveryPrompt(request: Request, groupId: string, resetLegacySnoozes: boolean) {
   const value = await request.json();
   const credentials = cleanCredentials(value);
   if (!credentials || credentials.groupId !== groupId) return error("Nieprawidłowy dostęp.", 401);
   const action = (value as { action?: unknown }).action;
-  if (action !== "read" && action !== "later" && action !== "never" && action !== "reset") return error("Nieprawidłowa operacja.");
+  if (action !== "read" && action !== "later" && action !== "never" && action !== "reset" && action !== "stop") return error("Nieprawidłowa operacja.");
   if (action === "read") {
     const group = await storedGroup(groupId);
     if (!group) return error("Nie znaleziono grupy.", 404);
     const member = await authenticate(group, credentials);
-    return member ? json(member.recoveryPrompt ?? DEFAULT_RECOVERY_PROMPT) : error("Nieprawidłowy dostęp.", 401);
+    const preference = member?.recoveryPrompt ?? DEFAULT_RECOVERY_PROMPT;
+    // Branch deploys invalidate legacy snoozes; opt-outs and new decisions survive.
+    const effective = resetLegacySnoozes && !preference.disabled && member?.recoveryPromptSnoozeVersion !== 1
+      ? { ...preference, snoozedUntil: null } : preference;
+    return member ? json(effective) : error("Nieprawidłowy dostęp.", 401);
   }
   const preference = recoveryPromptPreference(action);
   const rejected = await changeGroupState(groupStateStore(groupId), async group => {
     const member = await authenticate(group, credentials);
     if (!member) return error("Nieprawidłowy dostęp.", 401);
     member.recoveryPrompt = preference;
+    member.recoveryPromptSnoozeVersion = 1;
   });
   return rejected ?? json(preference);
 }
@@ -811,7 +818,7 @@ export default async (request: Request, context: Context) => {
       });
     }
     if (request.method === "POST" && route.length === 3 && route[0] === "groups" && route[2] === "recovery-prompt") {
-      return recoveryPrompt(request, route[1]);
+      return recoveryPrompt(request, route[1], context.deploy.context === "branch-deploy");
     }
     if (request.method === "POST" && route.length === 3 && route[0] === "groups" && route[2] === "notifications") {
       const scope = context.deploy.context === "production" ? "production" : url.origin;
@@ -924,4 +931,3 @@ export default async (request: Request, context: Context) => {
 export const config: Config = {
   path: "/api/*",
 };
-

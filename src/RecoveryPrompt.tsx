@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Credentials } from "./types";
 import type { RecoveryPortion } from "./lib/recovery";
 import { recoveryPromptSettings } from "./lib/api";
-import { shouldSuggestRecovery, type RecoveryPromptPreference, type RecoveryPromptAction } from "./lib/recovery-prompt";
+import { recoveryPromptPreference, shouldSuggestRecovery, type RecoveryPromptPreference, type RecoveryPromptAction } from "./lib/recovery-prompt";
 
 export default function RecoveryPrompt({ credentials, overdue, enabled, ready, active, open, example, onOpen, onClose, onEnable }: {
   credentials: Credentials; overdue: number; enabled: boolean; ready: boolean; active: boolean; open: boolean;
@@ -34,15 +34,30 @@ export default function RecoveryPrompt({ credentials, overdue, enabled, ready, a
     } else if (node.open) node.close();
   }, [open, active]);
 
+  const previousEnabled = useRef(enabled);
+  useEffect(() => {
+    const stopped = previousEnabled.current && !enabled;
+    previousEnabled.current = enabled;
+    if (stopped) void choose("stop");
+  }, [enabled]);
+
   async function choose(action: RecoveryPromptAction) {
     if (busy) return;
+    const previous = preference;
+    const wasOpen = open;
     revision.current++; setBusy(true); setError("");
+    setPreference(recoveryPromptPreference(action)); setLoaded(true); setDismissed(true); onClose();
     try {
       const value = await recoveryPromptSettings(credentials, action);
-      setPreference(value); setLoaded(true); setDismissed(true); onClose();
-    } catch { setError("Nie udało się zapisać wyboru. Spróbuj ponownie."); }
+      setPreference(value);
+    } catch {
+      setPreference(previous); setDismissed(false);
+      setError("Nie udało się zapisać wyboru. Spróbuj ponownie.");
+      if (wasOpen) onOpen();
+    }
     finally { setBusy(false); }
   }
+
   function enable() {
     if (busy) return;
     setDismissed(true); setError(""); onEnable(); onClose();
@@ -50,6 +65,7 @@ export default function RecoveryPrompt({ credentials, overdue, enabled, ready, a
   const showNotice = active && ready && loaded && preference && !dismissed && !open &&
     shouldSuggestRecovery(overdue, enabled, preference);
   return <>
+    {busy && <span role="status" className="recovery-save-status">Zapisuję wybór…</span>}
     {showNotice && <aside className="recovery-notice" aria-label="Propozycja nadrabiania">
       <div className="recovery-notice-inner">
         <div><h2>Nadrabiaj po trochu</h2><p>Do zwykłego czytania dodamy 1 rozdział dziennie.</p>

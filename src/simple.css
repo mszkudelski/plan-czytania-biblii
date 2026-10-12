@@ -1920,3 +1920,5 @@ body:has(.notification-card) .simple-modal-bg:has(.install-instructions) { displ
   .recovery-notice-actions > .link-button { padding:10px 0; }
   .recovery-dialog { padding:24px 22px; }
 }
+
+.recovery-save-status { position:fixed; bottom:80px; left:50%; transform:translateX(-50%); z-index:100; padding:8px 14px; border-radius:20px; background:var(--paper); color:var(--muted); box-shadow:0 2px 12px #0002; font-size:.8rem; }

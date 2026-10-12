@@ -199,3 +199,41 @@ test('prompt preferences are private, authenticated, per member and per plan and
   const crossGroup = await request.post(path(other), { data: { ...session.credentials, action: 'never' } }); expect(crossGroup.status()).toBe(401);
   expect(await preference(request, other)).toEqual({ disabled: false, snoozedUntil: null });
 });
+
+ test('stopping recovery snoozes for 24 hours across reloads', async ({ page, request }) => {
+  const session = await createPlan(request, 'prompt-stop');
+  await openPlan(page, session);
+  const notice = page.getByRole('complementary', { name: 'Propozycja nadrabiania' });
+  await notice.getByRole('button', { name: 'Włącz', exact: true }).click();
+  await page.reload();
+  await page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true }).click();
+  await expect(notice).not.toBeVisible();
+  await expect(page.getByRole('status')).not.toBeVisible();
+  const saved = await preference(request, session);
+  expect(Date.parse(saved.snoozedUntil) - Date.now()).toBeGreaterThan(23 * 3600000);
+  expect(Date.parse(saved.snoozedUntil) - Date.now()).toBeLessThanOrEqual(24 * 3600000);
+  await page.reload();
+  await expect(notice).not.toBeVisible();
+  await page.clock.setSystemTime(new Date(Date.parse(saved.snoozedUntil) + 1));
+  await page.reload();
+  await expect(notice).toBeVisible();
+ });
+
+ test('not now hides immediately while the real save is pending', async ({ page, request }) => {
+  const session = await createPlan(request, 'prompt-optimistic');
+  await openPlan(page, session);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**' + path(session), async route => {
+    if (route.request().postDataJSON().action === 'later') await gate;
+    await route.continue();
+  });
+  const notice = page.getByRole('complementary', { name: 'Propozycja nadrabiania' });
+  try {
+    await notice.getByRole('button', { name: 'Nie teraz', exact: true }).click();
+    await expect(notice).not.toBeVisible();
+    await expect(page.getByRole('status')).toHaveText('Zapisuję wybór…');
+  } finally { release(); }
+  await expect(page.getByRole('status')).not.toBeVisible();
+  expect((await preference(request, session)).snoozedUntil).not.toBeNull();
+ });

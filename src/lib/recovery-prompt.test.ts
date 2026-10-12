@@ -15,6 +15,11 @@ describe("recovery suggestions", () => {
     expect(shouldSuggestRecovery(4, false, preference, now + 7 * 86400000 - 1)).toBe(false);
     expect(shouldSuggestRecovery(4, false, preference, now + 7 * 86400000)).toBe(true);
   });
+  it("defers suggestions for exactly 24 hours after stopping", () => {
+    const preference = recoveryPromptPreference("stop", NOW);
+    expect(shouldSuggestRecovery(4, false, preference, NOW + 86400000 - 1)).toBe(false);
+    expect(shouldSuggestRecovery(4, false, preference, NOW + 86400000)).toBe(true);
+  });
   it("never automatically suggests after opting out, and handles a reset", () => {
     expect(shouldSuggestRecovery(99, false, recoveryPromptPreference("never", NOW), NOW + 365 * 86400000)).toBe(false);
     expect(shouldSuggestRecovery(4, false, recoveryPromptPreference("reset", NOW), NOW)).toBe(true);
