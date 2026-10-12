@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createPlan, inputPlan, NOW, openPlan, readGroup, saveProgress, expectSaved, reading, extraReading, tab } from './helpers.mjs';
+import { createPlan, inputPlan, NOW, TODAY, openPlan, readGroup, saveProgress, expectSaved, reading, extraReading, tab } from './helpers.mjs';
 const path = session => '/api/groups/' + session.group.id + '/recovery-prompt';
 async function preference(request, session, action = 'read', overrides = {}) {
   const response = await request.post(path(session), { data: { ...session.credentials, action, ...overrides } });
@@ -14,6 +14,10 @@ for (const width of [1280, 390]) {
     await openPlan(page, session);
     const notice = page.getByRole('complementary', { name: 'Propozycja nadrabiania', exact: true });
     await expect(notice).toBeVisible();
+    const primary = await notice.getByRole('button', { name: 'Włącz', exact: true }).evaluate(button => getComputedStyle(button).backgroundColor);
+    const secondary = await notice.getByRole('button', { name: 'Pokaż szczegóły', exact: true }).evaluate(button => getComputedStyle(button).backgroundColor);
+    expect(secondary).toBe('rgba(0, 0, 0, 0)');
+    expect(primary).not.toBe(secondary);
     await expect(page.getByRole('dialog')).not.toBeVisible();
     await expect(page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true })).toHaveAttribute('aria-valuenow', '0');
     if (width === 390) {
@@ -23,12 +27,14 @@ for (const width of [1280, 390]) {
       expect(banner.height).toBeLessThan(640 / 3);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await test.info().attach('reading-notice-' + width, { body: await page.screenshot(), contentType: 'image/png' });
     await notice.getByRole('button', { name: 'Pokaż szczegóły', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Chcesz włączyć nadrabianie?', exact: true });
     await expect(dialog).toBeVisible();
     await expect(notice).not.toBeVisible();
     await expect(dialog.locator('.recovery-example')).toHaveCount(1);
     await expect(dialog.locator('.recovery-example-reading strong')).toHaveText('+ Rdz 2');
+    await test.info().attach('reading-details-' + width, { body: await page.screenshot(), contentType: 'image/png' });
     await expect(extraReading(page)).toHaveCount(0);
     await expectSaved(request, session, []);
     await dialog.getByRole('button', { name: 'Włącz', exact: true }).click();
@@ -38,13 +44,15 @@ for (const width of [1280, 390]) {
     await expectSaved(request, session, []);
     await reading(page, 'Rdz 1').click();
     await reading(page, 'Mt 1').click();
-    await expect(page.locator('.reading-date[data-day-id="d0"]')).toHaveAttribute('data-complete', 'false');
+    const currentDate = page.locator('.reading-date[aria-pressed="true"]');
+    await expect(currentDate).toHaveAttribute('data-day-id', 'recovery:' + TODAY);
+    await expect(currentDate).toHaveAttribute('data-complete', 'false');
     await extraReading(page).click();
     await expectSaved(request, session, ['s0', 's1', 's2']);
-    await expect(page.locator('.reading-date[data-day-id="d0"]')).toHaveAttribute('data-complete', 'true');
+    await expect(currentDate).toHaveAttribute('data-complete', 'true');
     await extraReading(page).click();
     await expectSaved(request, session, ['s0', 's1']);
-    await expect(page.locator('.reading-date[data-day-id="d0"]')).toHaveAttribute('data-complete', 'false');
+    await expect(currentDate).toHaveAttribute('data-complete', 'false');
   });
 
   test('not now persists for a week and never survives a fresh browser while manual recovery remains available at width ' + width, async ({ page, request, browser }) => {
