@@ -1,3 +1,4 @@
+import type { RecoveryPromptPreference, RecoveryPromptAction } from "./recovery-prompt";
 import type {
   Credentials,
   Frequency,
@@ -7,6 +8,7 @@ import type {
 } from "../types";
 import {
   localCreateGroup,
+  localRecoveryPrompt,
   localCreateRecoveryCode,
   localCreateMemberAccess,
   localEnsureInvite,
@@ -290,3 +292,10 @@ export async function removeMember(
   }
 }
 
+
+export async function recoveryPromptSettings(credentials: Credentials, action: "read" | RecoveryPromptAction) {
+  if (useLocalOnly()) return localRecoveryPrompt(credentials, action);
+  return request<RecoveryPromptPreference>(`/groups/${credentials.groupId}/recovery-prompt`, {
+    method: "POST", body: JSON.stringify({ ...credentials, action }),
+  });
+}

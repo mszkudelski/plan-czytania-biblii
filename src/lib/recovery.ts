@@ -302,3 +302,15 @@ export function projectRecoveryPortions(
   }
   return portions;
 }
+
+
+export function isReadingDateComplete(day: PlanDay, progress: Record<string, string>, portion?: RecoveryPortion,
+  chapters: Record<string, number> = {}, marks: ReadChapterMarks = {}, dailyExtraCompleted = false) {
+  if (!day.segments.length) return false;
+  const baseComplete = day.segments.every(segment => Boolean(progress[segment.id]) || Boolean(portion &&
+    portion.chapterIndices[segment.id]?.length && portion.chapterIndices[segment.id].every(index =>
+      isRecoveryChapterRead(chapters, marks, segment.id, index))));
+  const extra = portion?.extra;
+  return baseComplete && (!extra || Boolean(progress[extra.segmentId]) || dailyExtraCompleted ||
+    isRecoveryChapterRead(chapters, marks, extra.segmentId, extra.chapterIndex));
+}

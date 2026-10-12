@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
-  createPlan, createParallelPlan, openPlan, saveProgress, expectSaved, readGroup, reading,
+  enableRecovery, expectWeek, createPlan, createParallelPlan, openPlan, saveProgress, expectSaved, readGroup, reading,
   extraReading, browseReading, tab, recoveryKey, TODAY, NOW, holdNextProgress, progressPath,
 } from './helpers.mjs';
 
@@ -72,9 +72,9 @@ test('recovery starts at personal progress and adds only one extra row', async (
   const session = await createPlan(request, 'recovery');
   await saveProgress(request, session, 's0');
   await openPlan(page, session);
-  await expect(page.getByRole('button', { name: 'Włącz plan nadrabiania', exact: true })).toBeVisible();
-  await expect(page.locator('details.recovery-details')).not.toHaveAttribute('open', '');
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Nadrabianie', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Chcesz włączyć nadrabianie?' })).not.toBeVisible();
+  await enableRecovery(page);
   await expect(page.locator('.simple-readings button')).toHaveCount(3);
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'false');
@@ -92,7 +92,7 @@ test('recovery starts at personal progress and adds only one extra row', async (
   await extraReading(page).click();
   await expectSaved(request, session, ['s0', 's1']);
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
-  await page.getByRole('button', { name: 'Wyłącz plan nadrabiania' }).click();
+  await page.getByRole('button', { name: 'Wyłącz nadrabianie' }).click();
   await expect(extraReading(page)).toHaveCount(0);
 });
 
@@ -135,7 +135,7 @@ test('reload after backend commit preserves the extra while its response is pend
 test('extra waits for the standard writes and rolls back if the base fails', async ({ page, request }) => {
   const session = await createPlan(request, 'base-failure');
   await openPlan(page, session);
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   await reading(page, 'Rdz 1').click();
   await expectSaved(request, session, ['s0']);
   let release;
@@ -159,7 +159,7 @@ test('extra waits for the standard writes and rolls back if the base fails', asy
 test('extra rollback remains correct when leaving and returning to Today during save', async ({ page, request }) => {
   const session = await createPlan(request, 'extra-tab-race');
   await openPlan(page, session);
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   await reading(page, 'Rdz 1').click();
   await reading(page, 'Mt 1').click();
   await expectSaved(request, session, ['s0', 's1']);
@@ -185,7 +185,7 @@ test('extra rollback remains correct when leaving and returning to Today during 
 test('partial extra chapter persists locally; tomorrow resumes remaining chapters', async ({ page, request }) => {
   const session = await createPlan(request, 'partial-chapter', true);
   await openPlan(page, session);
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   await reading(page, 'Rdz 1').click();
   await reading(page, 'Mt 1').click();
   await expectSaved(request, session, ['s0', 's1']);
@@ -254,7 +254,7 @@ test('completed plan has no future recovery extra', async ({ page, request }) =>
 test('recovery advances at midnight without reloading the page', async ({ page, request }) => {
   const session = await createPlan(request, 'midnight', true);
   await openPlan(page, session);
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   await reading(page, 'Rdz 1').click();
   await reading(page, 'Mt 1').click();
   await expectSaved(request, session, ['s0', 's1']);
@@ -272,7 +272,7 @@ test('future recovery days assume prior extras without saving assumed progress',
   const switcher = page.locator('.reading-navigation');
   await browseReading(page, 'last');
   await expect(reading(page, 'Rdz 6')).toBeVisible();
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   const dates = switcher;
   await expect(dates).toHaveAttribute('data-reading-count', '3');
   await expect(dates).toHaveAttribute('data-selected-index', '0');
@@ -309,7 +309,7 @@ test('future recovery days assume prior extras without saving assumed progress',
   expect(await page.evaluate(key => localStorage.getItem(key), recoveryKey(session) + ':ordered:' + TODAY + ':day')).toBe('d0');
 
   await browseReading(page, 'last');
-  await page.getByRole('button', { name: 'Wyłącz plan nadrabiania' }).click();
+  await page.getByRole('button', { name: 'Wyłącz nadrabianie' }).click();
   await expect(reading(page, 'Rdz 6')).toBeVisible();
   await expect(switcher).toHaveAttribute('data-reading-count', '5');
   await expectSaved(request, session, ['s3', 's4']);
@@ -320,7 +320,7 @@ test('future recovery days assume prior extras without saving assumed progress',
 test('failed rapid future toggles do not restore an earlier optimistic chapter', async ({ page, request }) => {
   const session = await createPlan(request, 'future-rapid-rejection');
   await openPlan(page, session);
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   await page.getByRole('button', { name: 'Następne', exact: true }).click();
   let rejected = 0;
   page.on("response", response => {
@@ -358,7 +358,7 @@ test('future partial ranges can be checked without completing assumed earlier ch
   await page.setViewportSize({ width: 390, height: 844 });
   const session = await createPlan(request, 'recovery-forecast-partial', true);
   await openPlan(page, session);
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
   await expect(extraReading(page)).toContainText('Rdz 4');
@@ -391,7 +391,7 @@ test('projected navigation respects partial chapters and reload returns to today
   await page.setViewportSize({ width: 390, height: 844 });
   const session = await createPlan(request, 'recovery-navigation-partial', true);
   await openPlan(page, session);
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   await reading(page, 'Rdz 1').click();
   await reading(page, 'Mt 1').click();
   await expectSaved(request, session, ['s0', 's1']);
@@ -446,14 +446,14 @@ test('completed recovery portion keeps its one extra and advances only through d
   const scheduledThisWeek = session.group.planDays.filter(day => day.date >= monday.toISOString().slice(0, 10)).length;
   const weeklyGoal = scheduledThisWeek || session.group.planDays.length;
   await openPlan(page, session);
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   await reading(page, 'Rdz 1').click();
   await reading(page, 'Mt 1').click();
-  await expect(page.getByTestId('weekly-readings')).toHaveText(`${Math.min(1, weeklyGoal)} z ${weeklyGoal} czytań`);
+  await expectWeek(page, `${Math.min(1, weeklyGoal)} z ${weeklyGoal} czytań`);
   await expect(extraReading(page)).toBeEnabled();
   await extraReading(page).click();
   await expectSaved(request, session, ['s0', 's1', 's2']);
-  await expect(page.getByTestId('weekly-readings')).toHaveText(`${Math.min(2, weeklyGoal)} z ${weeklyGoal} czytań`);
+  await expectWeek(page, `${Math.min(2, weeklyGoal)} z ${weeklyGoal} czytań`);
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
   await expect(extraReading(page)).toContainText('Rdz 2');
@@ -478,7 +478,7 @@ test('completed recovery portion keeps its one extra and advances only through d
 test('ten days behind with three streams catches up after thirty extras, without preview writes', async ({ page, request }) => {
   const session = await createParallelPlan(request);
   await openPlan(page, session);
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   await expect(page.locator('.simple-readings button')).toHaveCount(4);
   await expect(extraReading(page)).toContainText('Rdz 2');
   await page.getByRole('button', { name: 'Następne', exact: true }).click();
@@ -504,7 +504,7 @@ test('ten days behind with three streams catches up after thirty extras, without
 test('real daily writes rotate recovery across all streams and keep the full normal quota', async ({ page, request }) => {
   const session = await createParallelPlan(request, 'parallel-real-days');
   await openPlan(page, session);
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   const expected = [];
   for (let day = 0; day < 3; day++) {
     const base = day === 0
@@ -624,7 +624,7 @@ test('failed refresh shows the last real cached plan and can reconnect', async (
 test('unchecking a cached extra before session refresh persists the explicit uncheck', async ({ page, request }) => {
   const session = await createPlan(request, 'cached-extra-uncheck');
   await openPlan(page, session);
-  await page.getByRole('button', { name: 'Włącz plan nadrabiania' }).click();
+  await enableRecovery(page);
   await reading(page, 'Rdz 1').click();
   await reading(page, 'Mt 1').click();
   await extraReading(page).click();

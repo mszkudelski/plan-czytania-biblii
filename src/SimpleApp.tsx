@@ -1,7 +1,9 @@
-import { getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion } from "./lib/recovery";
+import RecoveryPrompt from "./RecoveryPrompt";
+import { isReadingDateComplete, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -260,6 +262,7 @@ export default function SimpleApp() {
   );
   const [loading, setLoading] = useState(() => !initialCachedGroup);
   const [refreshing, setRefreshing] = useState(false);
+  const [groupVerified, setGroupVerified] = useState(false);
   const [error, setError] = useState("");
   const [syncMessage, setSyncMessage] = useState("");
   const [accessView, setAccessView] = useState<"recover" | "transfer" | "admin" | null>(null);
@@ -317,6 +320,7 @@ export default function SimpleApp() {
           saveCredentials(session.credentials);
           setCredentials(session.credentials);
           setGroupAndCache(session.group);
+          setGroupVerified(true);
         })
         .catch(() => {
           if (!cancelled) {
@@ -354,6 +358,7 @@ export default function SimpleApp() {
           ? { ...session.group, progress: { ...session.group.progress, [credentials.memberId]: current.progress[credentials.memberId] ?? {} } }
           : session.group;
         setGroupAndCache(freshGroup);
+        setGroupVerified(true);
         if (joinInvite) {
           setJoinInvite(null);
           if (window.location.hash) {
@@ -400,6 +405,7 @@ export default function SimpleApp() {
     saveCredentials(nextCredentials);
     setCredentials(nextCredentials);
     setGroupAndCache(groupData);
+    setGroupVerified(true);
     setSyncMessage("");
     setJoinInvite(null);
     setTransferCode(null);
@@ -471,6 +477,7 @@ export default function SimpleApp() {
         onCredentialsChange={changeCredentials}
         theme={theme}
         onThemeChange={setTheme}
+        promptReady={groupVerified && !refreshing && !syncMessage}
         refreshing={refreshing}
         syncMessage={syncMessage}
         onRefresh={() => setRetry((current) => current + 1)}
@@ -1558,6 +1565,7 @@ function Dashboard({
   onCredentialsChange,
   theme,
   onThemeChange,
+  promptReady,
   refreshing,
   syncMessage,
   onRefresh,
@@ -1569,6 +1577,7 @@ function Dashboard({
   onCredentialsChange: (credentials: Credentials) => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
+  promptReady: boolean;
   refreshing: boolean;
   syncMessage: string;
   onRefresh: () => void;
@@ -1712,6 +1721,9 @@ function Dashboard({
           <TodayView
             key={`${group.id}:${member.id}:${today}`}
             group={visibleGroup}
+            credentials={credentials}
+            promptReady={promptReady}
+            active={tab === "today"}
             member={member}
             onToggle={toggle}
             onError={setProgressError}
@@ -1761,17 +1773,25 @@ function Dashboard({
 
 function TodayView({
   group,
+  credentials,
+  promptReady,
+  active,
   member,
   onToggle,
   onError,
   onWaitForSegments,
 }: {
   group: Group;
+  credentials: Credentials;
+  promptReady: boolean;
+  active: boolean;
   member: Member;
   onToggle: (segmentId: string, completed?: boolean) => Promise<void>;
   onError: (message: string) => void;
   onWaitForSegments: (segmentIds: string[]) => Promise<void>;
 }) {
+  const [recoveryDetailsOpen, setRecoveryDetailsOpen] = useState(false);
+  const recoveryTrigger = useRef<HTMLButtonElement>(null);
   const today = todayIso();
   const home = getReadingHomeSummary(group, member.id, today);
   const week = getReadingWeekSummary(group, member.id, today);
@@ -2012,7 +2032,7 @@ function TodayView({
     }
     setRecoveryStart(start);
   }
-  const showRecoveryControl = week.overdueReadings > 2 || Boolean(recoveryStart);
+  const showRecoveryControl = week.overdueReadings > 0 || Boolean(recoveryStart);
   const previewPortions = recoveryStart ? recoveryPortions : showRecoveryControl
     ? projectRecoveryPortions(group, member.id, today, readChapters, getNextDay(group, member.id)?.id ?? "", undefined, chapterMarks)
     : [];
@@ -2027,92 +2047,86 @@ function TodayView({
     : nextUnread;
   const showReturn = returnIndex >= 0 && displayedIndex !== returnIndex;
 
+  const allSegments = group.planDays.flatMap(day => day.segments);
+  const overallPercent = calculateProgressPercent(allSegments.filter(segment => progress[segment.id]).length, allSegments.length);
+  const visibleStart = Math.max(0, Math.min(displayedIndex - 2, navigationDays.length - 5));
+  const visibleDates = navigationDays.slice(visibleStart, visibleStart + 5);
+  function dateComplete(day: PlanDay) {
+    if (day.id === displayedDay?.id) return portionCompleted;
+    const portion = recoveryStart ? recoveryPortions.find(item => item.day.id === day.id) : undefined;
+    return isReadingDateComplete(day, progress, portion, readChapters, chapterMarks,
+      day.id === currentPortion?.day.id && Boolean(validDailyReading?.completed));
+  }
+  function closeRecoveryDetails() {
+    setRecoveryDetailsOpen(false);
+    recoveryTrigger.current?.focus();
+  }
+  const amountWord = (count: number) => formatReadingCount(count).split(" ").slice(1).join(" ");
+
   return (
     <div className="reading-home">
       <PageTitle title={group.name} />
-      <p className="reading-balance" data-testid="reading-balance" aria-live="polite">
-        {week.overdueReadings > 0 && <span data-testid="overdue-readings">{formatReadingCount(-week.overdueReadings)}</span>}
-        {week.overdueReadings > 0 && week.aheadReadings > 0 && " · "}
-        {week.aheadReadings > 0 && <span data-testid="ahead-readings">{formatReadingCount(week.aheadReadings)}</span>}
-        {!week.overdueReadings && !week.aheadReadings && "Na bieżąco"}
-      </p>
-      {home.planComplete ? (
-        <section className="reading-state is-finished" role="status">
-          <Icon name="check" size={28} />
-          <div><h2>Plan ukończony</h2></div>
-        </section>
-      ) : home.notStarted ? (
-        <section className="reading-state" role="status">
-          <Icon name="book" size={28} />
-          <div>
-            <h2>Plan jeszcze się nie rozpoczął</h2>
-            <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate, "shortYear")}.</p>
+      <section className="reading-summary" aria-label="Podsumowanie planu">
+        <div className="reading-stat">
+          <div className="reading-progress-donut" role="progressbar" aria-label="Postęp całego planu"
+            aria-valuenow={overallPercent} aria-valuemin={0} aria-valuemax={100}
+            style={{ "--value": `${overallPercent * 3.6}deg` } as React.CSSProperties}>
+            <strong>{formatProgressPercent(overallPercent)}%</strong>
           </div>
-        </section>
-      ) : null}
-      {showReading && displayedDay && (
-        <section className="reading-focus" aria-label="Wybrane czytanie">
-          <DayCard
-            day={displayedDay}
-            progress={displayedProgress}
-            onToggle={toggleDisplayedSegment}
-            extraReading={displayedExtra ? {
-              reading: displayedExtra,
-              completed: extraComplete,
-              disabled: recoveryBusy || (!baseComplete && !extraComplete),
-              onToggle: toggleExtra,
-            } : undefined}
-          />
-          <div className="reading-footer" aria-live="polite">
-            {portionCompleted ? <span className="reading-finished"><Icon name="check" size={16} />Przeczytane</span>
-              : <span aria-label="Postęp wybranego czytania">{portionDone} z {portionTotal} {portionTotal === 1 ? "fragmentu" : "fragmentów"}</span>}
+        </div>
+        <div className={`reading-stat reading-status ${week.overdueReadings ? "is-behind" : "is-current"}`}>
+          <div data-testid="reading-balance" className="reading-balance" aria-live="polite">
+            {week.overdueReadings > 0 ? <>
+              <span>Zaległość</span><strong data-testid="overdue-readings">{week.overdueReadings}</strong><span>{amountWord(week.overdueReadings)}</span>
+              {week.aheadReadings > 0 && <small data-testid="ahead-readings">Do przodu: {formatReadingCount(week.aheadReadings)}</small>}
+            </> : week.aheadReadings > 0 ? <>
+              <span>Do przodu</span><strong data-testid="ahead-readings">+{week.aheadReadings}</strong><span>{amountWord(week.aheadReadings)}</span>
+            </> : <strong className="reading-on-track">Na bieżąco</strong>}
           </div>
-        </section>
-      )}
-      {group.planDays.length > 0 && (
-        <nav className="reading-navigation" aria-label="Przeglądaj czytania" data-selected-index={displayedIndex} data-reading-count={navigationDays.length}>
-          <button type="button" disabled={displayedIndex === 0} onClick={() => selectDay(displayedIndex - 1)}>
-            <Icon name="left" size={18} />Poprzednie
-          </button>
-          {showReturn && <button type="button" className="reading-return" aria-label="Wróć do swojego miejsca"
-            title="Wróć do swojego miejsca" onClick={() => selectDay(returnIndex)}>
-            <Icon name={returnIndex < displayedIndex ? "double-left" : "double-right"} size={20} />
+          {showRecoveryControl && !home.planComplete && <button ref={recoveryTrigger} type="button" className="link-button reading-recovery-link"
+            onClick={() => recoveryStart ? changeRecovery("") : setRecoveryDetailsOpen(true)}>
+            {recoveryStart ? "Wyłącz nadrabianie" : "Nadrabianie"}
           </button>}
-          <button type="button" disabled={displayedIndex >= navigationDays.length - 1} onClick={() => selectDay(displayedIndex + 1)}>
-            Następne<Icon name="right" size={18} />
-          </button>
-        </nav>
-      )}
-      <section className="reading-week" aria-label="Postęp tygodnia">
-        <div><span>{week.weeklyTotal > 0 && week.weeklyCompleted === week.weeklyTotal ? "Tydzień ukończony" : "W tym tygodniu"}</span>
-          <strong data-testid="weekly-readings">{week.weeklyCompleted} z {week.weeklyTotal} czytań</strong></div>
-        {week.weeklyTotal > 0 && <div className="reading-week-track" role="progressbar" aria-label="Ukończone czytania w tym tygodniu"
-          aria-valuenow={week.weeklyCompleted} aria-valuemin={0} aria-valuemax={week.weeklyTotal}>
-          {Array.from({ length: week.weeklyTotal }, (_, index) => <span key={index} className={index < week.weeklyCompleted ? "done" : ""} />)}
-        </div>}
+        </div>
       </section>
-      {showRecoveryControl && !home.planComplete && (
-        <section className="recovery-control" aria-label="Plan nadrabiania">
-          <div className="recovery-intro">
-            <div><h2>Nadrabianie</h2></div>
-            <button type="button" className={recoveryStart ? "link-button" : "small-button"}
-              onClick={() => changeRecovery(recoveryStart ? "" : today)}>
-              {recoveryStart ? "Wyłącz plan nadrabiania" : "Włącz plan nadrabiania"}
-            </button>
-          </div>
-          <details className="recovery-details">
-            <summary>Przykładowy dzień</summary>
-            <p>Zwykłe czytanie + jeden dodatkowy rozdział.</p>
-            <ul className="recovery-preview">
-              {previewPortions.slice(0, 1).map(portion => <li key={portion.day.id}>
-                <strong>{formatPolishDate(portion.day.date)}</strong>
-                <span>{portion.day.segments.map(segment => segment.label).join(" · ")}</span>
-                <small>{portion.extra ? `+ ${portion.extra.label}` : "Bez dodatkowego rozdziału"}</small>
-              </li>)}
-            </ul>
-          </details>
-        </section>
-      )}
+      {home.planComplete ? (
+        <section className="reading-state is-finished" role="status"><Icon name="check" size={28} /><h2>Plan ukończony</h2></section>
+      ) : home.notStarted ? (
+        <section className="reading-state" role="status"><Icon name="book" size={28} /><div><h2>Plan jeszcze się nie rozpoczął</h2>
+          <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate, "shortYear")}.</p></div></section>
+      ) : null}
+      {showReading && displayedDay && <section className="reading-focus" aria-label="Wybrane czytanie">
+        <DayCard day={displayedDay} progress={displayedProgress} onToggle={toggleDisplayedSegment}
+          header={<header className="reading-card-head">
+            <time dateTime={displayedDay.date}>{new Intl.DateTimeFormat("pl-PL", { weekday: "short", day: "numeric", month: "long" }).format(new Date(`${displayedDay.date}T12:00:00`))}</time>
+            <div className="reading-head-actions">
+              {showReturn && <button type="button" className="reading-return" aria-label="Wróć do swojego miejsca"
+                title="Wróć do swojego miejsca" onClick={() => selectDay(returnIndex)}><Icon name={returnIndex < displayedIndex ? "double-left" : "double-right"} size={20} /></button>}
+              <span aria-live="polite">{portionCompleted ? <span className="reading-finished">Przeczytane</span>
+                : <span aria-label="Postęp wybranego czytania">{portionDone}/{portionTotal}</span>}</span>
+            </div>
+          </header>}
+          extraReading={displayedExtra ? { reading: displayedExtra, completed: extraComplete,
+            disabled: recoveryBusy || (!baseComplete && !extraComplete), onToggle: toggleExtra } : undefined}
+        />
+      </section>}
+      {navigationDays.length > 0 && <nav className="reading-navigation" aria-label="Przeglądaj czytania" data-selected-index={displayedIndex} data-reading-count={navigationDays.length}>
+        <button type="button" aria-label="Poprzednie" disabled={displayedIndex === 0} onClick={() => selectDay(displayedIndex - 1)}><Icon name="left" size={18} /></button>
+        <div className="reading-date-strip">
+          {visibleDates.map((day, index) => { const complete = dateComplete(day), selected = displayedIndex === visibleStart + index;
+            return <button type="button" key={day.id} className={`reading-date ${complete ? "complete" : ""}`} data-day-id={day.id}
+              data-complete={complete} aria-pressed={selected} aria-label={`${formatPolishDate(day.date)}${complete ? ", przeczytane" : ""}`}
+              onClick={() => selectDay(visibleStart + index)}>
+              <small>{new Intl.DateTimeFormat("pl-PL", { weekday: "short" }).format(new Date(`${day.date}T12:00:00`)).replace(".", "")}</small>
+              <strong>{new Date(`${day.date}T12:00:00`).getDate()}</strong>{complete && <Icon name="check" size={11} />}
+            </button>;
+          })}
+        </div>
+        <button type="button" aria-label="Następne" disabled={displayedIndex >= navigationDays.length - 1} onClick={() => selectDay(displayedIndex + 1)}><Icon name="right" size={18} /></button>
+      </nav>}
+      <RecoveryPrompt credentials={credentials} overdue={week.overdueReadings} enabled={Boolean(recoveryStart) || home.planComplete}
+        ready={promptReady} active={active} open={recoveryDetailsOpen} example={previewPortions[0]}
+        onOpen={() => setRecoveryDetailsOpen(true)} onClose={closeRecoveryDetails} onEnable={() => changeRecovery(today)} />
     </div>
   );
 }
@@ -2125,6 +2139,7 @@ function PlanView({
   member: Member;
 }) {
   const progress = group.progress[member.id] ?? {};
+  const week = getReadingWeekSummary(group, member.id, todayIso());
   const total = group.planDays.flatMap((day) => day.segments).length;
   const completed = Object.keys(progress).length;
   const percent = calculateProgressPercent(completed, total);
@@ -2152,6 +2167,14 @@ function PlanView({
           <span style={{ width: `${percent}%` }} />
         </div>
       </div>
+      <section className="reading-week" aria-label="Postęp tygodnia">
+        <div><span>{week.weeklyTotal > 0 && week.weeklyCompleted === week.weeklyTotal ? "Tydzień ukończony" : "W tym tygodniu"}</span>
+          <strong data-testid="weekly-readings">{week.weeklyCompleted} z {week.weeklyTotal} czytań</strong></div>
+        {week.weeklyTotal > 0 && <div className="reading-week-track" role="progressbar" aria-label="Ukończone czytania w tym tygodniu"
+          aria-valuenow={week.weeklyCompleted} aria-valuemin={0} aria-valuemax={week.weeklyTotal}>
+          {Array.from({ length: week.weeklyTotal }, (_, index) => <span key={index} className={index < week.weeklyCompleted ? "done" : ""} />)}
+        </div>}
+      </section>
       <section className="plan-days">
         {group.planDays.map((day) => {
           const completed = day.segments.filter(
@@ -2427,7 +2450,9 @@ function DayCard({
   progress,
   onToggle,
   extraReading,
+  header,
 }: {
+  header?: ReactNode;
   day: PlanDay;
   progress: Record<string, string>;
   onToggle: (segmentId: string) => Promise<void>;
@@ -2440,6 +2465,7 @@ function DayCard({
 }) {
   return (
     <section className="simple-day">
+      {header}
       <div className="simple-readings">
         {day.segments.map((segment) => (
           <ReadingRow

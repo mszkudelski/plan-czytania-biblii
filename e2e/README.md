@@ -23,8 +23,8 @@ Reports and failure screenshots are uploaded for 7 days. Traces and stored crede
 
 Reading home coverage: the plan name heads the reading screen; first unread
 work stays in order, a finished reading survives reload until explicit navigation,
-and dates/overall progress remain in Plan. Negative/positive counts track whole
-readings without cancelling unfinished debt. Daily plans use past days; other
+and overall progress plus five nearby dates stay visible in reading. Labeled backlog and ahead counts track whole
+readings without cancelling unfinished debt. Weekly progress remains in Plan. Daily plans use past days; other
 cadences use closed weeks. Current-week completion includes overdue readings finished this week and work
 pre-read for this week, counts complete readings once, and stays capped at the
 weekly goal. The bar updates on check/uncheck and survives reload. Tests cover both return-arrow
@@ -91,3 +91,9 @@ Production pushes run unit/build checks and a read-only deployment check: exact 
 
 The first persistence verification GET has its own 30-second HTTP deadline, followed by the unchanged persistence polling assertions. A failed HTTP request fails the test; no request retry or fallback is accepted. E2E jobs for the same commit run sequentially to avoid duplicated PR/push jobs putting simultaneous load on Netlify.
 
+
+Catch-up suggestion coverage: a bottom notice after more than three overdue readings,
+short mobile overlap above navigation, one-day modal preview, activation without
+progress writes, seven-day snooze, durable per-member/per-plan opt-out across
+fresh devices, manual activation, rejected saves and retries, stale-cache startup,
+real chapter completion on date buttons, API authentication and private preferences.

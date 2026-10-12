@@ -152,3 +152,16 @@ export async function browseReading(page, target) {
     await expect(nav).toHaveAttribute('data-selected-index', String(current));
   }
 }
+
+export async function enableRecovery(page) {
+  await page.getByRole('button', { name: 'Nadrabianie', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Chcesz włączyć nadrabianie?', exact: true });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Włącz', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+}
+export async function expectWeek(page, expected) {
+  await tab(page, 'Plan').click();
+  await expect(page.getByTestId('weekly-readings')).toHaveText(expected);
+  await tab(page, 'Czytaj').click();
+}

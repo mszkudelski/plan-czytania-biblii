@@ -1,3 +1,4 @@
+import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference, type RecoveryPromptAction } from "./recovery-prompt";
 import type {
   Credentials,
   Frequency,
@@ -14,6 +15,7 @@ import {
 
 type LocalGroup = Group & {
   tokens: Record<string, string | string[]>;
+  recoveryPrompts?: Record<string, RecoveryPromptPreference>;
   inviteToken?: string;
 };
 
@@ -39,7 +41,7 @@ function saveAll(groups: Record<string, LocalGroup>) {
 }
 
 function publicGroup(group: LocalGroup): Group {
-  const { tokens: _tokens, inviteToken: _inviteToken, ...rest } = group;
+  const { tokens: _tokens, inviteToken: _inviteToken, recoveryPrompts: _prompts, ...rest } = group;
   return rest;
 }
 
@@ -314,3 +316,13 @@ export async function localRedeemMemberAccess(value: string): Promise<{ group: G
   return { group: publicGroup(group), credentials: { groupId: group.id, memberId: member.id, token } };
 }
 
+
+export function localRecoveryPrompt(credentials: Credentials, action: "read" | RecoveryPromptAction) {
+  const groups = loadAll(), group = groups[credentials.groupId];
+  if (!group || !group.members.some(member => member.id === credentials.memberId) || !memberTokens(group, credentials.memberId).includes(credentials.token)) throw new Error("Nieprawidłowy dostęp.");
+  if (action === "read") return group.recoveryPrompts?.[credentials.memberId] ?? DEFAULT_RECOVERY_PROMPT;
+  const preference = recoveryPromptPreference(action);
+  group.recoveryPrompts = { ...group.recoveryPrompts, [credentials.memberId]: preference };
+  saveAll(groups);
+  return preference;
+}

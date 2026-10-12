@@ -1,3 +1,4 @@
+import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference } from "../../src/lib/recovery-prompt";
 import { getStore } from "@netlify/blobs";
 import { changeGroupState, readGroupState, type GroupStateStore } from "../../src/lib/group-state";
 import { applyProgressLog, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
@@ -18,6 +19,7 @@ import {
 } from "../../src/lib/access-recovery";
 
 type StoredMember = Member & {
+  recoveryPrompt?: RecoveryPromptPreference;
   tokenHash?: string;
   tokenHashes?: string[];
 };
@@ -139,6 +141,7 @@ function publicGroup(group: StoredGroup): Group {
     ...publicFields,
     members: members.map(
       ({
+        recoveryPrompt: _recoveryPrompt,
         tokenHash: _tokenHash,
         tokenHashes: _tokenHashes,
         ...member
@@ -708,6 +711,27 @@ async function updateMemberRole(request: Request, groupId: string, memberId: str
   });
 }
 
+async function recoveryPrompt(request: Request, groupId: string) {
+  const value = await request.json();
+  const credentials = cleanCredentials(value);
+  if (!credentials || credentials.groupId !== groupId) return error("Nieprawidłowy dostęp.", 401);
+  const action = (value as { action?: unknown }).action;
+  if (action !== "read" && action !== "later" && action !== "never" && action !== "reset") return error("Nieprawidłowa operacja.");
+  if (action === "read") {
+    const group = await storedGroup(groupId);
+    if (!group) return error("Nie znaleziono grupy.", 404);
+    const member = await authenticate(group, credentials);
+    return member ? json(member.recoveryPrompt ?? DEFAULT_RECOVERY_PROMPT) : error("Nieprawidłowy dostęp.", 401);
+  }
+  const preference = recoveryPromptPreference(action);
+  const rejected = await changeGroupState(groupStateStore(groupId), async group => {
+    const member = await authenticate(group, credentials);
+    if (!member) return error("Nieprawidłowy dostęp.", 401);
+    member.recoveryPrompt = preference;
+  });
+  return rejected ?? json(preference);
+}
+
 async function notifications(request: Request, groupId: string, scope: string) {
   const value = await request.json();
   if (!value || typeof value !== "object") return error("Nieprawidłowa operacja.");
@@ -785,6 +809,9 @@ export default async (request: Request, context: Context) => {
         scheduled: context.deploy.context === "production",
         missingKeys: missingPushConfiguration(),
       });
+    }
+    if (request.method === "POST" && route.length === 3 && route[0] === "groups" && route[2] === "recovery-prompt") {
+      return recoveryPrompt(request, route[1]);
     }
     if (request.method === "POST" && route.length === 3 && route[0] === "groups" && route[2] === "notifications") {
       const scope = context.deploy.context === "production" ? "production" : url.origin;
