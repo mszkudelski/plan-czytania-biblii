@@ -63,6 +63,7 @@ for (const width of [1280, 390]) {
     await expect(notice).toBeVisible();
     await notice.getByRole('button', { name: 'Nie teraz', exact: true }).click();
     await expect(notice).not.toBeVisible();
+    await expect.poll(async () => (await preference(request, session)).snoozedUntil).not.toBeNull();
     const snoozed = await preference(request, session);
     expect(snoozed.disabled).toBe(false);
     expect(Date.parse(snoozed.snoozedUntil)).toBeGreaterThan(NOW.getTime());
@@ -72,7 +73,7 @@ for (const width of [1280, 390]) {
     await expect(notice).not.toBeVisible();
     await dialog.getByRole('button', { name: 'Nie pokazuj więcej', exact: true }).click();
     await expect(dialog).not.toBeVisible();
-    expect(await preference(request, session)).toEqual({ disabled: true, snoozedUntil: null });
+    await expect.poll(() => preference(request, session)).toEqual({ disabled: true, snoozedUntil: null });
     const context = await browser.newContext({ baseURL: process.env.E2E_BASE_URL, viewport: { width, height: 900 }, timezoneId: 'UTC', serviceWorkers: 'block' });
     try {
       const fresh = await context.newPage();
@@ -82,7 +83,7 @@ for (const width of [1280, 390]) {
       await fresh.getByRole('dialog').getByRole('button', { name: 'Włącz', exact: true }).click();
       await expect(extraReading(fresh)).toBeVisible();
       await expectSaved(request, session, []);
-      expect(await preference(request, session)).toEqual({ disabled: true, snoozedUntil: null });
+      await expect.poll(() => preference(request, session)).toEqual({ disabled: true, snoozedUntil: null });
     } finally { await context.close(); }
   });
 }
@@ -209,6 +210,7 @@ test('prompt preferences are private, authenticated, per member and per plan and
   await page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true }).click();
   await expect(notice).not.toBeVisible();
   await expect(page.getByRole('status')).not.toBeVisible();
+  await expect.poll(async () => (await preference(request, session)).snoozedUntil).not.toBeNull();
   const saved = await preference(request, session);
   expect(Date.parse(saved.snoozedUntil) - Date.now()).toBeGreaterThan(23 * 3600000);
   expect(Date.parse(saved.snoozedUntil) - Date.now()).toBeLessThanOrEqual(24 * 3600000);
@@ -235,5 +237,5 @@ test('prompt preferences are private, authenticated, per member and per plan and
     await expect(page.getByRole('status')).toHaveText('Zapisuję wybór…');
   } finally { release(); }
   await expect(page.getByRole('status')).not.toBeVisible();
-  expect((await preference(request, session)).snoozedUntil).not.toBeNull();
+  await expect.poll(async () => (await preference(request, session)).snoozedUntil).not.toBeNull();
  });

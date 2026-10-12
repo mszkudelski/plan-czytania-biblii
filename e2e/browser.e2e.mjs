@@ -610,6 +610,11 @@ test('failed refresh shows the last real cached plan and can reconnect', async (
   await openPlan(page, session);
   await reading(page, 'Rdz 1').click();
   await expectSaved(request, session, ['s0']);
+  // The scenario starts from a confirmed cached response, not an in-flight save.
+  await expect.poll(() => page.evaluate(({ groupId, memberId }) => {
+    const cached = JSON.parse(localStorage.getItem('plan-czytania-biblii-group-' + groupId) ?? 'null');
+    return Boolean(cached?.group?.progress?.[memberId]?.s0);
+  }, { groupId: session.group.id, memberId: session.credentials.memberId })).toBe(true);
   // Simulate a network failure, never a successful API response.
   await page.route('**/api/session', route => route.abort(), { times: 1 });
   await page.reload();
@@ -666,4 +671,3 @@ test('unchecking a cached extra before session refresh persists the explicit unc
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
   await expectSaved(request, session, ['s0', 's1']);
 });
-
