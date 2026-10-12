@@ -46,7 +46,7 @@ export default function RecoveryPrompt({ credentials, overdue, enabled, ready, a
     const previous = preference;
     const wasOpen = open;
     revision.current++; setBusy(true); setError("");
-    setPreference(recoveryPromptPreference(action)); setLoaded(true); setDismissed(true); onClose();
+    setPreference(action === "stop" && previous?.disabled ? previous : recoveryPromptPreference(action)); setLoaded(true); setDismissed(true); onClose();
     try {
       const value = await recoveryPromptSettings(credentials, action);
       setPreference(value);

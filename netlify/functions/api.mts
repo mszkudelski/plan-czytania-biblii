@@ -729,10 +729,11 @@ async function recoveryPrompt(request: Request, groupId: string, resetLegacySnoo
       ? { ...preference, snoozedUntil: null } : preference;
     return member ? json(effective) : error("Nieprawidłowy dostęp.", 401);
   }
-  const preference = recoveryPromptPreference(action);
+  let preference = recoveryPromptPreference(action);
   const rejected = await changeGroupState(groupStateStore(groupId), async group => {
     const member = await authenticate(group, credentials);
     if (!member) return error("Nieprawidłowy dostęp.", 401);
+    if (action === "stop" && member.recoveryPrompt?.disabled) preference = member.recoveryPrompt;
     member.recoveryPrompt = preference;
     member.recoveryPromptSnoozeVersion = 1;
   });

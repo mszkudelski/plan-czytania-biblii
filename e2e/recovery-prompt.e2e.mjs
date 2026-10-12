@@ -185,7 +185,7 @@ test('prompt preferences are private, authenticated, per member and per plan and
     request.post('/api/groups/' + session.group.id + '/progress', { data: { ...session.credentials, segmentId: 's0', completed: true } }),
   ]);
   for (const response of responses) expect(response.status()).toBe(200);
-  expect(await preference(request, session)).toEqual({ disabled: true, snoozedUntil: null });
+  expect(await preference(request, session, 'stop')).toEqual({ disabled: true, snoozedUntil: null });
   expect(await preference(request, second)).toEqual({ disabled: false, snoozedUntil: null });
   for (const action of ['read', 'never']) {
     const denied = await request.post(path(session), { data: { ...session.credentials, memberId: second.credentials.memberId, action } });
