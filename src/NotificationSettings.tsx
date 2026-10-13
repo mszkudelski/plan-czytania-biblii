@@ -64,6 +64,7 @@ export default function NotificationSettings({ credentials }: { credentials: Cre
       const subscription = await subscribeToReading(config.publicKey);
       const value = await notificationSettings(credentials, deviceId, "save", { ...settings, enabled: true }, subscription);
       if (value) { setSettings(value); setSavedTime(value.time); }
+      window.dispatchEvent(new Event("reading-notifications-changed"));
       setMessage(`Zapisano godzinę ${settings.time}.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Nie udało się włączyć powiadomień. Spróbuj ponownie.");
@@ -77,6 +78,7 @@ export default function NotificationSettings({ credentials }: { credentials: Cre
       await notificationSettings(credentials, deviceId, kind);
       if (kind === "disable") {
         setSettings(current => ({ ...current, enabled: false })); setTestSent(false);
+        window.dispatchEvent(new Event("reading-notifications-changed"));
         setMessage("Przypomnienia na tym urządzeniu są wyłączone. Możesz je włączyć ponownie w dowolnej chwili.");
       } else {
         setTestSent(true);

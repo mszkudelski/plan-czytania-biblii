@@ -1,3 +1,4 @@
+import { useOnboarding, usePromptOffer } from "./Onboarding";
 import { useEffect, useRef, useState } from "react";
 import type { Credentials } from "./types";
 import type { RecoveryPortion } from "./lib/recovery";
@@ -8,6 +9,7 @@ export default function RecoveryPrompt({ credentials, overdue, enabled, ready, a
   credentials: Credentials; overdue: number; enabled: boolean; ready: boolean; active: boolean; open: boolean;
   example?: RecoveryPortion; onOpen: () => void; onClose: () => void; onEnable: () => void;
 }) {
+  const queue = useOnboarding();
   const [preference, setPreference] = useState<RecoveryPromptPreference | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -49,7 +51,7 @@ export default function RecoveryPrompt({ credentials, overdue, enabled, ready, a
     setPreference(action === "stop" && previous?.disabled ? previous : recoveryPromptPreference(action)); setLoaded(true); setDismissed(true); onClose();
     try {
       const value = await recoveryPromptSettings(credentials, action);
-      setPreference(value);
+      setPreference(value); queue.finish("recovery");
     } catch {
       setPreference(previous); setDismissed(false);
       setError("Nie udało się zapisać wyboru. Spróbuj ponownie.");
@@ -60,10 +62,12 @@ export default function RecoveryPrompt({ credentials, overdue, enabled, ready, a
 
   function enable() {
     if (busy) return;
-    setDismissed(true); setError(""); onEnable(); onClose();
+    setDismissed(true); setError(""); queue.finish("recovery"); onEnable(); onClose();
   }
-  const showNotice = active && ready && loaded && preference && !dismissed && !open &&
-    shouldSuggestRecovery(overdue, enabled, preference);
+  const candidate = Boolean(active && ready && loaded && preference && !dismissed && !open && !queue.firstVisit &&
+    shouldSuggestRecovery(overdue, enabled, preference));
+  const offered = usePromptOffer("recovery", candidate);
+  const showNotice = offered && candidate;
   return <>
     {busy && <span role="status" className="recovery-save-status">Zapisuję wybór…</span>}
     {showNotice && <aside className="recovery-notice" aria-label="Propozycja nadrabiania">

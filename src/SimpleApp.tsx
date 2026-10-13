@@ -1,3 +1,6 @@
+import Onboarding, { useOnboarding, usePromptOffer } from "./Onboarding";
+import ReminderPrompt from "./ReminderPrompt";
+import { devicePromptAllowed, INSTALL_KEY, parseDevicePreference, postponeDevicePrompt, SETUP_KEY, startOnboarding } from "./lib/onboarding";
 import RecoveryPrompt from "./RecoveryPrompt";
 import { isReadingDateComplete, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion } from "./lib/recovery";
 import {
@@ -400,7 +403,8 @@ export default function SimpleApp() {
     setGroupAndCache,
   ]);
 
-  function enter(groupData: Group, nextCredentials: Credentials) {
+  function enter(groupData: Group, nextCredentials: Credentials, isNew = false) {
+    if (isNew) startOnboarding(nextCredentials);
     setAccessView(null);
     saveCredentials(nextCredentials);
     setCredentials(nextCredentials);
@@ -437,7 +441,7 @@ export default function SimpleApp() {
     content = (
       <JoinSetup
         invite={joinInvite}
-        onJoined={enter}
+        onJoined={(group, credentials) => enter(group, credentials, true)}
         onRecover={() => setAccessView("recover")}
         onTransfer={() => setAccessView("transfer")}
         onBack={() => {
@@ -517,7 +521,7 @@ export default function SimpleApp() {
   } else {
     content = (
       <Setup
-        onCreated={enter}
+        onCreated={(group, credentials) => enter(group, credentials, true)}
         onRecovered={enter}
         onJoinInvite={(invite) => setJoinInvite(invite)}
         error={error}
@@ -528,10 +532,11 @@ export default function SimpleApp() {
   }
 
   return (
-    <>
+    <Onboarding credentials={credentials} group={group} ready={groupVerified && !refreshing && !syncMessage}>
       <InstallApp />
+      <ReminderPrompt credentials={credentials} />
       {content}
-    </>
+    </Onboarding>
   );
 }
 
@@ -543,11 +548,13 @@ type InstallPromptEvent = Event & {
 const INSTALL_PROMPT_DISMISSED_KEY = "plan-czytania-install-prompt-dismissed";
 
 function InstallApp() {
+  const queue = useOnboarding();
+  const [preference, setPreference] = useState(() => parseDevicePreference(localStorage.getItem(INSTALL_KEY)));
   const [promptEvent, setPromptEvent] = useState<InstallPromptEvent | null>(
     null,
   );
   const [instructionsOpen, setInstructionsOpen] = useState(false);
-  const [dismissed, setDismissed] = useState(
+  const [dismissed] = useState(
     () => localStorage.getItem(INSTALL_PROMPT_DISMISSED_KEY) === "true",
   );
   const [installed, setInstalled] = useState(() =>
@@ -587,22 +594,20 @@ function InstallApp() {
     };
   }, []);
 
-  if (
-    installed ||
-    dismissed ||
-    !mobileDevice ||
-    (!promptEvent && !iosSafari)
-  ) {
-    return null;
-  }
+  const canInstall = !installed && mobileDevice && Boolean(promptEvent || iosSafari);
+  useEffect(() => { queue.setInstallAvailable(canInstall); }, [canInstall, queue.setInstallAvailable]);
+  const candidate = canInstall && queue.ready && queue.completed && !dismissed && devicePromptAllowed(preference);
+  const showCard = usePromptOffer("install", candidate);
 
   function dismiss() {
-    localStorage.setItem(INSTALL_PROMPT_DISMISSED_KEY, "true");
-    setDismissed(true);
-    setInstructionsOpen(false);
+    const next = postponeDevicePrompt(preference);
+    localStorage.setItem(INSTALL_KEY, JSON.stringify(next));
+    localStorage.removeItem(SETUP_KEY);
+    setPreference(next); setInstructionsOpen(false); queue.finish("install");
   }
 
   async function install() {
+    localStorage.setItem(SETUP_KEY, "true");
     if (!promptEvent) {
       setInstructionsOpen(true);
       return;
@@ -611,17 +616,26 @@ function InstallApp() {
     await promptEvent.prompt();
     const choice = await promptEvent.userChoice;
     setPromptEvent(null);
-    if (choice.outcome === "accepted") setInstalled(true);
+    if (choice.outcome === "accepted") { setInstalled(true); queue.finish("install"); }
+    else dismiss();
   }
+
+  useEffect(() => {
+    function requested() { if (canInstall) void install(); }
+    window.addEventListener("reading-install-request", requested);
+    return () => window.removeEventListener("reading-install-request", requested);
+  }, [canInstall, promptEvent]);
+  useEffect(() => { if (installed) queue.finish("install"); }, [installed, queue.finish]);
+  if (!canInstall && !instructionsOpen) return null;
 
   return (
     <>
-      <aside className="install-app-card" aria-labelledby="install-card-title">
+      {showCard && candidate && <aside className="install-app-card" aria-labelledby="install-card-title">
         <button
           type="button"
           className="install-card-close"
           onClick={dismiss}
-          aria-label="Nie pokazuj ponownie"
+          aria-label="Nie teraz"
         >
           <Icon name="close" size={18} />
         </button>
@@ -630,24 +644,18 @@ function InstallApp() {
         </span>
         <div className="install-card-content">
           <h2 id="install-card-title">Dodaj aplikację do ekranu głównego</h2>
-          <p>
-            Po instalacji ikona aplikacji pojawi się na ekranie głównym
-            urządzenia. Plan będzie otwierać się jak zwykła aplikacja.
-          </p>
-          <p className="install-card-note">
-            W Chrome otworzy się systemowe potwierdzenie. W Safari pokażemy Ci
-            krótką instrukcję.
-          </p>
+          <p>Jutro wrócisz do czytania jednym dotknięciem.</p>
           <button
             type="button"
             className="main-button"
             onClick={() => void install()}
           >
             <Icon name="install" size={18} />
-            Zainstaluj
+            {iosSafari ? "Pokaż jak" : "Dodaj aplikację"}
           </button>
+          <button type="button" className="link-button" onClick={dismiss}>Nie teraz</button>
         </div>
-      </aside>
+      </aside>}
 
       {instructionsOpen && (
         <div
@@ -833,7 +841,11 @@ function JoinSetup({
           <ThemeToggle theme={theme} onChange={onThemeChange} />
         </div>
         <h1>Dołącz do planu</h1>
-        {invitedGroup && <p className="setup-description">{invitedGroup.name}</p>}
+        {invitedGroup && <section className="join-plan-summary" aria-label="Plan z zaproszenia">
+          <strong>{invitedGroup.name}</strong><span>{formatFrequency(invitedGroup.frequency)}</span>
+          <p>{invitedGroup.startDate < todayIso() ? "Grupa czyta od" : "Zaczynamy"} {formatPolishDate(invitedGroup.startDate)}.
+            {invitedGroup.startDate < todayIso() && " Zaczniesz od początku."}</p>
+        </section>}
         <p className="setup-description">Dołączysz jako nowa osoba z własnym postępem. Imię jest nazwą widoczną dla grupy.</p>
         <form onSubmit={submit}>
           {error && <div className="simple-alert">{error}</div>}
@@ -1584,6 +1596,8 @@ function Dashboard({
   onLeave: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("today");
+  const onboarding = useOnboarding();
+  useEffect(() => { onboarding.setReadingActive(tab === "today"); return () => onboarding.setReadingActive(false); }, [tab, onboarding.setReadingActive]);
   const [today, setToday] = useState(todayIso);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [visibleGroup, setVisibleGroup] = useState(group);
@@ -2328,6 +2342,7 @@ function SettingsView({
   const startDate = group.planDays[0]?.date ?? group.startDate;
   const endDate = group.planDays.at(-1)?.date ?? group.startDate;
   const frequency = formatFrequency(group.frequency);
+  const onboarding = useOnboarding();
   const [transfer, setTransfer] = useState<{
     code: string;
     expiresAt: string;
@@ -2370,6 +2385,10 @@ function SettingsView({
         />
         <Setting label="Dni czytania" value={frequency} />
       </section>
+      {onboarding.installAvailable &&
+        <section className="settings-card"><button type="button" className="small-button" onClick={() => window.dispatchEvent(new Event("reading-install-request"))}>
+          Dodaj aplikację do ekranu głównego
+        </button></section>}
       <NotificationSettings credentials={credentials} />
       <GroupAccessSettings group={group} member={member} />
       <h2 className="settings-heading">Połącz inne urządzenie</h2>
@@ -2732,4 +2751,3 @@ function formatFrequency(frequency: Frequency) {
     .map((day) => names[day])
     .join(", ");
 }
-

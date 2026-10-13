@@ -1851,8 +1851,7 @@ button {
 }
 
 /* The notification setup already includes the installation guide. */
-body:has(.notification-card) .install-app-card,
-body:has(.notification-card) .simple-modal-bg:has(.install-instructions) { display: none; }
+body:has(.notification-card) .install-app-card { display: none; }
 
 
 .reading-summary { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px; }
@@ -1922,3 +1921,15 @@ body:has(.notification-card) .simple-modal-bg:has(.install-instructions) { displ
 }
 
 .recovery-save-status { position:fixed; bottom:80px; left:50%; transform:translateX(-50%); z-index:100; padding:8px 14px; border-radius:20px; background:var(--paper); color:var(--muted); box-shadow:0 2px 12px #0002; font-size:.8rem; }
+
+.reminder-prompt-form { display:grid; grid-template-columns:minmax(120px,1fr) auto; gap:8px 12px; align-items:end; }
+.reminder-prompt-form label { display:grid; gap:5px; font-size:.8rem; }
+.reminder-prompt-form input { min-height:44px; width:100%; font:inherit; font-size:16px; color:var(--ink); background:var(--paper); border:1px solid var(--border); border-radius:8px; padding:8px 10px; }
+.reminder-prompt-zone { font-size:.7rem; color:var(--muted); padding-bottom:10px; }
+.reminder-prompt-form .main-button { grid-column:1; }
+.reminder-prompt-form .link-button { min-height:44px; }
+@media(max-width:700px) { .reminder-notice .recovery-notice-inner { gap:12px; } .reminder-prompt-form { width:100%; } }
+
+.join-plan-summary { padding:16px; margin:16px 0; border:1px solid var(--border); border-radius:12px; display:grid; gap:6px; }
+.join-plan-summary span, .join-plan-summary p { color:var(--muted); font-size:.85rem; margin:0; }
+.install-card-content > .link-button { margin-top:5px; }

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { createECDH, randomBytes } from 'node:crypto';
-import { createPlan, openPlan, tab, readGroup } from './helpers.mjs';
+import { createPlan, openPlan, tab, readGroup, reading, expectSaved } from './helpers.mjs';
 
 // Headless shell always reports Notification.permission as denied. Use the
 // full Chromium browser so these regressions exercise native permission states.
@@ -152,7 +152,12 @@ test('mobile iOS explains installation and keeps the notification panel within t
     Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile Safari/604.1' });
   });
   const session = await createPlan(request, 'notifications-ios');
+  await request.post('/api/groups/' + session.group.id + '/recovery-prompt', { data: { ...session.credentials, action: 'never' } });
   await openPlan(page, session);
+  await expect(page.locator('.install-app-card')).toBeHidden();
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await expectSaved(request, session, ['s0', 's1']);
   await expect(page.locator('.install-app-card')).toBeVisible();
   await tab(page, 'Ustawienia').click();
   await expect(page.locator('.install-app-card')).toBeHidden();
@@ -217,4 +222,3 @@ test('unsupported browser explains the next action without a dead enable button'
   await expect(panel).toContainText('Otwórz plan w aktualnej wersji');
   await expect(panel.getByRole('button', { name: 'Włącz przypomnienia', exact: true })).toHaveCount(0);
 });
-
