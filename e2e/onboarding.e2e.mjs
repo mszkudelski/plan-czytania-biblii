@@ -163,6 +163,8 @@ test('a refused consent keeps the proposal without a time picker and does not pr
   expect(await page.evaluate(() => window.permissionRequests)).toBe(1);
 });
 
+test.describe('onboarding reminder subscription', () => {
+test.use({ serviceWorkers: 'allow' });
 test('enabling from onboarding saves 8:00 and explains that the hour can be changed in settings', async ({ page, request }) => {
   const { cdp, browserContextId } = await mobile(page, true);
   const session = await createPlan(request, 'onboarding-default-hour');
@@ -206,4 +208,5 @@ test('enabling from onboarding saves 8:00 and explains that the hour can be chan
   } finally {
     expect((await request.post(path, { data: { ...session.credentials, deviceId, action: 'disable' } })).status()).toBe(200);
   }
+});
 });
