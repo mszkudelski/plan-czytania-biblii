@@ -706,7 +706,11 @@ function InstallApp() {
             <button
               type="button"
               className="main-button"
-              onClick={() => setInstructionsOpen(false)}
+              onClick={() => {
+                const next = { ...preference, until: Date.now() + 7 * 86400000 };
+                localStorage.setItem(INSTALL_KEY, JSON.stringify(next));
+                setPreference(next); setInstructionsOpen(false); queue.finish("install");
+              }}
             >
               Gotowe
             </button>

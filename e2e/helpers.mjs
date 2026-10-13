@@ -65,7 +65,8 @@ export async function saveProgress(request, session, segmentId, completed = true
   return response.json();
 }
 export async function readGroup(request, session) {
-  const response = await request.get('/api/groups/' + session.group.id, { timeout: 30000 });
+  // Retry only an interrupted, idempotent GET. HTTP failures and state assertions still fail normally.
+  const response = await request.get('/api/groups/' + session.group.id, { timeout: 30000, maxRetries: 2 });
   expect(response.status()).toBe(200);
   return response.json();
 }

@@ -70,8 +70,12 @@ for (const late of [false, true]) {
     await install(page).getByRole('button', { name: 'Pokaż jak', exact: true }).click();
     // Native instructions are manually opened; no other banner competes with them.
     await expect(page.locator('.install-instructions')).toBeVisible(); await expect(recovery(page)).toBeHidden();
-    await page.locator('.install-instructions').getByRole('button', { name: 'Zamknij', exact: true }).click();
-    await install(page).getByRole('button', { name: 'Nie teraz', exact: true }).click();
+    if (late) {
+      await page.locator('.install-instructions').getByRole('button', { name: 'Zamknij', exact: true }).click();
+      await install(page).getByRole('button', { name: 'Nie teraz', exact: true }).click();
+    } else {
+      await page.locator('.install-instructions').getByRole('button', { name: 'Gotowe', exact: true }).click();
+    }
     await expect(install(page)).toBeHidden(); await expect(recovery(page)).toBeHidden();
     await page.reload(); await expect(recovery(page)).toBeHidden(); await expect(install(page)).toBeHidden();
     if (late) {
