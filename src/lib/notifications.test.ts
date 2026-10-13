@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validReminderSettings, validPushSubscription, localReminderClock, reminderIsDue, todaysReminder, testReminder } from "./notifications";
+import { DEFAULT_REMINDER_TIME, validReminderSettings, validPushSubscription, localReminderClock, reminderIsDue, todaysReminder, testReminder } from "./notifications";
 import type { Group } from "../types";
 
 const settings = { enabled: true, time: "08:30", timeZone: "Europe/Warsaw" };
@@ -16,6 +16,13 @@ const group: Group = {
 };
 
 describe("reading reminders", () => {
+  it("defaults to 8:00 in the device's local time zone", () => {
+    const defaults = { enabled: true, time: DEFAULT_REMINDER_TIME, timeZone: "Europe/Warsaw" };
+    expect(defaults.time).toBe("08:00");
+    expect(validReminderSettings(defaults)).toBe(true);
+    expect(reminderIsDue(defaults, new Date("2026-10-05T05:59:00Z"))).toBe(false);
+    expect(reminderIsDue(defaults, new Date("2026-10-05T06:00:00Z"))).toBe(true);
+  });
   it("validates a real clock and time zone", () => {
     expect(validReminderSettings(settings)).toBe(true);
     for (const time of ["25:00", "12:60", "8:30", "", "08:30:00"]) expect(validReminderSettings({ ...settings, time })).toBe(false);

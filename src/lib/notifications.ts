@@ -1,6 +1,7 @@
 import type { Group } from "../types";
 
 export type ReminderSettings = { enabled: boolean; time: string; timeZone: string };
+export const DEFAULT_REMINDER_TIME = "08:00";
 export type PushSubscriptionData = { endpoint: string; keys: { p256dh: string; auth: string } };
 
 export function validReminderSettings(value: unknown): value is ReminderSettings {

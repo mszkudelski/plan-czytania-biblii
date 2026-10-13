@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { createECDH, randomBytes } from 'node:crypto';
 import { inputPlan, NOW, TODAY, openPlan, reading, tab, expectSaved, saveProgress } from './helpers.mjs';
-test.use({ screenshot: 'off', channel: 'chromium' });
+test.use({ screenshot: 'off', channel: 'chromium', timezoneId: 'Europe/Warsaw' });
 const recovery = page => page.getByRole('complementary', { name: 'Propozycja nadrabiania', exact: true });
 const reminder = page => page.getByRole('complementary', { name: 'Propozycja przypomnienia', exact: true });
 const install = page => page.locator('.install-app-card');
@@ -121,14 +122,14 @@ test('a desktop participant who returns before reading still finishes a reading 
   await expect(recovery(page)).toBeVisible();
 });
 
-test('first launch from the app icon offers a time picker before catch-up and never requests permission automatically', async ({ page, request }) => {
+test('first launch from the app icon offers reminders without a time picker and never requests permission automatically', async ({ page, request }) => {
   await mobile(page, true);
   const session = await createPlan(request, 'onboarding-reminder');
   await saveProgress(request, session, 's0'); await saveProgress(request, session, 's1');
   await page.addInitScript(() => localStorage.setItem('reading-onboarding-install-started', 'true'));
   await openPlan(page, session);
   await expect(reminder(page)).toBeVisible(); await expect(recovery(page)).toBeHidden(); await expect(install(page)).toBeHidden();
-  await reminder(page).getByLabel('Godzina przypomnienia', { exact: true }).fill('19:35');
+  await expect(reminder(page).locator('input[type="time"]')).toHaveCount(0);
   expect(await page.evaluate(() => window.permissionRequests)).toBe(0);
   await screenshot(page, 'onboarding-reminder');
   await reminder(page).getByRole('button', { name: 'Nie teraz', exact: true }).click();
@@ -138,20 +139,20 @@ test('first launch from the app icon offers a time picker before catch-up and ne
   await expect(recovery(page)).toBeVisible(); await expect(reminder(page)).toBeHidden();
 });
 
-test('a refused consent preserves the selected time and does not pretend reminders were saved', async ({ page, request }) => {
+test('a refused consent keeps the proposal without a time picker and does not pretend reminders were saved', async ({ page, request }) => {
   const { cdp, browserContextId } = await mobile(page, true);
   const session = await createPlan(request, 'onboarding-consent-failure');
   await saveProgress(request, session, 's0'); await saveProgress(request, session, 's1');
   await openPlan(page, session);
   await expect(reminder(page)).toBeVisible();
-  await reminder(page).getByLabel('Godzina przypomnienia', { exact: true }).fill('19:35');
+  await expect(reminder(page).locator('input[type="time"]')).toHaveCount(0);
   // Apply an actual browser refusal before the click; the permission request still runs only from that gesture.
   await cdp.send('Browser.setPermission', { permission: { name: 'notifications' }, setting: 'denied',
     origin: new URL(process.env.E2E_BASE_URL).origin, browserContextId });
   await reminder(page).getByRole('button', { name: 'Włącz przypomnienia', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.permissionRequests)).toBe(1);
   await expect(reminder(page).getByRole('alert')).toHaveText('Powiadomienia są zablokowane. Włącz je dla tej aplikacji w ustawieniach urządzenia.');
-  await expect(reminder(page).getByLabel('Godzina przypomnienia', { exact: true })).toHaveValue('19:35');
+  await expect(page.getByRole('complementary', { name: 'Potwierdzenie przypomnienia' })).toBeHidden();
   const deviceId = await page.evaluate(() => localStorage.getItem('reading-notification-device'));
   const response = await request.post('/api/groups/' + session.group.id + '/notifications', { data: { ...session.credentials, deviceId, action: 'read' } });
   expect(response.status()).toBe(200); expect(await response.json()).toBeNull();
@@ -160,4 +161,49 @@ test('a refused consent preserves the selected time and does not pretend reminde
   await expect(reminder(page)).toBeHidden();
   await expect(recovery(page)).toBeVisible();
   expect(await page.evaluate(() => window.permissionRequests)).toBe(1);
+});
+
+test('enabling from onboarding saves 8:00 and explains that the hour can be changed in settings', async ({ page, request }) => {
+  const { cdp, browserContextId } = await mobile(page, true);
+  const session = await createPlan(request, 'onboarding-default-hour');
+  await saveProgress(request, session, 's0'); await saveProgress(request, session, 's1');
+  const curve = createECDH('prime256v1'); curve.generateKeys();
+  const subscription = { endpoint: 'https://fcm.googleapis.com/fcm/send/e2e-' + crypto.randomUUID(),
+    keys: { p256dh: curve.getPublicKey().toString('base64url'), auth: randomBytes(16).toString('base64url') } };
+  // Only the external push transport is synthetic. Permission, service worker,
+  // app requests and persistence all use the real browser and deployed backend.
+  await page.addInitScript(value => {
+    PushManager.prototype.getSubscription = async () => null;
+    PushManager.prototype.subscribe = async () => ({ toJSON: () => value });
+  }, subscription);
+  await openPlan(page, session);
+  await expect(reminder(page)).toBeVisible();
+  await expect(reminder(page).locator('input')).toHaveCount(0);
+  expect(await page.evaluate(() => window.permissionRequests)).toBe(0);
+  await cdp.send('Browser.setPermission', { permission: { name: 'notifications' }, setting: 'granted',
+    origin: new URL(process.env.E2E_BASE_URL).origin, browserContextId });
+  const deviceId = await page.evaluate(() => localStorage.getItem('reading-notification-device'));
+  const path = '/api/groups/' + session.group.id + '/notifications';
+  try {
+    await reminder(page).getByRole('button', { name: 'Włącz przypomnienia', exact: true }).click();
+    const confirmation = page.getByRole('complementary', { name: 'Potwierdzenie przypomnienia' });
+    await expect(confirmation.getByRole('status')).toContainText('Godzina przypomnienia: 8:00. Możesz ją zmienić w Ustawieniach.');
+    await expect(confirmation).toContainText('Wersja testowa nie wysyła codziennych przypomnień.');
+    await expect(reminder(page)).toBeHidden(); await expect(recovery(page)).toBeHidden();
+    expect(await page.evaluate(() => window.permissionRequests)).toBe(1);
+    const response = await request.post(path, { data: { ...session.credentials, deviceId, action: 'read' } });
+    expect(response.status()).toBe(200);
+    expect(await response.json()).toEqual({ enabled: true, time: '08:00', timeZone: 'Europe/Warsaw' });
+    await screenshot(page, 'onboarding-reminder-saved');
+    await confirmation.getByRole('button', { name: 'Rozumiem', exact: true }).click();
+    await expect(confirmation).toBeHidden();
+    await page.reload(); await expect(reminder(page)).toBeHidden();
+    await tab(page, 'Ustawienia').click();
+    const panel = page.getByRole('region', { name: 'Powiadomienia o czytaniu' });
+    await panel.getByText('Zmień godzinę', { exact: true }).click();
+    await expect(panel.getByLabel('Godzina przypomnienia')).toBeVisible();
+    await expect(panel.getByLabel('Godzina przypomnienia')).toHaveValue('08:00');
+  } finally {
+    expect((await request.post(path, { data: { ...session.credentials, deviceId, action: 'disable' } })).status()).toBe(200);
+  }
 });
