@@ -131,4 +131,9 @@ test('a refused consent preserves the selected time and does not pretend reminde
   const deviceId = await page.evaluate(() => localStorage.getItem('reading-notification-device'));
   const response = await request.post('/api/groups/' + session.group.id + '/notifications', { data: { ...session.credentials, deviceId, action: 'read' } });
   expect(response.status()).toBe(200); expect(await response.json()).toBeNull();
+  await page.clock.setSystemTime(new Date(NOW.getTime() + 31 * 60000));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(reminder(page)).toBeHidden();
+  await expect(recovery(page)).toBeVisible();
+  expect(await page.evaluate(() => window.permissionRequests)).toBe(1);
 });

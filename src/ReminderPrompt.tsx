@@ -13,7 +13,6 @@ export default function ReminderPrompt({ credentials }: { credentials: Credentia
   const [enabled, setEnabled] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [time, setTime] = useState("08:00");
@@ -21,10 +20,10 @@ export default function ReminderPrompt({ credentials }: { credentials: Credentia
   const key = credentials ? reminderPromptKey(credentials) : "";
   const [preference, setPreference] = useState(() => parseDevicePreference(key ? localStorage.getItem(key) : null));
   useEffect(() => {
-    setPreference(parseDevicePreference(key ? localStorage.getItem(key) : null)); setDismissed(false); setError("");
+    setPreference(parseDevicePreference(key ? localStorage.getItem(key) : null)); setError(""); setTime("08:00");
   }, [key]);
   useEffect(() => {
-    const refresh = () => setDevice(notificationDevice());
+    const refresh = () => { setDevice(notificationDevice()); setRevision(value => value + 1); };
     const changed = () => setRevision(value => value + 1);
     const mode = window.matchMedia("(display-mode: standalone)");
     window.addEventListener("focus", refresh); window.addEventListener("appinstalled", refresh); mode.addEventListener("change", refresh);
@@ -38,15 +37,17 @@ export default function ReminderPrompt({ credentials }: { credentials: Credentia
     let cancelled = false;
     Promise.all([getNotificationConfig(), notificationSettings(credentials, deviceId, "read")]).then(([configuration, settings]) => {
       if (cancelled) return;
-      setConfig(configuration); setEnabled(Boolean(settings?.enabled)); setTime(settings?.time ?? "08:00"); setLoaded(true);
-      if (settings?.enabled) queue.finish("reminder");
+      setConfig(configuration); setEnabled(Boolean(settings?.enabled)); setLoaded(true);
+      if (settings?.time) setTime(settings.time);
+      if (queue.offer !== "reminder") setError("");
+      if (settings?.enabled) { localStorage.removeItem(SETUP_KEY); queue.finish("reminder"); }
     }).catch(() => { if (!cancelled) setFailed(true); });
     return () => { cancelled = true; };
   }, [credentials?.groupId, credentials?.memberId, credentials?.token, queue.ready, deviceId, device.standalone, device.supported, device.permission, revision, queue.finish]);
-  const candidate = Boolean(credentials && loaded && config?.publicKey && device.standalone && !enabled && !dismissed &&
-    (device.permission !== "denied" || Boolean(error)) && devicePromptAllowed(preference) && (queue.completed || localStorage.getItem(SETUP_KEY) === "true"));
+  const candidate = Boolean(credentials && loaded && config?.publicKey && device.standalone && !enabled &&
+    (device.permission !== "denied" || Boolean(error) && queue.offer === "reminder") && devicePromptAllowed(preference) && (queue.completed || localStorage.getItem(SETUP_KEY) === "true"));
   const pending = Boolean(credentials && queue.ready && device.standalone && device.supported && device.permission !== "denied" &&
-    !loaded && !failed && !dismissed && devicePromptAllowed(preference) && (queue.completed || localStorage.getItem(SETUP_KEY) === "true"));
+    !loaded && !failed && devicePromptAllowed(preference) && (queue.completed || localStorage.getItem(SETUP_KEY) === "true"));
   const visible = usePromptOffer("reminder", pending ? null : candidate);
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -66,7 +67,7 @@ export default function ReminderPrompt({ credentials }: { credentials: Credentia
     if (busy) return;
     const next = postponeDevicePrompt(preference);
     localStorage.setItem(key, JSON.stringify(next)); localStorage.removeItem(SETUP_KEY);
-    setPreference(next); setDismissed(true); queue.finish("reminder");
+    setPreference(next); queue.finish("reminder");
   }
   if (!visible || !candidate) return null;
   return <aside className="recovery-notice reminder-notice" aria-label="Propozycja przypomnienia">

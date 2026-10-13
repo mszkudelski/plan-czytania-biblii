@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Credentials, Group } from "./types";
 import { continueVisit, hasCompletedReading, nextPrompt, parseVisit, profileKey, SETUP_KEY, VISIT_KEY, type PromptKind } from "./lib/onboarding";
 
@@ -34,11 +34,14 @@ export default function Onboarding({ credentials, group, ready, children }: {
 }) {
   const [visit, setVisit] = useState(() => continueVisit(parseVisit(localStorage.getItem(VISIT_KEY)), Date.now(), crypto.randomUUID()));
   const [eligible, setEligible] = useState<Partial<Record<PromptKind, boolean | null>>>({});
+  const eligibleRef = useRef<Partial<Record<PromptKind, boolean | null>>>({});
+  const visitId = useRef(visit.id);
   const [offer, setOffer] = useState<PromptKind | null>(null);
   const [readingActive, setReadingActive] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [installAvailable, setInstallAvailable] = useState(false);
   const register = useCallback((kind: PromptKind, value: boolean | null) => {
+    eligibleRef.current[kind] = value;
     setEligible(current => current[kind] === value ? current : { ...current, [kind]: value });
   }, []);
   const finish = useCallback((kind: PromptKind) => setOffer(current => current === kind ? null : current), []);
@@ -55,10 +58,8 @@ export default function Onboarding({ credentials, group, ready, children }: {
     const refresh = () => {
       if (document.visibilityState === "hidden") return;
       const next = continueVisit(parseVisit(localStorage.getItem(VISIT_KEY)), Date.now(), crypto.randomUUID());
-      setVisit(current => {
-        if (current.id !== next.id) setOffer(null);
-        return next;
-      });
+      if (visitId.current !== next.id) { visitId.current = next.id; setOffer(null); }
+      setVisit(next);
       localStorage.setItem(VISIT_KEY, JSON.stringify(next));
     };
     window.addEventListener("focus", refresh);
@@ -79,7 +80,7 @@ export default function Onboarding({ credentials, group, ready, children }: {
   }, []);
   useEffect(() => {
     if (offer || !ready || !credentials || !readingActive || blocked) return;
-    const next = nextPrompt(eligible, visit, localStorage.getItem(SETUP_KEY) === "true");
+    const next = nextPrompt(eligibleRef.current, visit, localStorage.getItem(SETUP_KEY) === "true");
     if (!next) return;
     const claimed = { ...visit, offered: [...visit.offered, next] };
     localStorage.setItem(VISIT_KEY, JSON.stringify(claimed));
