@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { continueVisit, DEFAULT_DEVICE_PREFERENCE, devicePromptAllowed, hasCompletedReading, nextPrompt, parseDevicePreference, parseVisit, postponeDevicePrompt, VISIT_GAP, WEEK } from "./onboarding";
+import { continueVisit, DEFAULT_DEVICE_PREFERENCE, devicePromptAllowed, hasCompletedReading, nextPrompt, parseDevicePreference, parseVisit, postponeDevicePrompt, recoveryOnboardingAllowed, VISIT_GAP, WEEK } from "./onboarding";
 import type { Group } from "../types";
 const NOW = Date.parse("2026-10-13T06:00:00Z");
 const visit = { id: "first", lastActivity: NOW, offered: [] as ("install" | "reminder" | "recovery")[] };
 describe("onboarding visits and prompt priority", () => {
+  it("holds catch-up for a new reader until a completed reading and a later visit, while preserving existing-reader suggestions", () => {
+    expect(recoveryOnboardingAllowed(true, true, false)).toBe(false);
+    expect(recoveryOnboardingAllowed(true, false, false)).toBe(false);
+    expect(recoveryOnboardingAllowed(true, true, true)).toBe(false);
+    expect(recoveryOnboardingAllowed(true, false, true)).toBe(true);
+    expect(recoveryOnboardingAllowed(false, false, false)).toBe(true);
+  });
   it("keeps refreshes and ordinary activity in one visit with the consumed prompt", () => {
     const current = { ...visit, offered: ["install" as const] };
     expect(continueVisit(current, NOW + VISIT_GAP - 1, "other")).toEqual({ ...current, lastActivity: NOW + VISIT_GAP - 1 });

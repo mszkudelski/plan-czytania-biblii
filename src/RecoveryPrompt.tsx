@@ -64,7 +64,7 @@ export default function RecoveryPrompt({ credentials, overdue, enabled, ready, a
     if (busy) return;
     setDismissed(true); setError(""); queue.finish("recovery"); onEnable(); onClose();
   }
-  const candidate = Boolean(active && ready && loaded && preference && !dismissed && !open && !queue.firstVisit &&
+  const candidate = Boolean(active && ready && loaded && preference && !dismissed && !open && queue.recoveryAllowed &&
     shouldSuggestRecovery(overdue, enabled, preference));
   const offered = usePromptOffer("recovery", candidate);
   const showNotice = offered && candidate;

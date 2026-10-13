@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Credentials, Group } from "./types";
-import { continueVisit, hasCompletedReading, nextPrompt, parseVisit, profileKey, SETUP_KEY, VISIT_KEY, type PromptKind } from "./lib/onboarding";
+import { continueVisit, hasCompletedReading, nextPrompt, parseVisit, profileKey, recoveryOnboardingAllowed, SETUP_KEY, VISIT_KEY, type PromptKind } from "./lib/onboarding";
 
 type Queue = {
   offer: PromptKind | null;
   completed: boolean;
   firstVisit: boolean;
+  recoveryAllowed: boolean;
   readingActive: boolean;
   blocked: boolean;
   ready: boolean;
@@ -40,17 +41,31 @@ export default function Onboarding({ credentials, group, ready, children }: {
   const [readingActive, setReadingActive] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [installAvailable, setInstallAvailable] = useState(false);
+  const [, refreshProfile] = useState(0);
   const register = useCallback((kind: PromptKind, value: boolean | null) => {
     eligibleRef.current[kind] = value;
     setEligible(current => current[kind] === value ? current : { ...current, [kind]: value });
   }, []);
   const finish = useCallback((kind: PromptKind) => setOffer(current => current === kind ? null : current), []);
   let firstVisit = false;
+  let newReader = false;
+  let profile: { firstVisit: string; completedVisit?: string } | null = null;
   if (credentials) {
-    try { firstVisit = JSON.parse(localStorage.getItem(profileKey(credentials)) ?? "null")?.firstVisit === visit.id; }
+    try {
+      profile = JSON.parse(localStorage.getItem(profileKey(credentials)) ?? "null");
+      newReader = typeof profile?.firstVisit === "string";
+      firstVisit = newReader && profile?.firstVisit === visit.id;
+    }
     catch { /* Legacy and corrupt profiles must not block manual features. */ }
   }
   const completed = ready && hasCompletedReading(group, credentials?.memberId);
+  const completedVisit = typeof profile?.completedVisit === "string" ? profile.completedVisit : null;
+  const recoveryAllowed = recoveryOnboardingAllowed(newReader, completedVisit === visit.id, Boolean(completedVisit));
+  useEffect(() => {
+    if (!credentials || !newReader || !completed || completedVisit) return;
+    localStorage.setItem(profileKey(credentials), JSON.stringify({ ...profile, completedVisit: visit.id }));
+    refreshProfile(value => value + 1);
+  }, [credentials?.groupId, credentials?.memberId, newReader, completed, completedVisit, visit.id]);
   useEffect(() => {
     localStorage.setItem(VISIT_KEY, JSON.stringify(visit));
   }, [visit]);
@@ -86,7 +101,7 @@ export default function Onboarding({ credentials, group, ready, children }: {
     localStorage.setItem(VISIT_KEY, JSON.stringify(claimed));
     setVisit(claimed); setOffer(next);
   }, [offer, ready, credentials?.groupId, credentials?.memberId, readingActive, blocked, eligible, visit]);
-  const value = useMemo(() => ({ offer, completed, firstVisit, readingActive, blocked, ready, installAvailable,
-    register, finish, setReadingActive, setInstallAvailable }), [offer, completed, firstVisit, readingActive, blocked, ready, register, finish, installAvailable]);
+  const value = useMemo(() => ({ offer, completed, firstVisit, recoveryAllowed, readingActive, blocked, ready, installAvailable,
+    register, finish, setReadingActive, setInstallAvailable }), [offer, completed, firstVisit, recoveryAllowed, readingActive, blocked, ready, register, finish, installAvailable]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

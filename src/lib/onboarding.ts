@@ -51,6 +51,9 @@ export function postponeDevicePrompt(preference: DevicePreference, now = Date.no
 export function devicePromptAllowed(preference: DevicePreference, now = Date.now()) {
   return !preference.disabled && preference.until <= now;
 }
+export function recoveryOnboardingAllowed(newReader: boolean, firstReadingVisit: boolean, completed: boolean) {
+  return !newReader || completed && !firstReadingVisit;
+}
 export function hasCompletedReading(group: Group | null, memberId?: string) {
   if (!group || !memberId) return false;
   const progress = group.progress[memberId] ?? {};

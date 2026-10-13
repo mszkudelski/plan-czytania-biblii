@@ -59,6 +59,11 @@ for (const late of [false, true]) {
     const session = await join(page, owner);
     await expect(recovery(page)).toBeHidden(); await expect(install(page)).toBeHidden(); await expect(reminder(page)).toBeHidden();
     await screenshot(page, 'onboarding-first-reading-' + (late ? 'late' : 'together'));
+    if (late) {
+      await page.clock.setSystemTime(new Date(NOW.getTime() + 31 * 60000));
+      await page.reload();
+      await expect(recovery(page)).toBeHidden(); await expect(install(page)).toBeHidden();
+    }
     await finishReading(page, request, session);
     await expect(install(page)).toBeVisible(); await expect(recovery(page)).toBeHidden();
     await screenshot(page, 'onboarding-install-' + (late ? 'late' : 'together'));
@@ -70,7 +75,7 @@ for (const late of [false, true]) {
     await expect(install(page)).toBeHidden(); await expect(recovery(page)).toBeHidden();
     await page.reload(); await expect(recovery(page)).toBeHidden(); await expect(install(page)).toBeHidden();
     if (late) {
-      await page.clock.setSystemTime(new Date(NOW.getTime() + 31 * 60000));
+      await page.clock.setSystemTime(new Date(NOW.getTime() + 62 * 60000));
       await page.reload(); await expect(recovery(page)).toBeVisible(); await expect(install(page)).toBeHidden();
       await screenshot(page, 'onboarding-catchup-next-visit');
     }
@@ -95,6 +100,21 @@ test('manual installation is available before reading and opens from settings af
   await page.getByRole('button', { name: 'Dodaj aplikację do ekranu głównego', exact: true }).click();
   await expect(page.locator('.install-instructions')).toBeVisible();
 
+});
+
+test('a desktop participant who returns before reading still finishes a reading before any catch-up proposal', async ({ page, request }) => {
+  const owner = await createPlan(request, 'onboarding-unfinished-return');
+  const session = await join(page, owner);
+  await expect(recovery(page)).toBeHidden();
+  await page.clock.setSystemTime(new Date(NOW.getTime() + 31 * 60000)); await page.reload();
+  await expect(recovery(page)).toBeHidden();
+  await finishReading(page, request, session);
+  await expect.poll(() => page.evaluate(credentials => Boolean(JSON.parse(localStorage.getItem(
+    'reading-onboarding:' + credentials.groupId + ':' + credentials.memberId) ?? 'null')?.completedVisit), session.credentials)).toBe(true);
+  await expect(recovery(page)).toBeHidden();
+  await page.reload(); await expect(recovery(page)).toBeHidden();
+  await page.clock.setSystemTime(new Date(NOW.getTime() + 62 * 60000)); await page.reload();
+  await expect(recovery(page)).toBeVisible();
 });
 
 test('first launch from the app icon offers a time picker before catch-up and never requests permission automatically', async ({ page, request }) => {
