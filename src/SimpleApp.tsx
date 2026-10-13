@@ -635,7 +635,7 @@ function InstallApp() {
           type="button"
           className="install-card-close"
           onClick={dismiss}
-          aria-label="Nie teraz"
+          aria-label="Zamknij propozycję instalacji"
         >
           <Icon name="close" size={18} />
         </button>

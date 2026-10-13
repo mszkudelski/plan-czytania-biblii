@@ -81,11 +81,20 @@ for (const late of [false, true]) {
 test('manual installation is available before reading and opens from settings after dismissal', async ({ page, request }) => {
   await mobile(page);
   const owner = await createPlan(request, 'onboarding-manual-install');
-  await join(page, owner);
+  const session = await join(page, owner);
   await tab(page, 'Ustawienia').click();
   await page.getByRole('button', { name: 'Dodaj aplikację do ekranu głównego', exact: true }).click();
   await expect(page.locator('.install-instructions')).toBeVisible();
   await expect(recovery(page)).toBeHidden(); await expect(install(page)).toBeHidden();
+  await page.locator('.install-instructions').getByRole('button', { name: 'Zamknij', exact: true }).click();
+  await tab(page, 'Czytaj').click();
+  await finishReading(page, request, session);
+  await expect(install(page)).toBeVisible();
+  await install(page).getByRole('button', { name: 'Nie teraz', exact: true }).click();
+  await tab(page, 'Ustawienia').click();
+  await page.getByRole('button', { name: 'Dodaj aplikację do ekranu głównego', exact: true }).click();
+  await expect(page.locator('.install-instructions')).toBeVisible();
+
 });
 
 test('first launch from the app icon offers a time picker before catch-up and never requests permission automatically', async ({ page, request }) => {
