@@ -150,7 +150,7 @@ test('a refused consent preserves the selected time and does not pretend reminde
     origin: new URL(process.env.E2E_BASE_URL).origin, browserContextId });
   await reminder(page).getByRole('button', { name: 'Włącz przypomnienia', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.permissionRequests)).toBe(1);
-  await expect(reminder(page).getByRole('alert')).toBeVisible();
+  await expect(reminder(page).getByRole('alert')).toHaveText('Powiadomienia są zablokowane. Włącz je dla tej aplikacji w ustawieniach urządzenia.');
   await expect(reminder(page).getByLabel('Godzina przypomnienia', { exact: true })).toHaveValue('19:35');
   const deviceId = await page.evaluate(() => localStorage.getItem('reading-notification-device'));
   const response = await request.post('/api/groups/' + session.group.id + '/notifications', { data: { ...session.credentials, deviceId, action: 'read' } });

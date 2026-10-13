@@ -60,7 +60,12 @@ export default function ReminderPrompt({ credentials }: { credentials: Credentia
       }, subscription);
       if (!settings?.enabled) throw new Error("Nie udało się zapisać przypomnienia. Spróbuj ponownie.");
       setEnabled(true); localStorage.removeItem(SETUP_KEY); queue.finish("reminder");
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Nie udało się włączyć przypomnienia. Spróbuj ponownie."); }
+    } catch (caught) {
+      const currentDevice = notificationDevice();
+      setError(currentDevice.ios && currentDevice.permission === "denied"
+        ? "Powiadomienia są zablokowane. Włącz je dla tej aplikacji w ustawieniach urządzenia."
+        : caught instanceof Error ? caught.message : "Nie udało się włączyć przypomnienia. Spróbuj ponownie.");
+    }
     finally { setBusy(false); }
   }
   function later() {
