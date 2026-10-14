@@ -8,6 +8,17 @@ const APP_SHELL = [
   "/icons/apple-touch-icon.png",
 ];
 
+function notificationUrl(value) {
+  try {
+    const url = new URL(value, self.location.origin);
+    if (url.origin === self.location.origin && url.pathname === "/" &&
+      url.searchParams.get("reading") && url.searchParams.get("day")) {
+      return `/?${new URLSearchParams({ reading: url.searchParams.get("reading"), day: url.searchParams.get("day") })}`;
+    }
+  } catch { /* Old or invalid notifications open the usual reading view. */ }
+  return "/";
+}
+
 self.addEventListener("push", (event) => {
   let payload = {};
   try { payload = event.data?.json() ?? {}; } catch { /* Display a safe default. */ }
@@ -18,7 +29,7 @@ self.addEventListener("push", (event) => {
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
       tag: typeof payload.tag === "string" ? payload.tag : "reading-reminder",
-      data: { url: "/" },
+      data: { url: notificationUrl(payload.url) },
     },
   ));
 });
@@ -26,13 +37,14 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   event.waitUntil((async () => {
+    const url = notificationUrl(event.notification.data?.url);
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     const existing = windows.find(client => new URL(client.url).origin === self.location.origin);
     if (existing) {
-      await existing.navigate("/");
-      return existing.focus();
+      const navigated = await existing.navigate(url);
+      return (navigated ?? existing).focus();
     }
-    return self.clients.openWindow("/");
+    return self.clients.openWindow(url);
   })());
 });
 
