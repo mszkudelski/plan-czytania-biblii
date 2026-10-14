@@ -1,6 +1,6 @@
 # E2E with the deployed backend
 
-These Playwright tests create separate E2E reading plans via the real Netlify API, use Netlify Blobs, verify persisted progress through independent GET requests, and reload the browser. Pull requests run against their exact preview commit; pushes to develop run the entire browser and API suite against that develop commit. An outdated develop deployment is not used to assess a newer PR. They never use the application's localhost fallback.
+These Playwright tests create separate E2E reading plans via the real Netlify API, use Netlify Blobs, verify persisted progress through independent GET requests, and reload the browser. Pull requests run against their exact preview commit; pushes to develop run the selected browser and API suites against that develop commit. An outdated develop deployment is not used to assess a newer PR. They never use the application's localhost fallback.
 
 Install and run:
 
@@ -97,3 +97,35 @@ short mobile overlap above navigation, one-day modal preview, activation without
 progress writes, seven-day snooze, durable per-member/per-plan opt-out across
 fresh devices, manual activation, rejected saves and retries, stale-cache startup,
 real chapter completion on date buttons, API authentication and private preferences.
+
+## Change-based E2E selection
+
+CI selects test files with `scripts/select-e2e.mjs`. PRs to develop use the
+merge-base diff against the target branch; develop pushes compare the event's
+before and after SHAs. Both sides of renames and deleted paths are considered.
+PRs to main and manual workflow runs always run the complete suite. Production
+pushes retain the read-only checks.
+
+The selector has an explicit source-to-test allowlist, including cross-feature
+consumers and visual review. Notification components/helpers run notification,
+onboarding and visual tests. Reading/recovery helpers run reading, recovery,
+member-access, onboarding and visual tests. Access components/helpers run
+backend, browser, identity, member-access, group-hint, onboarding and visual tests.
+Changed E2E files run themselves; unit test changes follow their source mapping.
+Shared app, API, storage, global styles, configuration, helpers, selector changes,
+unknown paths, removed E2E tests, missing mapped tests or unavailable comparison
+history trigger the full suite. A newly extracted module therefore runs all until
+its consumers are explicitly mapped. Update the map when adding consumers.
+
+Only README.md, e2e/README.md and Markdown files under docs/ may skip E2E,
+and only if every changed file is on that documentation allowlist. Unit/build
+checks still run. The selection job must succeed, and Required CI accepts a
+skipped E2E job only for an explicit none selection. Selection failures,
+cancellations and test failures cannot produce a passing Required CI check.
+The GitHub Actions summary lists the selected test files and reasons.
+
+`npm run test:e2e` remains the full local suite. Arguments are forwarded through
+both npm scripts, for example `npm run test:e2e -- notifications.e2e.mjs`.
+CI uses a validated JSON list and exact filename regexes, without interpolating
+changed filenames into shell commands. Selector and runner regressions run with
+`node --test scripts/*.node-test.mjs` and are also part of `npm test`.

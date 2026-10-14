@@ -12,6 +12,26 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  select-e2e:
+    name: Select E2E tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.selection.outputs.mode }}
+      files: ${{ steps.selection.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify E2E selection regressions
+        run: node --test scripts/*.node-test.mjs
+      - name: Select tests from the commit changes
+        id: selection
+        run: node scripts/select-e2e.mjs
   unit-build:
     name: Unit tests and build
     runs-on: ubuntu-latest
@@ -26,7 +46,8 @@ jobs:
       - run: npm test
       - run: npm run build
   e2e-backend:
-    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+    needs: select-e2e
+    if: needs.select-e2e.outputs.mode != 'none'
     name: E2E with real backend
     concurrency:
       group: backend-e2e-${{ github.event.pull_request.head.sha || github.sha }}
@@ -53,7 +74,9 @@ jobs:
       - name: Browser and API regressions against deployed backend
         env:
           E2E_BASE_URL: ${{ steps.deploy.outputs.base_url }}
-        run: npm run test:e2e
+          E2E_MODE: ${{ needs.select-e2e.outputs.mode }}
+          E2E_TEST_FILES: ${{ needs.select-e2e.outputs.files }}
+        run: node scripts/run-selected-e2e.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -80,21 +103,28 @@ jobs:
   required-ci:
     name: Required CI
     if: always()
-    needs: [unit-build, e2e-backend, production-smoke]
+    needs: [select-e2e, unit-build, e2e-backend, production-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Require every test job to pass
         env:
+          SELECTION_RESULT: ${{ needs.select-e2e.result }}
+          SELECTION_MODE: ${{ needs.select-e2e.outputs.mode }}
           UNIT_RESULT: ${{ needs.unit-build.result }}
           E2E_RESULT: ${{ needs.e2e-backend.result }}
           PRODUCTION_RESULT: ${{ needs.production-smoke.result }}
           PRODUCTION_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
+          test "$SELECTION_RESULT" = success
           test "$UNIT_RESULT" = success
           if [ "$PRODUCTION_PUSH" = true ]; then
             test "$E2E_RESULT" = skipped
             test "$PRODUCTION_RESULT" = success
           else
-            test "$E2E_RESULT" = success
+            case "$SELECTION_MODE" in
+              none) test "$E2E_RESULT" = skipped ;;
+              all|selected) test "$E2E_RESULT" = success ;;
+              *) exit 1 ;;
+            esac
             test "$PRODUCTION_RESULT" = skipped
           fi
