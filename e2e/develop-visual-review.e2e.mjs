@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.mjs';
 import { inputPlan, openPlan, reading, tab, expectSaved, browseReading } from './helpers.mjs';
 
 // Review images contain only isolated E2E profiles. Access codes and QR are

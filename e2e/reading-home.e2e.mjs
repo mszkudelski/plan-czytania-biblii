@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.mjs';
 import { enableRecovery, expectWeek, createPlan, inputPlan, NOW, openPlan, saveProgress, readGroup, expectSaved, reading, extraReading, browseReading, tab } from './helpers.mjs';
 
 const date = offset => new Date(NOW.getTime() + offset * 86400000).toISOString().slice(0, 10);

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.mjs';
 import { createPlan, openPlan, tab } from './helpers.mjs';
 test.use({ screenshot: 'off' });
 for (const width of [1280, 390]) {

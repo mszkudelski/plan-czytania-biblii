@@ -1,6 +1,11 @@
-# E2E with the deployed backend
+# E2E after main pushes
 
-These Playwright tests create separate E2E reading plans via the real Netlify API, use Netlify Blobs, verify persisted progress through independent GET requests, and reload the browser. Pull requests run against their exact preview commit; pushes to develop run the selected browser and API suites against that develop commit. An outdated develop deployment is not used to assess a newer PR. They never use the application's localhost fallback.
+Automatic E2E runs only after a push to `main`, in full, on the immutable URL
+of that exact production deployment. No extra branch or deployment is created.
+Develop, PR and manual CI runs execute unit tests/build only. Production also
+retains read-only smoke checks before E2E starts.
+E2E reports arrive after publishing, so failures require a fix-forward change.
+Routine local E2E runs are deferred to main CI to conserve the shared quota.
 
 Install and run:
 
@@ -10,14 +15,14 @@ npm ci --prefix e2e
 npm exec --prefix e2e -- playwright install --with-deps chromium
 npm test
 npm run build
-E2E_BASE_URL=https://deploy-preview-2--plan-czytania.netlify.app npm run test:e2e
+E2E_BASE_URL=https://deploy-preview-2--plan-czytania.netlify.app E2E_MODE=all E2E_TEST_FILES='["backend.e2e.mjs"]' node scripts/run-selected-e2e.mjs
 ```
 
-Use a preview containing the tested commit. CI checks public build-info.json against the exact PR head/push SHA before starting. Missing, stale, failed and production deployments fail the job. Fork PRs need a Netlify preview to run; there is no automatic success or skip if the backend is unavailable.
+CI validates the exact main SHA and production context in build-info.json before starting. The runner refuses to create test data if the cleanup endpoint is unavailable. Direct Playwright runs require a random cleanup capability; use the runner, which creates and protects it automatically. Production additionally requires E2E_PRODUCTION=1 and EXPECTED_COMMIT. Extra local E2E runs require explicit user approval.
 
 Coverage: create/validation, unauthorized writes, invalid segment, repeated check/uncheck, parallel writes, per-member isolation, duplicate join, member permissions/removal, secure session cookies, single-use transfer, immediate UI, rapid clicks, independent rollback/retry, recovery order, day navigation after activation (desktop and mobile), browsing completed plans, future recovery forecasts (full daily quota, balanced parallel streams, ten days of three chapters caught up after thirty extras, partial ranges, reading ahead without saving assumed progress), manual navigation after completing a day in both modes, extra/base dependency, tab switching during failure, reload after a backend commit while the response is pending, partial chapters, next day after reload and automatic midnight refresh, corrupt cache and completed plans.
 
-The suite creates plans named E2E <run id> <scenario> <random suffix>, with only synthetic users. There is currently no group-deletion API, so the test plans remain in the Netlify store. Netlify stores may be shared between deployment contexts. They have unique UUIDs and no existing group is altered. Partial recovery chapters, including individual chapters read ahead, are currently saved only in the browser until a whole segment is complete. Durable pending writes across a page reload are not currently provided.
+The suite creates new E2E plans and synthetic users. A random per-run capability marks plans at creation; the server stores only its hash. Cleanup is authorized only for registered groups from that run, never by a name prefix or administrator token. It removes groups, all paginated progress/revisions, recovery codes and pointers, session transfers and used markers, and subscriptions. The runner cleans up in finally; CI has a second always-run cleanup step, including after test failure. Cleanup failures fail CI and retain the local capability for a retry with node scripts/cleanup-e2e.mjs. Never upload or commit .e2e-run.json. Hard runner loss can prevent any finalizer from running; it must not be reported as successful cleanup. Existing historical E2E plans are not touched. Partial recovery chapters remain browser-local until a whole segment is complete.
 
 Reports and failure screenshots are uploaded for 7 days. Traces and stored credentials are disabled because request bodies contain member tokens. Do not add token values to test names or logs. Test reports are evidence of a real execution; source review or mocked harnesses are not E2E execution.
 
@@ -70,7 +75,7 @@ For every relevant change, maintain these tests and run the complete unit/build/
 Notification coverage: saved hour and time zone through the deployed API,
 reload, disable, denied permission, iOS install guidance, mobile layout,
 input/endpoint validation and per-member/device privacy. Synthetic push
-subscriptions are created only in preview scope and deleted in finally blocks;
+subscriptions are stored in a per-run E2E scope, excluded from the scheduler, and deleted by cleanup;
 these tests do not claim delivery through a browser push provider. Scheduler
 timing, local dates, deduplication, retries and expired subscriptions have unit tests.
 
@@ -79,7 +84,7 @@ the separate headless shell reports notification permission as denied. Native
 permission states are set for the test's own browser context; API responses and
 settings persistence still use the real Netlify backend.
 
-The workflow provides a stable **Required CI** check which fails unless both Unit tests and build and E2E with real backend pass. Configure Settings > Rules > Rulesets for develop and main, enable Require status checks to pass, select **Required CI**, and require the branch to be up to date. A reviewable REST ruleset payload is in ../.github/required-ci.ruleset.json.
+The workflow provides a stable **Required CI** check: unit/build on every event, plus full E2E and production smoke on main pushes. Configure Settings > Rules > Rulesets for develop and main, enable Require status checks to pass, select **Required CI**, and require the branch to be up to date. A reviewable REST ruleset payload is in ../.github/required-ci.ruleset.json.
 
 Adding a workflow does not enable branch protection. The connected GitHub integration cannot edit administrative settings; an administrator must apply that ruleset once.
 
@@ -87,9 +92,9 @@ Progress writes use an immutable log per operation, instead of replacing the ful
 
 Recovery keeps the full normal chapter quota for each parallel CSV column/section. Earlier extras change which chapters fill that quota, rather than reducing it. Each date adds at most one extra from the parallel stream with the most unread chapters due by that date. Book changes within a column keep the same stream. Once no debt remains after the normal quota, the extra disappears. Daily assignments are cached and validated so checking or reloading a completed portion does not advance it.
 
-Production pushes run unit/build checks and a read-only deployment check: exact commit, production context, HTML, application assets and a missing-plan API GET. Writable E2E runs on develop and PR previews before promotion. Cache/refresh regressions cover reconnecting after a failed read and preserving writes confirmed after a stale session read started.
+Production pushes run unit/build and read-only deployment checks, then full writable E2E on newly created synthetic plans with cleanup. PR/develop/manual events do not launch E2E. Cache/refresh regressions cover reconnecting after a failed read and preserving writes confirmed after a stale session read started.
 
-The first persistence verification GET has its own 30-second HTTP deadline, followed by the unchanged persistence polling assertions. A failed HTTP request fails the test; no request retry or fallback is accepted. E2E jobs for the same commit run sequentially to avoid duplicated PR/push jobs putting simultaneous load on Netlify.
+The first persistence verification GET has a 30-second HTTP deadline, followed by persistence polling assertions. No successful mocks or local fallback are used. Main workflows are serialized to avoid overlapping E2E runs.
 
 
 Catch-up suggestion coverage: a bottom notice after more than three overdue readings,
@@ -98,34 +103,10 @@ progress writes, seven-day snooze, durable per-member/per-plan opt-out across
 fresh devices, manual activation, rejected saves and retries, stale-cache startup,
 real chapter completion on date buttons, API authentication and private preferences.
 
-## Change-based E2E selection
+## Scope map
 
-CI selects test files with `scripts/select-e2e.mjs`. PRs to develop use the
-merge-base diff against the target branch; develop pushes compare the event's
-before and after SHAs. Both sides of renames and deleted paths are considered.
-PRs to main and manual workflow runs always run the complete suite. Production
-pushes retain the read-only checks.
-
-The selector has an explicit source-to-test allowlist, including cross-feature
-consumers and visual review. Notification components/helpers run notification,
-onboarding and visual tests. Reading/recovery helpers run reading, recovery,
-member-access, onboarding and visual tests. Access components/helpers run
-backend, browser, identity, member-access, group-hint, onboarding and visual tests.
-Changed E2E files run themselves; unit test changes follow their source mapping.
-Shared app, API, storage, global styles, configuration, helpers, selector changes,
-unknown paths, removed E2E tests, missing mapped tests or unavailable comparison
-history trigger the full suite. A newly extracted module therefore runs all until
-its consumers are explicitly mapped. Update the map when adding consumers.
-
-Only README.md, e2e/README.md and Markdown files under docs/ may skip E2E,
-and only if every changed file is on that documentation allowlist. Unit/build
-checks still run. The selection job must succeed, and Required CI accepts a
-skipped E2E job only for an explicit none selection. Selection failures,
-cancellations and test failures cannot produce a passing Required CI check.
-The GitHub Actions summary lists the selected test files and reasons.
-
-`npm run test:e2e` remains the full local suite. Arguments are forwarded through
-both npm scripts, for example `npm run test:e2e -- notifications.e2e.mjs`.
-CI uses a validated JSON list and exact filename regexes, without interpolating
-changed filenames into shell commands. Selector and runner regressions run with
-`node --test scripts/*.node-test.mjs` and are also part of `npm test`.
+`scripts/select-e2e.mjs` retains the source-to-test map for coverage planning
+and explicit targeted diagnostics. Event selection runs all E2E files only on
+main pushes, and selects none for every other event. The stable Required CI
+check requires E2E and production smoke success on main pushes; elsewhere it
+requires unit/build success and verifies that E2E was skipped.

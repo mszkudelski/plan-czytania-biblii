@@ -1,49 +1,22 @@
 import { appendFileSync } from 'node:fs';
-const { GITHUB_TOKEN, GITHUB_REPOSITORY, E2E_COMMIT, GITHUB_OUTPUT } = process.env;
-if (!GITHUB_TOKEN || !GITHUB_REPOSITORY || !E2E_COMMIT) throw new Error('Missing GitHub deployment lookup configuration.');
-const deadline = Date.now() + 15 * 60 * 1000;
+const { E2E_COMMIT, GITHUB_OUTPUT } = process.env;
+if (!/^[a-f0-9]{40}$/.test(E2E_COMMIT ?? '') || !GITHUB_OUTPUT) throw new Error('Missing deployment lookup configuration.');
+const deadline = Date.now() + 10 * 60 * 1000;
 while (Date.now() < deadline) {
-  // A PR preview may fail while the same commit's develop deployment is ready.
-  // Always require the exact SHA and a non-production context before using it.
   try {
-    const info = await fetch('https://develop--plan-czytania.netlify.app/build-info.json', { cache: 'no-store' }).then(r => r.json());
-    if (info.commit === E2E_COMMIT && info.context === 'branch-deploy' && /^[a-f0-9]{24}$/.test(info.deployId)) {
-      const baseURL = 'https://' + info.deployId + '--plan-czytania.netlify.app';
-      appendFileSync(GITHUB_OUTPUT, 'base_url=' + baseURL + '\n');
-      console.log('Testing develop deployment of commit ' + E2E_COMMIT + ': ' + baseURL);
-      process.exit(0);
+    const response = await fetch('https://plan-czytania.netlify.app/build-info.json?commit=' + E2E_COMMIT, {
+      cache: 'no-store', signal: AbortSignal.timeout(15000),
+    });
+    if (response.ok) {
+      const info = await response.json();
+      if (info.commit === E2E_COMMIT && info.context === 'production' && /^[a-f0-9]{24}$/.test(info.deployId)) {
+        const baseURL = 'https://' + info.deployId + '--plan-czytania.netlify.app';
+        appendFileSync(GITHUB_OUTPUT, 'base_url=' + baseURL + '\n');
+        console.log('Testing immutable production deployment of commit ' + E2E_COMMIT);
+        process.exit(0);
+      }
     }
-  } catch { /* A preview remains eligible if the develop alias is unavailable. */ }
-  const response = await fetch('https://api.github.com/repos/' + GITHUB_REPOSITORY + '/commits/' + E2E_COMMIT + '/status', {
-    headers: { authorization: 'Bearer ' + GITHUB_TOKEN, accept: 'application/vnd.github+json' },
-  });
-  if (!response.ok) throw new Error('GitHub status lookup failed: ' + response.status);
-  const { statuses } = await response.json();
-  const deployment = statuses.find(status =>
-    /^netlify\/plan-czytania\/(deploy-preview|branch-deploy)$/.test(status.context));
-  // Keep waiting if a preview fails: the same SHA's branch deployment can still finish.
-  if (deployment?.state === 'success') {
-    const target = new URL(deployment.target_url);
-    let baseURL;
-    if (/^(deploy-preview-\d+|develop)--plan-czytania\.netlify\.app$/.test(target.hostname)) {
-      baseURL = target.origin;
-    } else {
-      const deployId = target.pathname.match(/\/deploys\/([a-f0-9]{24})/)?.[1];
-      if (deployId) baseURL = 'https://' + deployId + '--plan-czytania.netlify.app';
-    }
-    if (baseURL) {
-      try {
-        const info = await fetch(baseURL + '/build-info.json', { cache: 'no-store' }).then(r => r.json());
-        // Reject stale aliases, production deploys and previews from another commit.
-        if (info.commit === E2E_COMMIT && ['deploy-preview', 'branch-deploy'].includes(info.context)) {
-          if (/^[a-f0-9]{24}$/.test(info.deployId)) baseURL = 'https://' + info.deployId + '--plan-czytania.netlify.app';
-          appendFileSync(GITHUB_OUTPUT, 'base_url=' + baseURL + '\n');
-          console.log('Testing deployment of commit ' + E2E_COMMIT + ': ' + baseURL);
-          process.exit(0);
-        }
-      } catch { /* Deployment may still be propagating. */ }
-    }
-  }
-  await new Promise(resolve => setTimeout(resolve, 15000));
+  } catch { /* The previous deploy remains live while Netlify builds. */ }
+  await new Promise(resolve => setTimeout(resolve, 5000));
 }
-throw new Error('No non-production Netlify deploy of the tested commit became ready within 15 minutes.');
+throw new Error('Expected production commit was not published within ten minutes.');

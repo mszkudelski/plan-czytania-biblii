@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.mjs';
 export const NOW = new Date();
 NOW.setUTCHours(12, 0, 0, 0);
 export const TODAY = NOW.toISOString().slice(0, 10);

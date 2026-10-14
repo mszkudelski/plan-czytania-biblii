@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.mjs';
 import { createPlan, saveProgress, readGroup, expectSaved, reading, tab } from './helpers.mjs';
 
 // Links and codes grant access; keep them out of screenshots and logs.

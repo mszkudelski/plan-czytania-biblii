@@ -10,7 +10,7 @@ permissions:
   statuses: read
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   select-e2e:
     name: Select E2E tests
@@ -46,8 +46,8 @@ jobs:
       - run: npm test
       - run: npm run build
   e2e-backend:
-    needs: select-e2e
-    if: needs.select-e2e.outputs.mode != 'none'
+    needs: [select-e2e, unit-build, production-smoke]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     name: E2E with real backend
     concurrency:
       group: backend-e2e-${{ github.event.pull_request.head.sha || github.sha }}
@@ -69,14 +69,19 @@ jobs:
         id: deploy
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          E2E_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          E2E_COMMIT: ${{ github.sha }}
         run: node scripts/wait-for-e2e-deploy.mjs
       - name: Browser and API regressions against deployed backend
         env:
           E2E_BASE_URL: ${{ steps.deploy.outputs.base_url }}
+          E2E_PRODUCTION: '1'
+          EXPECTED_COMMIT: ${{ github.sha }}
           E2E_MODE: ${{ needs.select-e2e.outputs.mode }}
           E2E_TEST_FILES: ${{ needs.select-e2e.outputs.files }}
         run: node scripts/run-selected-e2e.mjs
+      - name: Clean up this run's synthetic plans, also after test failure
+        if: always()
+        run: node scripts/cleanup-e2e.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -118,13 +123,11 @@ jobs:
           test "$SELECTION_RESULT" = success
           test "$UNIT_RESULT" = success
           if [ "$PRODUCTION_PUSH" = true ]; then
-            test "$E2E_RESULT" = skipped
+            test "$SELECTION_MODE" = all
+            test "$E2E_RESULT" = success
             test "$PRODUCTION_RESULT" = success
           else
-            case "$SELECTION_MODE" in
-              none) test "$E2E_RESULT" = skipped ;;
-              all|selected) test "$E2E_RESULT" = success ;;
-              *) exit 1 ;;
-            esac
+            test "$SELECTION_MODE" = none
+            test "$E2E_RESULT" = skipped
             test "$PRODUCTION_RESULT" = skipped
           fi

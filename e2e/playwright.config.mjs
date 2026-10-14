@@ -1,10 +1,8 @@
 import { defineConfig } from '@playwright/test';
+import { e2eHeaders, validateE2eTarget } from './run-context.mjs';
 const baseURL = process.env.E2E_BASE_URL;
-if (!baseURL) throw new Error('Set E2E_BASE_URL to a Netlify preview or develop deploy.');
-const url = new URL(baseURL);
-if (url.protocol !== 'https:' || !/^(?:develop|deploy-preview-\d+|[a-f0-9]{24})--plan-czytania\.netlify\.app$/.test(url.hostname)) {
-  throw new Error('E2E may only write to the non-production plan-czytania deploys.');
-}
+if (!baseURL) throw new Error('Set E2E_BASE_URL.');
+validateE2eTarget(baseURL);
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.e2e.mjs',
@@ -17,6 +15,7 @@ export default defineConfig({
   reporter: [['line'], ['html', { open: 'never' }]],
   use: {
     baseURL,
+    extraHTTPHeaders: e2eHeaders,
     browserName: 'chromium',
     viewport: { width: 1280, height: 900 },
     timezoneId: 'UTC',
