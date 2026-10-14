@@ -406,10 +406,11 @@ async function createRecoveryCode(request: Request) {
   const record: AccessRecovery = {
     groupId: credentials.groupId, memberId: credentials.memberId,
   };
-  await trackE2eResource(credentials.groupId, "plan-czytania-biblii-recovery", `code-${codeHash}`);
-  await trackE2eResource(credentials.groupId, "plan-czytania-biblii-recovery", recoveryProfileKey(credentials));
   const created = await store.set(`code-${codeHash}`, JSON.stringify(record), { onlyIfNew: true });
   if (!created.modified) return error("Nie udało się utworzyć kodu. Spróbuj ponownie.", 409);
+  // A collision must never register another group's existing code for deletion.
+  await trackE2eResource(credentials.groupId, "plan-czytania-biblii-recovery", `code-${codeHash}`);
+  await trackE2eResource(credentials.groupId, "plan-czytania-biblii-recovery", recoveryProfileKey(credentials));
   // One pointer per profile makes a newly issued code replace the old one.
   // Plaintext codes are never stored, including in the lookup record.
   await store.set(recoveryProfileKey(credentials), JSON.stringify({ codeHash }));
@@ -477,14 +478,14 @@ async function issueSessionTransfer(profile: Omit<SessionTransfer, "expiresAt" |
       ...profile, expiresAt,
     };
     const key = await transferKey(code);
-    await trackE2eResource(profile.groupId, "plan-czytania-biblii-groups", key);
-    await trackE2eResource(profile.groupId, "plan-czytania-biblii-groups", `used-${key}`);
     const result = await store.set(
       key,
       JSON.stringify(transfer),
       { onlyIfNew: true },
     );
     if (result.modified) {
+      await trackE2eResource(profile.groupId, "plan-czytania-biblii-groups", key);
+      await trackE2eResource(profile.groupId, "plan-czytania-biblii-groups", `used-${key}`);
       return json({ code: formatTransferCode(code), expiresAt }, 201);
     }
   }

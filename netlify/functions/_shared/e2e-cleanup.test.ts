@@ -4,7 +4,10 @@ vi.mock("@netlify/blobs", () => ({ getStore: ({ name }: { name: string }) => {
   if (!state.stores.has(name)) state.stores.set(name, new Map());
   const data = state.stores.get(name)!;
   return {
-    get: async (key: string) => data.get(key) ?? null,
+    get: async (key: string, options?: { type?: string }) => {
+      const value = data.get(key) ?? null;
+      return options?.type === "json" && typeof value === "string" ? JSON.parse(value) : value;
+    },
     set: async (key: string, value: unknown) => { data.set(key, value); return { modified: true }; },
     setJSON: async (key: string, value: unknown) => { data.set(key, value); },
     delete: async (key: string) => { if (key === state.failKey) throw new Error("interrupted"); data.delete(key); },
@@ -33,7 +36,7 @@ it("only deletes this run's group, paginated progress, revisions and tracked sec
   const hash = (await e2eRunHash(request()))!;
   await registerE2eGroup(hash, id);
   await registerE2eGroup((await e2eRunHash(request("b".repeat(64))))!, otherId);
-  groupStore().set(`group-${id}`, {}); groupStore().set(`group-${otherId}`, {});
+  groupStore().set(`group-${id}`, { e2eRunHash: hash }); groupStore().set(`group-${otherId}`, {});
   for (let i = 0; i < 5; i++) { groupStore().set(`progress-v1/${id}/${i}`, {}); groupStore().set(`group-state-v1/${id}/${i}`, {}); }
   groupStore().set(`progress-v1/${otherId}/0`, {});
   await trackE2eResource(id, "plan-czytania-biblii-groups", "session-transfer-test");
@@ -46,13 +49,20 @@ it("only deletes this run's group, paginated progress, revisions and tracked sec
   expect((await cleanupE2e(request(), id)).status).toBe(404);
 });
 it("retains journal on deletion failure and resumes idempotently", async () => {
-  await registerE2eGroup((await e2eRunHash(request()))!, id);
-  groupStore().set(`group-${id}`, {});
+  const hash = (await e2eRunHash(request()))!;
+  await registerE2eGroup(hash, id);
+  groupStore().set(`group-${id}`, { e2eRunHash: hash });
   state.failKey = `group-${id}`;
   await expect(cleanupE2e(request(), id)).rejects.toThrow("interrupted");
   expect(await (await cleanupE2e(request())).json()).toEqual({ groups: [id] });
   state.failKey = "";
   expect((await cleanupE2e(request(), id)).status).toBe(200);
+});
+it("refuses deletion if a registration collides with an existing unmarked user group", async () => {
+  groupStore().set(`group-${id}`, { name: "E2E user plan" });
+  await registerE2eGroup((await e2eRunHash(request()))!, id);
+  expect((await cleanupE2e(request(), id)).status).toBe(403);
+  expect(groupStore().has(`group-${id}`)).toBe(true);
 });
 it("API registers only newly created marked E2E plans and does not expose cleanup hashes", async () => {
   const input = { name: "E2E lifecycle", ownerName: "Tester", startDate: "2026-10-14", frequency: { kind: "daily", days: [0] },
