@@ -2,6 +2,7 @@ import { test, expect } from './fixtures.mjs';
 import { enableRecovery, expectWeek, createPlan, inputPlan, NOW, openPlan, saveProgress, readGroup, expectSaved, reading, extraReading, browseReading, tab } from './helpers.mjs';
 
 const date = offset => new Date(NOW.getTime() + offset * 86400000).toISOString().slice(0, 10);
+const restHint = 'Dziś dzień wolny w planie. Możesz czytać dalej we własnym tempie.';
 async function timeline(request, suffix, offsets, startOffset = offsets[0], weekly = false) {
   const plan = inputPlan(suffix);
   plan.startDate = date(startOffset);
@@ -176,6 +177,7 @@ for (const width of [1280, 390]) {
     const session = await timeline(request, 'home-before-start-' + width, [2, 3]);
     await openPlan(page, session);
     await expect(page.getByRole('heading', { name: 'Plan jeszcze się nie rozpoczął', exact: true })).toBeVisible();
+    await expect(page.getByText(restHint, { exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Zobacz pierwsze czytanie', exact: true })).toHaveCount(0);
     await expect(reading(page, 'Rdz 1')).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true })).toHaveCount(0);
@@ -197,8 +199,34 @@ for (const width of [1280, 390]) {
     await saveProgress(request, session, 't0b');
     await openPlan(page, session);
     await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
+    await expect(page.locator('.simple-day > .reading-rest-hint')).toHaveText(restHint);
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(2));
     await expect(reading(page, 'Rdz 2')).toBeEnabled();
     await expectSaved(request, session, ['t0a', 't0b']);
+    await expect(page.getByRole('button', { name: 'Czytaj naprzód', exact: true })).toHaveCount(0);
+    await reading(page, 'Rdz 2').click();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
+    await page.reload();
+    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.simple-day > .reading-rest-hint')).toHaveText(restHint);
+    expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
+    await fitsViewport(page);
+  });
+
+  test('a rest-day hint keeps the earlier unread day open without a separate backlog screen at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await timeline(request, 'home-rest-unread-' + width, [-2, 2]);
+    await openPlan(page, session);
+    await expect(page.locator('.simple-day > .reading-rest-hint')).toHaveText(restHint);
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-2));
+    await expect(reading(page, 'Rdz 1')).toBeEnabled();
+    await expect(reading(page, 'Rdz 2')).toHaveCount(0);
+    await expectSaved(request, session, []);
+    await reading(page, 'Rdz 1').click();
+    await expectSaved(request, session, ['t0a']);
+    await page.reload();
+    await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.simple-day > .reading-rest-hint')).toHaveText(restHint);
     await fitsViewport(page);
   });
 
@@ -209,6 +237,7 @@ for (const width of [1280, 390]) {
     for (const id of ids) await saveProgress(request, session, id);
     await openPlan(page, session);
     await expect(page.getByRole('heading', { name: 'Plan ukończony', exact: true })).toBeVisible();
+    await expect(page.getByText(restHint, { exact: true })).toHaveCount(0);
     await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
     await tab(page, 'Plan').click();
     await expect(page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true })).toHaveAttribute('aria-valuenow', '100');

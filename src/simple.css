@@ -1875,6 +1875,7 @@ body:has(.notification-card) .install-app-card { display: none; }
 .reading-recovery-link { min-height:28px; padding:4px 0; font-size:.72rem; }
 .reading-home .reading-card-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:56px; padding:6px 17px; border-bottom:1px solid var(--border); font-size:.78rem; }
 .reading-card-head time { color:var(--muted); }
+.reading-rest-hint { margin:0; padding:11px 17px; border-bottom:1px solid var(--border); background:var(--soft-green); color:var(--muted); font-size:.75rem; line-height:1.55; }
 .reading-head-actions { display:flex; align-items:center; gap:8px; color:var(--green); font-variant-numeric:tabular-nums; }
 .reading-return { display:grid; place-items:center; width:44px; height:44px; padding:0; border:0; background:transparent; color:var(--green); cursor:pointer; }
 .reading-navigation { display:grid; grid-template-columns:36px minmax(0,1fr) 36px; gap:6px; align-items:center; margin-top:15px; }

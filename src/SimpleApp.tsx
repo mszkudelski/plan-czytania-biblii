@@ -2127,7 +2127,7 @@ function TodayView({
           <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate, "shortYear")}.</p></div></section>
       ) : null}
       {showReading && displayedDay && <section className="reading-focus" aria-label="Wybrane czytanie">
-        <DayCard day={displayedDay} progress={displayedProgress} onToggle={toggleDisplayedSegment}
+        <DayCard day={displayedDay} progress={displayedProgress} onToggle={toggleDisplayedSegment} restDay={home.restDay}
           header={<header className="reading-card-head">
             <time dateTime={displayedDay.date}>{new Intl.DateTimeFormat("pl-PL", { weekday: "short", day: "numeric", month: "long" }).format(new Date(`${displayedDay.date}T12:00:00`))}</time>
             <div className="reading-head-actions">
@@ -2474,14 +2474,16 @@ function SettingsView({
   );
 }
 
-function DayCard({
+export function DayCard({
   day,
   progress,
   onToggle,
   extraReading,
   header,
+  restDay = false,
 }: {
   header?: ReactNode;
+  restDay?: boolean;
   day: PlanDay;
   progress: Record<string, string>;
   onToggle: (segmentId: string) => Promise<void>;
@@ -2495,6 +2497,9 @@ function DayCard({
   return (
     <section className="simple-day">
       {header}
+      {restDay && <p className="reading-rest-hint" role="note">
+        Dziś dzień wolny w planie. Możesz czytać dalej we własnym tempie.
+      </p>}
       <div className="simple-readings">
         {day.segments.map((segment) => (
           <ReadingRow
