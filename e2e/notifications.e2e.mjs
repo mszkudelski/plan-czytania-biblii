@@ -1,10 +1,59 @@
 import { test, expect } from '@playwright/test';
 import { createECDH, randomBytes } from 'node:crypto';
-import { createPlan, openPlan, tab, readGroup, reading, expectSaved } from './helpers.mjs';
+import { createPlan, openPlan, tab, readGroup, reading, expectSaved, saveProgress, recoveryKey } from './helpers.mjs';
 
 // Headless shell always reports Notification.permission as denied. Use the
 // full Chromium browser so these regressions exercise native permission states.
 test.use({ channel: 'chromium' });
+
+for (const width of [1280, 390]) {
+  test(`notification destination opens its original completed day on an existing or fresh page (${width}px)`, async ({ page, request, context }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await createPlan(request, 'notification-reading-destination');
+    await saveProgress(request, session, 's4');
+    await openPlan(page, session);
+    await tab(page, 'Ustawienia').click();
+    const destination = '/?reading=' + session.group.id + '&day=d3';
+    await page.goto(destination);
+    await expect(reading(page, 'Rdz 5')).toBeVisible();
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('datetime', session.group.planDays[3].date);
+    await expect(page.getByRole('region', { name: 'Powiadomienia o czytaniu' })).toHaveCount(0);
+    await expect(reading(page, 'Rdz 5')).toHaveClass(/checked/);
+    await page.reload();
+    await expect(reading(page, 'Rdz 5')).toBeVisible();
+    // A fresh page has no injected credentials: restore the real server session cookie.
+    const fresh = await context.newPage();
+    await fresh.goto(destination);
+    await expect(reading(fresh, 'Rdz 5')).toBeVisible();
+    await expect(fresh.locator('.reading-card-head time')).toHaveAttribute('datetime', session.group.planDays[3].date);
+    await expectSaved(request, session, ['s4']);
+    await page.getByRole('button', { name: 'Wróć do swojego miejsca', exact: true }).click();
+    await expect(reading(page, 'Rdz 1')).toBeVisible();
+    await fresh.close();
+  });
+}
+
+test('notification opens the original plan day while catch-up remains enabled', async ({ page, request }) => {
+  const session = await createPlan(request, 'notification-reading-catchup');
+  await openPlan(page, session, { [recoveryKey(session)]: new Date().toISOString().slice(0, 10) });
+  await page.goto('/?reading=' + session.group.id + '&day=d3');
+  await expect(reading(page, 'Rdz 5')).toBeVisible();
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('datetime', session.group.planDays[3].date);
+  expect(await page.evaluate(key => localStorage.getItem(key), recoveryKey(session))).toBeTruthy();
+  await page.getByRole('button', { name: 'Wróć do swojego miejsca', exact: true }).click();
+  await expect(reading(page, 'Rdz 1')).toBeVisible();
+  expect((await readGroup(request, session)).progress[session.credentials.memberId]).toEqual({});
+});
+
+test('unknown days or another group in a notification cannot change the current plan', async ({ page, request }) => {
+  const session = await createPlan(request, 'notification-reading-invalid');
+  await openPlan(page, session);
+  for (const destination of ['/?reading=another-group&day=d3', '/?reading=' + session.group.id + '&day=missing']) {
+    await page.goto(destination);
+    await expect(page.getByRole('heading', { name: session.group.name, exact: true })).toBeVisible();
+    await expect(reading(page, 'Rdz 1')).toBeVisible();
+  }
+});
 
 async function setNotificationPermission(page, setting) {
   const cdp = await page.context().newCDPSession(page);

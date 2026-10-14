@@ -26,8 +26,8 @@ export function missingPushConfiguration() {
   return ["READING_PUSH_VAPID_PUBLIC_KEY", "READING_PUSH_VAPID_PRIVATE_KEY"].filter(key => !Netlify.env.get(key));
 }
 
-export async function sendReminder(reminder: StoredReminder, payload: { title: string; body: string; tag: string }) {
-  return webpush.sendNotification(reminder.subscription, JSON.stringify({ ...payload, url: `${reminder.origin}/` }), {
+export async function sendReminder(reminder: StoredReminder, payload: { title: string; body: string; tag: string; url: string }) {
+  return webpush.sendNotification(reminder.subscription, JSON.stringify({ ...payload, url: new URL(payload.url, reminder.origin).href }), {
     vapidDetails: {
       subject: "https://plan-czytania.netlify.app",
       publicKey: Netlify.env.get("READING_PUSH_VAPID_PUBLIC_KEY")!,

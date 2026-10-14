@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_REMINDER_TIME, validReminderSettings, validPushSubscription, localReminderClock, reminderIsDue, todaysReminder, testReminder } from "./notifications";
+import { DEFAULT_REMINDER_TIME, validReminderSettings, validPushSubscription, localReminderClock, reminderIsDue, todaysReminder, testReminder, reminderReadingDay, reminderReadingPath } from "./notifications";
 import type { Group } from "../types";
 
 const settings = { enabled: true, time: "08:30", timeZone: "Europe/Warsaw" };
@@ -16,6 +16,16 @@ const group: Group = {
 };
 
 describe("reading reminders", () => {
+  it("links to the day represented by the notification, even when opened later", () => {
+    const payload = todaysReminder(group, "member", new Date("2026-10-05T06:30:00Z"), settings.timeZone)!;
+    expect(payload.url).toBe("/?reading=group&day=today");
+    expect(reminderReadingDay(group, new URL(payload.url, "https://example.test").search)?.id).toBe("today");
+    expect(reminderReadingDay(group, "?reading=another-group&day=today")).toBeUndefined();
+    expect(reminderReadingDay(group, "?reading=group&day=missing")).toBeUndefined();
+    expect(reminderReadingPath("g /&", "day ?&")).toBe("/?reading=g+%2F%26&day=day+%3F%26");
+    const preview = testReminder(group, "member", "device", new Date("2026-10-06T06:30:00Z"), settings.timeZone)!;
+    expect(preview.url).toBe("/?reading=group&day=yesterday");
+  });
   it("defaults to 8:00 in the device's local time zone", () => {
     const defaults = { enabled: true, time: DEFAULT_REMINDER_TIME, timeZone: "Europe/Warsaw" };
     expect(defaults.time).toBe("08:00");

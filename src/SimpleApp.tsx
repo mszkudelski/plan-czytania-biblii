@@ -1,5 +1,6 @@
 import Onboarding, { useOnboarding, usePromptOffer } from "./Onboarding";
 import ReminderPrompt from "./ReminderPrompt";
+import { reminderReadingDay } from "./lib/notifications";
 import GroupAccessHint from "./GroupAccessHint";
 import { devicePromptAllowed, INSTALL_KEY, parseDevicePreference, postponeDevicePrompt, SETUP_KEY, startOnboarding } from "./lib/onboarding";
 import RecoveryPrompt from "./RecoveryPrompt";
@@ -1819,10 +1820,12 @@ function TodayView({
     group, member.id, today, localStorage.getItem(normalPortionKey) ?? "",
   )?.id ?? "");
   const progress = group.progress[member.id] ?? {};
+  const [notificationDay, setNotificationDay] = useState(() => reminderReadingDay(group, window.location.search));
   const initialIndex = dailyDayId
     ? group.planDays.findIndex((day) => day.id === dailyDayId)
     : Math.max(0, group.planDays.length - 1);
-  const [selectedIndex, setSelectedIndex] = useState(Math.max(0, initialIndex));
+  const [selectedIndex, setSelectedIndex] = useState(() => notificationDay
+    ? group.planDays.findIndex(day => day.id === notificationDay.id) : Math.max(0, initialIndex));
   const selectedDay = group.planDays[selectedIndex];
   const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
   const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
@@ -1908,23 +1911,24 @@ function TodayView({
     [recoveryStart, currentPortion],
   );
   const anchorIndex = group.planDays.findIndex(day => day.id === recoveryDayId);
-  const navigationDays = recoveryStart && recoveryPortions.length
+  const useRecoveryView = Boolean(recoveryStart && !notificationDay);
+  const navigationDays = useRecoveryView && recoveryPortions.length
     ? [...group.planDays.slice(0, Math.max(0, anchorIndex)), ...recoveryPortions.map(portion => portion.day)]
     : group.planDays;
   const browsedPortion = recoveryPortions.find(portion => portion.day.id === browsedRecoveryDayId);
   const historicalDay = group.planDays.slice(0, Math.max(0, anchorIndex))
     .find(day => day.id === browsedRecoveryDayId)
     ?? (!recoveryPortions.length ? group.planDays.find(day => day.id === browsedRecoveryDayId) : undefined);
-  const displayedDay = recoveryStart
+  const displayedDay = useRecoveryView
     ? (browsedPortion?.day ?? historicalDay ?? currentPortion?.day)
     : selectedDay;
-  const isRecoveryPortion = Boolean(recoveryStart && displayedDay && displayedDay.id === currentPortion?.day.id);
-  const isForecast = Boolean(recoveryStart && browsedPortion && !isRecoveryPortion);
-  const displayedIndex = recoveryStart
+  const isRecoveryPortion = Boolean(useRecoveryView && displayedDay && displayedDay.id === currentPortion?.day.id);
+  const isForecast = Boolean(useRecoveryView && browsedPortion && !isRecoveryPortion);
+  const displayedIndex = useRecoveryView
     ? (displayedDay ? Math.max(0, navigationDays.findIndex(day => day.id === displayedDay.id)) : initialIndex)
     : selectedIndex;
   function selectDay(index: number) {
-    if (!recoveryStart) { setSelectedIndex(index); return; }
+    if (!useRecoveryView) { setSelectedIndex(index); return; }
     const day = navigationDays[index];
     if (day) setBrowsedRecoveryDayId(day.id === currentPortion?.day.id ? null : day.id);
   }
@@ -2037,6 +2041,7 @@ function TodayView({
     await toggleChapterSelection(segmentId, indices.length ? indices : allIndices, !Boolean(displayedProgress[segmentId]));
   }
   function changeRecovery(start: string) {
+    setNotificationDay(undefined);
     if (start) {
       // Activation uses the latest progress, even if this view was opened earlier.
       setBrowsedRecoveryDayId(null);
@@ -2061,10 +2066,17 @@ function TodayView({
   const portionTotal = (displayedDay?.segments.length ?? 0) + (displayedExtra ? 1 : 0);
   const portionDone = completedCount + (extraComplete ? 1 : 0);
   const nextUnread = group.planDays.findIndex(day => day.segments.some(segment => !progress[segment.id]));
-  const returnIndex = recoveryStart
+  const returnIndex = useRecoveryView
     ? navigationDays.findIndex(day => day.id === currentPortion?.day.id)
     : nextUnread;
-  const showReturn = returnIndex >= 0 && displayedIndex !== returnIndex;
+  const returnToRecovery = Boolean(recoveryStart && notificationDay);
+  const showReturn = returnToRecovery || (returnIndex >= 0 && displayedIndex !== returnIndex);
+  function returnToReading() {
+    if (returnToRecovery) {
+      setNotificationDay(undefined);
+      setBrowsedRecoveryDayId(null);
+    } else selectDay(returnIndex);
+  }
 
   const allSegments = group.planDays.flatMap(day => day.segments);
   const overallPercent = calculateProgressPercent(allSegments.filter(segment => progress[segment.id]).length, allSegments.length);
@@ -2072,7 +2084,7 @@ function TodayView({
   const visibleDates = navigationDays.slice(visibleStart, visibleStart + 5);
   function dateComplete(day: PlanDay) {
     if (day.id === displayedDay?.id) return portionCompleted;
-    const portion = recoveryStart ? recoveryPortions.find(item => item.day.id === day.id) : undefined;
+    const portion = useRecoveryView ? recoveryPortions.find(item => item.day.id === day.id) : undefined;
     return isReadingDateComplete(day, progress, portion, readChapters, chapterMarks,
       day.id === currentPortion?.day.id && Boolean(validDailyReading?.completed));
   }
@@ -2120,7 +2132,7 @@ function TodayView({
             <time dateTime={displayedDay.date}>{new Intl.DateTimeFormat("pl-PL", { weekday: "short", day: "numeric", month: "long" }).format(new Date(`${displayedDay.date}T12:00:00`))}</time>
             <div className="reading-head-actions">
               {showReturn && <button type="button" className="reading-return" aria-label="Wróć do swojego miejsca"
-                title="Wróć do swojego miejsca" onClick={() => selectDay(returnIndex)}><Icon name={returnIndex < displayedIndex ? "double-left" : "double-right"} size={20} /></button>}
+                title="Wróć do swojego miejsca" onClick={returnToReading}><Icon name={returnIndex < displayedIndex ? "double-left" : "double-right"} size={20} /></button>}
               <span aria-live="polite">{portionCompleted ? <span className="reading-finished">Przeczytane</span>
                 : <span aria-label="Postęp wybranego czytania">{portionDone}/{portionTotal}</span>}</span>
             </div>
