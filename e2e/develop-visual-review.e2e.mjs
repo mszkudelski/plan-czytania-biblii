@@ -68,14 +68,14 @@ test('visual inventory of joining and recovering an existing profile without acc
   const session = await plan(request);
   await page.goto('/');
   await capture(page, 'start');
-  await page.getByRole('button', { name: 'Odzyskaj mój dostęp', exact: true }).click();
+  await page.getByRole('button', { name: 'Odzyskaj dostęp do mojego planu', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Odzyskaj mój dostęp' })).toBeVisible();
   await capture(page, 'odzyskiwanie');
   await page.getByRole('button', { name: 'Mam link lub kod od administratora' }).click();
   await expect(page.getByRole('heading', { name: 'Przywróć dostęp do profilu' })).toBeVisible();
   await capture(page, 'kod-od-administratora');
   await page.getByRole('button', { name: 'Wróć do wyboru' }).click();
-  await page.getByRole('button', { name: 'Odzyskaj mój dostęp', exact: true }).click();
+  await page.getByRole('button', { name: 'Odzyskaj dostęp do mojego planu', exact: true }).click();
   await page.getByRole('button', { name: 'Mam dostęp na innym urządzeniu' }).click();
   await expect(page.getByRole('heading', { name: 'Połącz inne urządzenie' })).toBeVisible();
   await capture(page, 'laczenie-urzadzen');
