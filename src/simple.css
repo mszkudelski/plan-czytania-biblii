@@ -1392,17 +1392,17 @@ button {
 .install-app-card {
   position: fixed;
   z-index: 45;
-  right: 18px;
-  bottom: 18px;
+  right: 24px;
+  bottom: 24px;
   display: none;
   width: min(calc(100% - 36px), 430px);
   grid-template-columns: 44px 1fr;
   gap: 14px;
   padding: 20px;
   border: 1px solid var(--border);
-  border-radius: 15px;
+  border-radius: 18px;
   background: var(--paper);
-  box-shadow: 0 10px 32px rgba(24, 40, 30, 0.22);
+  box-shadow: 0 12px 40px rgba(24, 40, 30, 0.22), 0 2px 8px rgba(24, 40, 30, 0.08);
 }
 
 .install-card-close {
@@ -1696,11 +1696,14 @@ button {
   }
 
   .install-app-card {
-    right: 14px;
-    left: 14px;
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
     display: grid;
-    width: auto;
-    bottom: calc(82px + env(safe-area-inset-bottom));
+    width: min(calc(100% - 32px), 430px);
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 116px - env(safe-area-inset-bottom));
+    overflow-y: auto;
   }
 
   .simple-stats {
@@ -1882,7 +1885,7 @@ body:has(.notification-card) .install-app-card { display: none; }
 .reading-date[aria-pressed="true"] { background:var(--green-button); border-color:var(--green-button); color:#fff; }
 .reading-date[aria-pressed="true"] small,.reading-date[aria-pressed="true"] > svg { color:#fff; }
 .reading-week { margin-bottom:18px; }
-.recovery-notice { position:fixed; z-index:40; left:0; right:0; bottom:0; background:var(--paper); border-top:1px solid var(--border); box-shadow:0 -7px 26px rgba(24,37,28,.14); }
+.recovery-notice { position:fixed; z-index:40; left:50%; transform:translateX(-50%); width:min(calc(100% - 48px),980px); bottom:24px; max-height:calc(100dvh - 48px); overflow-y:auto; background:var(--paper); border:1px solid var(--border); border-radius:18px; box-shadow:0 12px 40px rgba(24,40,30,.22),0 2px 8px rgba(24,40,30,.08); }
 .recovery-notice-inner { width:min(100%,980px); margin:auto; display:flex; align-items:center; justify-content:space-between; gap:24px; padding:18px 24px; }
 .recovery-notice h2 { margin:0 0 4px; font-size:.92rem; font-weight:500; }
 .recovery-notice p { margin:0; color:var(--muted); font-size:.78rem; }
@@ -1912,7 +1915,7 @@ body:has(.notification-card) .install-app-card { display: none; }
   .reading-navigation { grid-template-columns:30px minmax(0,1fr) 30px; gap:4px; }
   .reading-navigation > button { width:30px; }
   .reading-date-strip { gap:5px; }
-  .recovery-notice { bottom:68px; border-radius:16px 16px 0 0; }
+  .recovery-notice { width:min(calc(100% - 32px),430px); bottom:calc(84px + env(safe-area-inset-bottom)); max-height:calc(100dvh - 116px - env(safe-area-inset-bottom)); }
   .recovery-notice-inner { padding:17px 16px; align-items:stretch; flex-direction:column; gap:12px; }
   .recovery-notice-actions { width:100%; gap:9px; }
   .recovery-notice-actions > .small-button { flex:1; padding-inline:10px; }

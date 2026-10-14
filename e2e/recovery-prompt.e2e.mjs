@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createPlan, inputPlan, NOW, TODAY, openPlan, readGroup, saveProgress, expectSaved, reading, extraReading, tab } from './helpers.mjs';
+import { createPlan, inputPlan, NOW, TODAY, openPlan, readGroup, saveProgress, expectSaved, reading, extraReading, tab, expectFloatingPopup } from './helpers.mjs';
 const path = session => '/api/groups/' + session.group.id + '/recovery-prompt';
 async function preference(request, session, action = 'read', overrides = {}) {
   const response = await request.post(path(session), { data: { ...session.credentials, action, ...overrides } });
@@ -14,6 +14,7 @@ for (const width of [1280, 390]) {
     await openPlan(page, session);
     const notice = page.getByRole('complementary', { name: 'Propozycja nadrabiania', exact: true });
     await expect(notice).toBeVisible();
+    await expectFloatingPopup(page, notice);
     const primary = await notice.getByRole('button', { name: 'Włącz', exact: true }).evaluate(button => getComputedStyle(button).backgroundColor);
     const secondary = await notice.getByRole('button', { name: 'Pokaż szczegóły', exact: true }).evaluate(button => getComputedStyle(button).backgroundColor);
     expect(secondary).toBe('rgba(0, 0, 0, 0)');

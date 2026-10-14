@@ -123,6 +123,22 @@ export const reading = (page, label) => page.locator('.simple-readings button').
 });
 export const extraReading = page => page.locator('.simple-readings button.reading-extra');
 export const tab = (page, name) => page.locator('nav:visible').getByRole('button', { name, exact: true });
+export async function expectFloatingPopup(page, popup) {
+  const box = await popup.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box).not.toBeNull();
+  expect(box.x).toBeGreaterThanOrEqual(15);
+  expect(viewport.width - box.x - box.width).toBeGreaterThanOrEqual(15);
+  expect(box.y).toBeGreaterThanOrEqual(15);
+  const navigation = page.locator('.mobile-tabs');
+  const bottom = await navigation.isVisible() ? (await navigation.boundingBox()).y : viewport.height;
+  expect(bottom - box.y - box.height).toBeGreaterThanOrEqual(15);
+  const corners = await popup.evaluate(element => {
+    const style = getComputedStyle(element);
+    return [style.borderTopLeftRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius].map(parseFloat);
+  });
+  expect(corners.every(radius => radius >= 18)).toBe(true);
+}
 export const recoveryKey = session => 'reading-recovery:' + session.group.id + ':' + session.credentials.memberId;
 // Hold a request BEFORE sending it; after release it uses the real backend.
 export async function holdNextProgress(page, session) {

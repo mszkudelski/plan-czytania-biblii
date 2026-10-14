@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { createECDH, randomBytes } from 'node:crypto';
-import { inputPlan, NOW, TODAY, openPlan, reading, tab, expectSaved, saveProgress } from './helpers.mjs';
+import { inputPlan, NOW, TODAY, openPlan, reading, tab, expectSaved, saveProgress, expectFloatingPopup } from './helpers.mjs';
 test.use({ screenshot: 'off', channel: 'chromium', timezoneId: 'Europe/Warsaw' });
 const recovery = page => page.getByRole('complementary', { name: 'Propozycja nadrabiania', exact: true });
 const reminder = page => page.getByRole('complementary', { name: 'Propozycja przypomnienia', exact: true });
@@ -44,6 +44,8 @@ async function finishReading(page, request, session) {
 }
 async function screenshot(page, name) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const popup = page.locator('.install-app-card, .recovery-notice').filter({ visible: true });
+  if (await popup.count()) await expectFloatingPopup(page, popup);
   await test.info().attach(name, { body: await page.screenshot(), contentType: 'image/png' });
 }
 
@@ -68,9 +70,13 @@ for (const late of [false, true]) {
     await finishReading(page, request, session);
     await expect(install(page)).toBeVisible(); await expect(recovery(page)).toBeHidden();
     await screenshot(page, 'onboarding-install-' + (late ? 'late' : 'together'));
+    await page.setViewportSize({ width: 320, height: 568 });
+    await expectFloatingPopup(page, install(page));
+    await page.setViewportSize({ width: 390, height: 640 });
     await install(page).getByRole('button', { name: 'Pokaż jak', exact: true }).click();
     // Native instructions are manually opened; no other banner competes with them.
     await expect(page.locator('.install-instructions')).toBeVisible(); await expect(recovery(page)).toBeHidden();
+    if (late) await screenshot(page, 'onboarding-install-instructions');
     if (late) {
       await page.locator('.install-instructions').getByRole('button', { name: 'Zamknij', exact: true }).click();
       await install(page).getByRole('button', { name: 'Nie teraz', exact: true }).click();
@@ -93,6 +99,7 @@ test('manual installation is available before reading and opens from settings af
   const owner = await createPlan(request, 'onboarding-manual-install');
   const session = await join(page, owner);
   await tab(page, 'Ustawienia').click();
+  await screenshot(page, 'onboarding-install-settings');
   await page.getByRole('button', { name: 'Dodaj aplikację do ekranu głównego', exact: true }).click();
   await expect(page.locator('.install-instructions')).toBeVisible();
   await expect(recovery(page)).toBeHidden(); await expect(install(page)).toBeHidden();
@@ -132,6 +139,9 @@ test('first launch from the app icon offers reminders without a time picker and 
   await expect(reminder(page).locator('input[type="time"]')).toHaveCount(0);
   expect(await page.evaluate(() => window.permissionRequests)).toBe(0);
   await screenshot(page, 'onboarding-reminder');
+  await page.setViewportSize({ width: 320, height: 568 });
+  await expectFloatingPopup(page, reminder(page));
+  await page.setViewportSize({ width: 390, height: 640 });
   await reminder(page).getByRole('button', { name: 'Nie teraz', exact: true }).click();
   await expect(reminder(page)).toBeHidden(); await expect(recovery(page)).toBeHidden();
   await page.reload(); await expect(reminder(page)).toBeHidden(); await expect(recovery(page)).toBeHidden();
@@ -205,6 +215,7 @@ test('enabling from onboarding saves 8:00 and explains that the hour can be chan
     await panel.getByText('Zmień godzinę', { exact: true }).click();
     await expect(panel.getByLabel('Godzina przypomnienia')).toBeVisible();
     await expect(panel.getByLabel('Godzina przypomnienia')).toHaveValue('08:00');
+    await test.info().attach('onboarding-reminder-settings', { body: await panel.screenshot(), contentType: 'image/png' });
   } finally {
     expect((await request.post(path, { data: { ...session.credentials, deviceId, action: 'disable' } })).status()).toBe(200);
   }
