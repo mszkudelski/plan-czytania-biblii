@@ -94,7 +94,7 @@ for (const width of [1280, 390]) {
     await expect(page.locator('.member-row').filter({ hasText: 'Ty' })).toHaveCount(1);
     await expect(page.getByRole('button', { name: 'Zaproś', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Zarządzaj profilem/ })).toHaveCount(0);
-    await expect(page.locator('.group-access-help')).toContainText('Poproś administratora');
+    await expect(page.locator('.group-access-help')).toHaveCount(0);
     await page.reload();
     expect((await browserCredentials(page)).memberId).toBe(credentials.memberId);
   });
