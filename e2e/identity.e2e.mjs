@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.mjs';
 import { createPlan, inputPlan, saveProgress, readGroup, expectSaved, reading, tab } from './helpers.mjs';
 
 // Access links and legacy recovery codes grant access; keep them out of reports.

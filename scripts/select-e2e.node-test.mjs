@@ -48,23 +48,20 @@ test('new or edited test runs itself; removed test and stale mappings run all', 
   assert.equal(selectTests(['src/NotificationSettings.tsx'], ['onboarding.e2e.mjs']).mode, 'all');
   assert.throws(() => selectTests(['src/SimpleApp.tsx'], []), /No E2E/);
 });
-test('promotion and manual runs always run all; production pushes do not write', () => {
+test('only main pushes run the complete suite; no event needs a diff', () => {
   const noDiff = () => { throw new Error('diff must not run'); };
-  assert.equal(selectionForEvent('pull_request', { pull_request: { base: { ref: 'main' } } }, available, noDiff).mode, 'all');
-  assert.equal(selectionForEvent('workflow_dispatch', {}, available, noDiff).mode, 'all');
-  assert.equal(selectionForEvent('push', { ref: 'refs/heads/main' }, available, noDiff).mode, 'none');
-});
-test('PR comparison uses merge base and push uses before/after, independent of CI checkout', () => {
-  const base = 'a'.repeat(40), head = 'b'.repeat(40);
-  const diff = (b, h, merge) => { assert.equal(b, base); assert.equal(h, head); assert.equal(merge, true); return ['src/NotificationSettings.tsx']; };
-  assert.equal(selectionForEvent('pull_request', { pull_request: { base: { ref: 'develop', sha: base }, head: { sha: head } } }, available, diff).mode, 'selected');
-  assert.equal(selectionForEvent('push', { before: base, after: head }, available, (b, h, merge) => { assert.deepEqual([b, h, merge], [base, head, false]); return ['README.md']; }).mode, 'none');
-});
-test('missing history, first push and unsupported events conservatively run all', () => {
-  assert.equal(selectionForEvent('push', { before: '0'.repeat(40), after: 'a'.repeat(40) }, available, () => []).mode, 'all');
-  assert.equal(selectionForEvent('push', { before: 'a'.repeat(40), after: 'b'.repeat(40) }, available, () => { throw new Error('missing commit'); }).mode, 'all');
-  assert.equal(selectionForEvent('pull_request', {}, available, () => []).mode, 'all');
-  assert.equal(selectionForEvent('unknown', {}, available, () => []).mode, 'all');
+  assert.deepEqual(selectionForEvent('push', { ref: 'refs/heads/main' }, available, noDiff).files, available);
+  for (const [name, event] of [
+    ['pull_request', { pull_request: { base: { ref: 'main' } } }],
+    ['pull_request', { pull_request: { base: { ref: 'develop' } } }],
+    ['push', { ref: 'refs/heads/develop' }],
+    ['push', { ref: 'refs/heads/e2e-main' }],
+    ['workflow_dispatch', { ref: 'refs/heads/main' }], ['unknown', {}],
+  ]) {
+    const result = selectionForEvent(name, event, available, noDiff);
+    assert.equal(result.mode, 'none'); assert.deepEqual(result.files, []);
+  }
+  assert.throws(() => selectionForEvent('push', { ref: 'refs/heads/main' }, [], noDiff), /No E2E/);
 });
 test('real git diff includes both sides of a rename and ignores unrelated base-branch changes for PRs', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'e2e-diff-'));
@@ -95,17 +92,17 @@ test('Required CI validates actual workflow shell for selection, skips, failures
   const { spawnSync } = await import('node:child_process');
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const script = workflow.slice(workflow.lastIndexOf('        run: |\n') + '        run: |\n'.length).replace(/^          /gm, '');
-  const check = overrides => spawnSync('bash', ['-e', '-c', script], { env: { ...process.env, SELECTION_RESULT: 'success', SELECTION_MODE: 'selected', UNIT_RESULT: 'success', E2E_RESULT: 'success', PRODUCTION_RESULT: 'skipped', PRODUCTION_PUSH: 'false', ...overrides } }).status;
+  const check = overrides => spawnSync('bash', ['-e', '-c', script], { env: { ...process.env, SELECTION_RESULT: 'success', SELECTION_MODE: 'none', UNIT_RESULT: 'success', E2E_RESULT: 'skipped', PRODUCTION_RESULT: 'skipped', PRODUCTION_PUSH: 'false', ...overrides } }).status;
   assert.equal(check({}), 0);
-  assert.equal(check({ SELECTION_MODE: 'all' }), 0);
-  assert.equal(check({ SELECTION_MODE: 'none', E2E_RESULT: 'skipped' }), 0);
-  assert.equal(check({ SELECTION_MODE: 'none', E2E_RESULT: 'skipped', PRODUCTION_PUSH: 'true', PRODUCTION_RESULT: 'success' }), 0);
+  const main = { PRODUCTION_PUSH: 'true', SELECTION_MODE: 'all', E2E_RESULT: 'success', PRODUCTION_RESULT: 'success' };
+  assert.equal(check(main), 0);
   for (const overrides of [
     { SELECTION_RESULT: 'failure' }, { SELECTION_RESULT: 'cancelled' },
-    { SELECTION_MODE: '' }, { SELECTION_MODE: 'unexpected' },
-    { E2E_RESULT: 'failure' }, { E2E_RESULT: 'cancelled' }, { E2E_RESULT: 'skipped' },
+    { SELECTION_MODE: '' }, { SELECTION_MODE: 'all' },
+    { E2E_RESULT: 'success' }, { E2E_RESULT: 'failure' },
     { UNIT_RESULT: 'failure' }, { UNIT_RESULT: 'cancelled' },
-    { SELECTION_MODE: 'none', E2E_RESULT: 'failure' },
-    { PRODUCTION_PUSH: 'true', E2E_RESULT: 'skipped', PRODUCTION_RESULT: 'failure' },
+    { ...main, E2E_RESULT: 'failure' }, { ...main, E2E_RESULT: 'skipped' },
+    { ...main, E2E_RESULT: 'cancelled' }, { ...main, PRODUCTION_RESULT: 'failure' },
+    { ...main, SELECTION_MODE: 'none' },
   ]) assert.notEqual(check(overrides), 0, JSON.stringify(overrides));
 });

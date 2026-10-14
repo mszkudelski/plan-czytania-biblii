@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.mjs';
 import {
   enableRecovery, expectWeek, createPlan, createParallelPlan, openPlan, saveProgress, expectSaved, readGroup, reading,
   extraReading, browseReading, tab, recoveryKey, TODAY, NOW, holdNextProgress, progressPath,

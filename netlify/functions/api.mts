@@ -1,5 +1,6 @@
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference } from "../../src/lib/recovery-prompt";
 import { getStore } from "@netlify/blobs";
+import { cleanupE2e, e2eRunHash, e2eRunToken, registerE2eGroup, trackE2eResource } from "./_shared/e2e-cleanup";
 import { changeGroupState, readGroupState, type GroupStateStore } from "../../src/lib/group-state";
 import { applyProgressLog, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
 import type { Config, Context } from "@netlify/functions";
@@ -27,6 +28,7 @@ type StoredMember = Member & {
 type StoredGroup = Omit<Group, "members"> & {
   members: StoredMember[];
   inviteTokenHash?: string;
+  e2eRunHash?: string;
 };
 type SessionTransfer = {
   groupId: string;
@@ -136,6 +138,7 @@ function publicGroup(group: StoredGroup): Group {
   const {
     members,
     inviteTokenHash: _inviteTokenHash,
+    e2eRunHash: _e2eRunHash,
     ...publicFields
   } = group;
   return {
@@ -296,11 +299,15 @@ async function createGroup(request: Request) {
   }
 
   const groupId = crypto.randomUUID();
+  const testRunHash = await e2eRunHash(request);
+  if (testRunHash && !name.startsWith("E2E ")) return error("Test plans must start with E2E.");
+  if (testRunHash) await registerE2eGroup(testRunHash, groupId);
   const memberId = crypto.randomUUID();
   const token = randomToken();
   const inviteToken = randomToken();
   const group: StoredGroup = {
     id: groupId,
+    ...(testRunHash ? { e2eRunHash: testRunHash } : {}),
     name,
     createdAt: new Date().toISOString(),
     startDate,
@@ -399,6 +406,8 @@ async function createRecoveryCode(request: Request) {
   const record: AccessRecovery = {
     groupId: credentials.groupId, memberId: credentials.memberId,
   };
+  await trackE2eResource(credentials.groupId, "plan-czytania-biblii-recovery", `code-${codeHash}`);
+  await trackE2eResource(credentials.groupId, "plan-czytania-biblii-recovery", recoveryProfileKey(credentials));
   const created = await store.set(`code-${codeHash}`, JSON.stringify(record), { onlyIfNew: true });
   if (!created.modified) return error("Nie udało się utworzyć kodu. Spróbuj ponownie.", 409);
   // One pointer per profile makes a newly issued code replace the old one.
@@ -467,8 +476,11 @@ async function issueSessionTransfer(profile: Omit<SessionTransfer, "expiresAt" |
     const transfer: SessionTransfer = {
       ...profile, expiresAt,
     };
+    const key = await transferKey(code);
+    await trackE2eResource(profile.groupId, "plan-czytania-biblii-groups", key);
+    await trackE2eResource(profile.groupId, "plan-czytania-biblii-groups", `used-${key}`);
     const result = await store.set(
-      await transferKey(code),
+      key,
       JSON.stringify(transfer),
       { onlyIfNew: true },
     );
@@ -750,6 +762,9 @@ async function notifications(request: Request, groupId: string, scope: string) {
   if (!group) return error("Nie znaleziono grupy.", 404);
   const member = await authenticate(group, credentials);
   if (!member) return error("Nieprawidłowy link dostępu.", 401);
+  // Synthetic subscriptions never enter the production scheduler, even if a
+  // secondary test browser omits the run header.
+  if (group.e2eRunHash) scope = `e2e-${group.e2eRunHash}`;
   if (typeof body.deviceId !== "string" || !/^[a-f0-9-]{36}$/.test(body.deviceId)) {
     return error("Nieprawidłowe urządzenie.");
   }
@@ -779,6 +794,7 @@ async function notifications(request: Request, groupId: string, scope: string) {
       } },
       origin: new URL(request.url).origin,
     };
+    await trackE2eResource(groupId, "plan-czytania-notifications", key);
     await store.setJSON(key, reminder);
     return json(publicSettings(reminder));
   }
@@ -787,6 +803,7 @@ async function notifications(request: Request, groupId: string, scope: string) {
     const payload = testReminder(group, member.id, body.deviceId, new Date(), ownRecord.timeZone);
     if (!payload) return error("W planie nie ma fragmentów do pokazania w powiadomieniu testowym.", 409);
     const rateKey = `tests/${encodeURIComponent(scope)}/${body.deviceId}/${Math.floor(Date.now() / 60000)}`;
+    await trackE2eResource(groupId, "plan-czytania-notifications", rateKey);
     const claim = await store.set(rateKey, "sent", { onlyIfNew: true });
     if (!claim.modified) return error("Poczekaj minutę przed kolejnym testem.", 429);
     try {
@@ -812,10 +829,16 @@ export default async (request: Request, context: Context) => {
       : "/api/";
     const route = url.pathname.split(marker)[1]?.split("/").filter(Boolean) ?? [];
 
+    if (route[0] === "e2e" && route[1] === "cleanup") {
+      if (request.method === "GET" && route.length === 2) return cleanupE2e(request);
+      if (request.method === "DELETE" && route.length === 3) return cleanupE2e(request, route[2]);
+      return error("Nieprawidłowa operacja.", 405);
+    }
+
     if (request.method === "GET" && route.join("/") === "notifications/config") {
       return json({
         publicKey: pushConfigured() ? Netlify.env.get("READING_PUSH_VAPID_PUBLIC_KEY") : null,
-        scheduled: context.deploy.context === "production",
+        scheduled: context.deploy.context === "production" && !e2eRunToken(request),
         missingKeys: missingPushConfiguration(),
       });
     }

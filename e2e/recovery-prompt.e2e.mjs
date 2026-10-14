@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.mjs';
 import { createPlan, inputPlan, NOW, TODAY, openPlan, readGroup, saveProgress, expectSaved, reading, extraReading, tab, expectFloatingPopup } from './helpers.mjs';
 const path = session => '/api/groups/' + session.group.id + '/recovery-prompt';
 async function preference(request, session, action = 'read', overrides = {}) {

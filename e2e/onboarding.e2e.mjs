@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.mjs';
 import { createECDH, randomBytes } from 'node:crypto';
 import { inputPlan, NOW, TODAY, openPlan, reading, tab, expectSaved, saveProgress, expectFloatingPopup } from './helpers.mjs';
 test.use({ screenshot: 'off', channel: 'chromium', timezoneId: 'Europe/Warsaw' });

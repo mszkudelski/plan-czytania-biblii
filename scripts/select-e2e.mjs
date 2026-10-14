@@ -61,21 +61,11 @@ export function selectTests(changedFiles, availableTests) {
 
 export function selectionForEvent(eventName, event, availableTests, diff) {
   const all = reason => ({ mode: 'all', files: [...availableTests].sort(), changedFiles: [], reasons: [reason] });
-  if (eventName === 'workflow_dispatch') return all('Manual run: full E2E suite.');
-  if (eventName === 'pull_request' && event.pull_request?.base?.ref === 'main') return all('Promotion PR to main: full E2E suite.');
   if (eventName === 'push' && event.ref === 'refs/heads/main') {
-    return { mode: 'none', files: [], changedFiles: [], reasons: ['Production push: read-only production checks instead of writable E2E.'] };
+    if (!availableTests.length) throw new Error('No E2E tests found.');
+    return all('Main push: full E2E suite on synthetic production plans with per-run cleanup.');
   }
-  const base = eventName === 'pull_request' ? event.pull_request?.base?.sha : event.before;
-  const head = eventName === 'pull_request' ? event.pull_request?.head?.sha : event.after;
-  if (!['push', 'pull_request'].includes(eventName) || !base || !head || /^0+$/.test(base)) return all('No reliable comparison base: full E2E suite.');
-  let files;
-  try {
-    files = diff(base, head, eventName === 'pull_request');
-  } catch {
-    return all('Git comparison unavailable: full E2E suite.');
-  }
-  return selectTests(files, availableTests);
+  return { mode: 'none', files: [], changedFiles: [], reasons: ['E2E runs only after a push to main; unit tests and build still run.'] };
 }
 
 export function gitChangedFiles(base, head, mergeBase = false, cwd = process.cwd()) {

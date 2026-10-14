@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.mjs';
 import { createPlan, inputPlan, saveProgress, readGroup, expectSaved, progressPath } from './helpers.mjs';
 
 test('rejects invalid plans and missing groups', async ({ request }) => {

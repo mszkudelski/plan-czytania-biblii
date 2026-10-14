@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.mjs';
 import { createECDH, randomBytes } from 'node:crypto';
 import { createPlan, openPlan, tab, readGroup, reading, expectSaved, saveProgress, recoveryKey } from './helpers.mjs';
 
@@ -181,8 +181,13 @@ test('notification settings reload the saved hour and disable through the deploy
     await panel.getByRole('button', { name: 'Ponów zapis', exact: true }).click();
     await expect(panel.getByRole('status')).toHaveText('Zapisano godzinę 09:15.');
     await expect(panel.getByRole('button', { name: 'Wyślij powiadomienie testowe' })).toBeHidden();
-    await panel.getByText('Narzędzia testowe', { exact: true }).click();
-    await expect(panel.getByRole('button', { name: 'Wyślij powiadomienie testowe' })).toBeVisible();
+    if (process.env.E2E_PRODUCTION === '1') {
+      await expect(panel.getByText('Narzędzia testowe', { exact: true })).toHaveCount(0);
+      await expect(panel.getByRole('button', { name: 'Wyślij powiadomienie testowe' })).toHaveCount(0);
+    } else {
+      await panel.getByText('Narzędzia testowe', { exact: true }).click();
+      await expect(panel.getByRole('button', { name: 'Wyślij powiadomienie testowe' })).toBeVisible();
+    }
     await page.reload();
     await tab(page, 'Ustawienia').click();
     await expect(panel.getByLabel('Godzina przypomnienia')).toHaveValue('09:15');
