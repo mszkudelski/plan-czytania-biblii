@@ -58,7 +58,7 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 
-  test('three-reading week, completion and ahead remain separate at width ' + width, async ({ page, request }) => {
+  test('overdue status takes precedence over future completed days at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const monday = -((NOW.getUTCDay() + 6) % 7);
     const session = await timeline(request, 'home-week-' + width,
@@ -89,13 +89,15 @@ for (const width of [1280, 390]) {
     await reading(page, 'Mt 7').click();
     saved.push('t6a', 't6b');
     await expectSaved(request, session, saved);
-    await expect(page.getByTestId('ahead-readings')).toHaveText('Do przodu: +1 czytanie');
+    await expect(page.getByTestId('ahead-readings')).toHaveCount(0);
     await expect(page.getByTestId('reading-balance')).toContainText('Zaległość');
+    await expect(page.getByTestId('reading-balance')).not.toContainText('Do przodu');
     await expect(page.getByTestId('overdue-readings')).toHaveText('3');
     await expectWeek(page, '3 z 3 czytań');
     await page.reload();
-    await expect(page.getByTestId('ahead-readings')).toHaveText('Do przodu: +1 czytanie');
+    await expect(page.getByTestId('ahead-readings')).toHaveCount(0);
     await expect(page.getByTestId('reading-balance')).toContainText('Zaległość');
+    await expect(page.getByTestId('reading-balance')).not.toContainText('Do przodu');
     await expect(page.getByTestId('overdue-readings')).toHaveText('3');
     await expectWeek(page, '3 z 3 czytań');
     expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
@@ -162,13 +164,20 @@ for (const width of [1280, 390]) {
     for (const id of ['t0a', 't1a', 't2a', 't2b']) await saveProgress(request, session, id);
     await openPlan(page, session);
     await expect(page.getByTestId('overdue-readings')).toHaveText('1');
-    await expect(page.getByTestId('ahead-readings')).toHaveText('Do przodu: +1 czytanie');
+    await expect(page.getByTestId('reading-balance')).toContainText('1dzień');
+    await expect(page.getByTestId('ahead-readings')).toHaveCount(0);
+    await expect(page.getByTestId('reading-balance')).not.toContainText('Do przodu');
     await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.getByTestId('reading-balance')).toContainText('Do przodu: +1 czytanie');
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't2a', 't2b']);
+    await expect(page.getByTestId('overdue-readings')).toHaveCount(0);
+    await expect(page.getByTestId('reading-balance')).toContainText('Do przodu');
+    await expect(page.getByTestId('ahead-readings')).toHaveText('1');
+    await expect(page.getByTestId('reading-balance')).toContainText('1dzień');
     await tab(page, 'Plan').click();
     await expect(page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true })).toHaveAttribute('aria-valuenow', '66.5');
     await tab(page, 'Czytaj').click();
-    await expectSaved(request, session, ['t0a', 't1a', 't2a', 't2b']);
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't2a', 't2b']);
     await fitsViewport(page);
   });
 

@@ -70,7 +70,7 @@ import {
 import { cleanPersonName, normalizePersonName } from "./lib/name";
 import { createOptimisticProgressQueue } from "./lib/optimistic-progress";
 import { buildSchedule, formatPolishDate, todayIso } from "./lib/schedule";
-import { formatReadingCount, getDailyReadingDay, getReadingHomeSummary, getReadingWeekSummary } from "./lib/reading-home";
+import { getDailyReadingDay, getReadingHomeSummary, getReadingWeekSummary } from "./lib/reading-home";
 import type {
   Credentials,
   Frequency,
@@ -2090,7 +2090,7 @@ function TodayView({
     setRecoveryDetailsOpen(false);
     recoveryTrigger.current?.focus();
   }
-  const amountWord = (count: number) => formatReadingCount(count).split(" ").slice(1).join(" ");
+  const dayWord = (count: number) => count === 1 ? "dzień" : "dni";
 
   return (
     <div className="reading-home">
@@ -2106,10 +2106,9 @@ function TodayView({
         <div className={`reading-stat reading-status ${week.overdueReadings ? "is-behind" : "is-current"}`}>
           <div data-testid="reading-balance" className="reading-balance" aria-live="polite">
             {week.overdueReadings > 0 ? <>
-              <span>Zaległość</span><strong data-testid="overdue-readings">{week.overdueReadings}</strong><span>{amountWord(week.overdueReadings)}</span>
-              {week.aheadReadings > 0 && <small data-testid="ahead-readings">Do przodu: {formatReadingCount(week.aheadReadings)}</small>}
+              <span>Zaległość</span><strong data-testid="overdue-readings">{week.overdueReadings}</strong><span>{dayWord(week.overdueReadings)}</span>
             </> : week.aheadReadings > 0 ? <>
-              <span>Do przodu</span><strong data-testid="ahead-readings">+{week.aheadReadings}</strong><span>{amountWord(week.aheadReadings)}</span>
+              <span>Do przodu</span><strong data-testid="ahead-readings">{week.aheadReadings}</strong><span>{dayWord(week.aheadReadings)}</span>
             </> : <strong className="reading-on-track">Na bieżąco</strong>}
           </div>
           {showRecoveryControl && !home.planComplete && <button ref={recoveryTrigger} type="button" className="link-button reading-recovery-link"
