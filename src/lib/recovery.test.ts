@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, projectRecoveryPortions, setRecoveryChapters, parseChapterMarks, parseRecoveryPortion } from "./recovery";
+import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, projectRecoveryPortions, setRecoveryChapters, parseChapterMarks, parseRecoveryPortion, getRecoveryNavigationDays } from "./recovery";
 import { buildSchedule } from "./schedule";
 import type { Group } from "../types";
 function fixture(): Group {
@@ -145,6 +145,16 @@ it("respects reading weekdays and stops adding extras when caught up", () => {
   expect(beforeStart.extra).toBeUndefined();
   for (const day of g.planDays) for (const segment of day.segments) g.progress.a[segment.id] = "done";
   expect(projectRecoveryPortions(g, "a", "2026-09-11", {}, "")).toEqual([]);
+});
+
+it("keeps past plan days visible before projected recovery days", () => {
+  const g = fixture();
+  const portions = projectRecoveryPortions(g, "a", "2026-09-05", {}, "").slice(0, 2);
+  const navigation = getRecoveryNavigationDays(g, "2026-09-05", portions);
+  expect(navigation.slice(0, 4).map(day => day.id)).toEqual(["day-1", "day-2", "day-3", "day-4"]);
+  expect(navigation[4].id).toBe("recovery:2026-09-05");
+  expect(navigation.some(day => day.id === "day-5")).toBe(false);
+  expect(getRecoveryNavigationDays(g, "2026-09-05", [])).toBe(g.planDays);
 });
 
 it("records future chapter slices without treating an assumed earlier chapter as read", () => {

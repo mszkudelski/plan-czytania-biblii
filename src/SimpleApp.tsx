@@ -4,7 +4,7 @@ import { reminderReadingDay } from "./lib/notifications";
 import GroupAccessHint from "./GroupAccessHint";
 import { devicePromptAllowed, INSTALL_KEY, parseDevicePreference, postponeDevicePrompt, SETUP_KEY, startOnboarding } from "./lib/onboarding";
 import RecoveryPrompt from "./RecoveryPrompt";
-import { isReadingDateComplete, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion } from "./lib/recovery";
+import { isReadingDateComplete, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion, getRecoveryNavigationDays } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1910,14 +1910,12 @@ function TodayView({
       extra, chapterMarks, currentPortion),
     [recoveryStart, currentPortion],
   );
-  const anchorIndex = group.planDays.findIndex(day => day.id === recoveryDayId);
   const useRecoveryView = Boolean(recoveryStart && !notificationDay);
-  const navigationDays = useRecoveryView && recoveryPortions.length
-    ? [...group.planDays.slice(0, Math.max(0, anchorIndex)), ...recoveryPortions.map(portion => portion.day)]
+  const navigationDays = useRecoveryView
+    ? getRecoveryNavigationDays(group, today, recoveryPortions)
     : group.planDays;
   const browsedPortion = recoveryPortions.find(portion => portion.day.id === browsedRecoveryDayId);
-  const historicalDay = group.planDays.slice(0, Math.max(0, anchorIndex))
-    .find(day => day.id === browsedRecoveryDayId)
+  const historicalDay = group.planDays.find(day => day.date < today && day.id === browsedRecoveryDayId)
     ?? (!recoveryPortions.length ? group.planDays.find(day => day.id === browsedRecoveryDayId) : undefined);
   const displayedDay = useRecoveryView
     ? (browsedPortion?.day ?? historicalDay ?? currentPortion?.day)

@@ -129,6 +129,18 @@ export type RecoveryPortion = {
   day: PlanDay; extra?: RecoveryReading; chapterIndices: Record<string, number[]>;
 };
 
+export function getRecoveryNavigationDays(
+  group: Group,
+  today: string,
+  portions: RecoveryPortion[],
+) {
+  if (!portions.length) return group.planDays;
+  return [
+    ...group.planDays.filter(day => day.date < today),
+    ...portions.map(portion => portion.day),
+  ];
+}
+
 type Chapter = RecoveryReading & { section: string; lane: string; dayIndex: number };
 function planChapters(group: Group): Chapter[] {
   return group.planDays.flatMap((day, dayIndex) => {

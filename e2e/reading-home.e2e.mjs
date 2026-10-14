@@ -249,6 +249,20 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 
+  test('catch-up keeps overdue original days visible in reading navigation at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await timeline(request, 'home-catchup-history-' + width, [-4, -3, -2, -1, 0]);
+    for (const id of ['t0a', 't0b', 't1a', 't1b', 't2a', 't3a']) await saveProgress(request, session, id);
+    await openPlan(page, session);
+    await enableRecovery(page);
+    await expect(page.locator('.reading-date[data-day-id="t2"]')).toBeVisible();
+    await expect(page.locator('.reading-date[data-day-id="t3"]')).toBeVisible();
+    await page.locator('.reading-date[data-day-id="t2"]').click();
+    await expect(reading(page, 'Mt 3')).toHaveAttribute('aria-pressed', 'false');
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b', 't2a', 't3a']);
+    await fitsViewport(page);
+  });
+
   test('catch-up shows one brief example and future reading is immediately editable at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await createPlan(request, 'home-catchup-preview-' + width);
