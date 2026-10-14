@@ -49,6 +49,8 @@ export async function cleanupE2e(request: Request, groupId?: string) {
   const owner = await registry().get(`owners/${groupId}`);
   if (owner && owner !== hash) return json({ error: "Wrong test run" }, { status: 403 });
   const groups = getStore({ name: "plan-czytania-biblii-groups", consistency: "strong" });
+  const baseline = await groups.get(`group-${groupId}`, { type: "json" }) as { e2eRunHash?: string } | null;
+  if (baseline && baseline.e2eRunHash !== hash) return json({ error: "Group is not owned by this test run" }, { status: 403 });
   for (const key of await keys(`resources/${groupId}/`)) {
     const resource = await registry().get(key, { type: "json" }) as { store: CleanupStore; key: string } | null;
     if (resource) await getStore({ name: resource.store, consistency: "strong" }).delete(resource.key);
