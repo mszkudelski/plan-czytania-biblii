@@ -24,9 +24,10 @@ for (const width of [1280, 390]) {
     const context = await browser.newContext({ baseURL: process.env.E2E_BASE_URL, viewport: { width, height: 844 }, serviceWorkers: 'block' });
     try {
       const other = await context.newPage(); await openPlan(other, guest); await tab(other, 'Grupa').click();
-      await expect(other.locator('.group-access-help')).toContainText('Potrzebujesz odzyskać dostęp?');
-      await expect(other.locator('.group-access-help')).toContainText('Poproś administratora');
-      await expect(other.locator('.group-access-help button')).toHaveCount(0);
+      await expect(other.locator('.group-access-help')).toHaveCount(0);
+      await expect(other.locator('.member-row')).toHaveCount(2);
+      await other.reload(); await tab(other, 'Grupa').click();
+      await expect(other.locator('.group-access-help')).toHaveCount(0);
       if (width === 390) await test.info().attach('group-help-participant', { body: await other.screenshot(), contentType: 'image/png' });
       const granted = await request.post('/api/groups/' + owner.group.id + '/members/' + guest.credentials.memberId + '/role', {
         data: { ...owner.credentials, isAdmin: true },

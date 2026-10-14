@@ -19,9 +19,7 @@ it("offers the administrator an accessible dismissal and explains sole-admin rec
 it("does not render a previously dismissed administrator notice", () => {
   expect(render(admin, true)).toBe("");
 });
-it("keeps the participant explanation regardless of an administrator dismissal", () => {
-  const html = render(person, true);
-  expect(html).toContain("Potrzebujesz odzyskać dostęp?");
-  expect(html).toContain("Poproś administratora (Anna)");
-  expect(html).not.toContain("<button");
+it("does not render recovery help for a participant regardless of dismissal state", () => {
+  expect(render(person)).toBe("");
+  expect(render(person, true)).toBe("");
 });
