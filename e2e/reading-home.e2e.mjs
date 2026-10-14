@@ -258,6 +258,22 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 
+  test('completed recovery cache repairs backend progress and clears stale debt at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await timeline(request, 'home-catchup-reconcile-' + width, [-2, -1, 0]);
+    for (const id of ['t0a', 't0b', 't1a']) await saveProgress(request, session, id);
+    await openPlan(page, session);
+    await expect(page.getByTestId('overdue-readings')).toHaveText('1');
+    await page.evaluate(({ groupId, memberId }) => {
+      localStorage.setItem(`reading-recovery:${groupId}:${memberId}:chapters`, JSON.stringify({ t1b: 1 }));
+    }, { groupId: session.group.id, memberId: session.credentials.memberId });
+    await page.reload();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b']);
+    await expect(page.getByTestId('overdue-readings')).toHaveCount(0);
+    await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
+    await fitsViewport(page);
+  });
+
   test('catch-up keeps overdue original days visible in reading navigation at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await timeline(request, 'home-catchup-history-' + width, [-4, -3, -2, -1, 0]);

@@ -106,6 +106,20 @@ export function isRecoveryChapterRead(
 ) {
   return index < (readChapters[segmentId] ?? 0) || Boolean(marks[segmentId]?.includes(index));
 }
+
+export function getRecoveryCompletedSegmentIds(
+  group: Group,
+  memberId: string,
+  readChapters: Record<string, number>,
+  marks: ReadChapterMarks,
+) {
+  const progress = group.progress[memberId] ?? {};
+  return group.planDays.flatMap(day => day.segments).filter(segment => {
+    if (progress[segment.id]) return false;
+    return splitReadingChapters(segment.label).every((_, index) =>
+      isRecoveryChapterRead(readChapters, marks, segment.id, index));
+  }).map(segment => segment.id);
+}
 export function setRecoveryChapters(
   readChapters: Record<string, number>, marks: ReadChapterMarks, segmentId: string,
   indices: number[], completed: boolean,

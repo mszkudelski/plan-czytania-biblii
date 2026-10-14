@@ -4,7 +4,7 @@ import { reminderReadingDay } from "./lib/notifications";
 import GroupAccessHint from "./GroupAccessHint";
 import { devicePromptAllowed, INSTALL_KEY, parseDevicePreference, postponeDevicePrompt, SETUP_KEY, startOnboarding } from "./lib/onboarding";
 import RecoveryPrompt from "./RecoveryPrompt";
-import { isReadingDateComplete, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion, getRecoveryNavigationDays } from "./lib/recovery";
+import { isReadingDateComplete, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion, getRecoveryNavigationDays, getRecoveryCompletedSegmentIds } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1853,6 +1853,11 @@ function TodayView({
     parseChapterMarks(localStorage.getItem(markKey)),
   );
   const chapterState = useRef({ chapters: readChapters, marks: chapterMarks });
+  useEffect(() => {
+    const unsynced = getRecoveryCompletedSegmentIds(group, member.id, readChapters, chapterMarks);
+    if (!unsynced.length) return;
+    for (const segmentId of unsynced) void onToggle(segmentId, true);
+  }, [group, member.id, readChapters, chapterMarks, onToggle]);
   const chapterOperations = useRef<Record<string, {
     baseline: { chapters: Record<string, number>; marks: ReadChapterMarks };
     pending: Array<{ indices: number[]; completed: boolean; status: "pending" | "saved" | "failed" }>;
