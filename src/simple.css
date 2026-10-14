@@ -1595,7 +1595,11 @@ button {
   gap: 12px;
 }
 
-.group-access-help { margin-bottom: 20px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--soft-green); }
+.group-access-help { position:relative; margin-bottom: 20px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--soft-green); }
+.group-access-help.has-close { padding-right:54px; }
+.group-access-help-close { position:absolute; top:6px; right:6px; display:grid; place-items:center; width:44px; height:44px; border:0; border-radius:50%; background:transparent; color:var(--muted); cursor:pointer; font-size:24px; }
+.group-access-help-close:hover { background:var(--subtle); color:var(--ink); }
+.group-access-help-close:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
 .group-access-help strong { font-size: 0.9rem; }
 .group-access-help p { margin: 8px 0 0; font-size: 0.85rem; line-height: 1.55; }
 .member-row > div { min-width: 0; }

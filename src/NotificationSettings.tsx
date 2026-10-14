@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { getNotificationConfig, notificationSettings } from "./lib/api";
 import { notificationDevice, reminderDeviceId, subscribeToReading } from "./lib/push-client";
-import type { ReminderSettings } from "./lib/notifications";
+import { validReminderSettings, type ReminderSettings } from "./lib/notifications";
+import { createReminderTimeSaver } from "./lib/reminder-time-save";
 import type { Credentials } from "./types";
 import NotificationTestControls, { notificationTestsAllowed } from "./NotificationTestControls";
 
@@ -19,6 +20,9 @@ export default function NotificationSettings({ credentials }: { credentials: Cre
   const [loaded, setLoaded] = useState(false);
   const [retry, setRetry] = useState(0);
   const [testSent, setTestSent] = useState(false);
+  const [autoSaveFailed, setAutoSaveFailed] = useState(false);
+  const saveRevision = useRef(0);
+  const saveTime = useMemo(() => createReminderTimeSaver(value => notificationSettings(credentials, deviceId, "save", value)), [credentials, deviceId]);
   const denied = device.permission === "denied";
   const ready = !device.needsInstall && device.supported;
   const busy = operation !== null;
@@ -26,6 +30,12 @@ export default function NotificationSettings({ credentials }: { credentials: Cre
   const canTest = notificationTestsAllowed(config?.scheduled);
 
   function refreshDevice() { setDevice(notificationDevice()); }
+
+  useEffect(() => {
+    if (!message) return;
+    const timeout = setTimeout(() => setMessage(""), 5000);
+    return () => clearTimeout(timeout);
+  }, [message]);
 
   useEffect(() => {
     const mode = window.matchMedia("(display-mode: standalone)");
@@ -43,7 +53,8 @@ export default function NotificationSettings({ credentials }: { credentials: Cre
 
   useEffect(() => {
     let active = true;
-    setOperation("loading"); setError(""); setLoaded(false);
+    saveRevision.current++;
+    setOperation("loading"); setError(""); setMessage(""); setAutoSaveFailed(false); setLoaded(false);
     void Promise.all([getNotificationConfig(), notificationSettings(credentials, deviceId, "read")])
       .then(([configuration, saved]) => {
         if (!active) return;
@@ -53,17 +64,18 @@ export default function NotificationSettings({ credentials }: { credentials: Cre
         setLoaded(true);
       }).catch(() => { if (active) setError("Nie udało się wczytać ustawień. Sprawdź połączenie z internetem i spróbuj ponownie."); })
       .finally(() => { if (active) setOperation(null); });
-    return () => { active = false; };
+    return () => { active = false; saveRevision.current++; };
   }, [credentials, deviceId, retry]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (!canSave || busy || !config?.publicKey) return;
+    if (settings.enabled || !canSave || busy || !config?.publicKey) return;
     setOperation("save"); setError(""); setMessage("");
     try {
       const subscription = await subscribeToReading(config.publicKey);
       const value = await notificationSettings(credentials, deviceId, "save", { ...settings, enabled: true }, subscription);
-      if (value) { setSettings(value); setSavedTime(value.time); }
+      if (!value?.enabled) throw new Error("Nie udało się zapisać przypomnienia. Spróbuj ponownie.");
+      setSettings(value); setSavedTime(value.time);
       window.dispatchEvent(new Event("reading-notifications-changed"));
       setMessage(`Zapisano godzinę ${settings.time}.`);
     } catch (caught) {
@@ -71,9 +83,28 @@ export default function NotificationSettings({ credentials }: { credentials: Cre
     } finally { setOperation(null); refreshDevice(); }
   }
 
+  function changeTime(time: string) {
+    const next = { ...settings, time };
+    setSettings(next);
+    if (!settings.enabled || !canSave || !validReminderSettings(next)) return;
+    const revision = ++saveRevision.current;
+    setOperation("save"); setError(""); setMessage(""); setAutoSaveFailed(false);
+    void saveTime(next).then(value => {
+      if (revision !== saveRevision.current) return;
+      if (!value?.enabled) throw new Error("Nie udało się zapisać godziny. Spróbuj ponownie.");
+      setSavedTime(value.time);
+      setMessage(`Zapisano godzinę ${value.time}.`);
+      window.dispatchEvent(new Event("reading-notifications-changed"));
+    }).catch(caught => {
+      if (revision !== saveRevision.current) return;
+      setAutoSaveFailed(true);
+      setError(caught instanceof Error ? caught.message : "Nie udało się zapisać godziny. Spróbuj ponownie.");
+    }).finally(() => { if (revision === saveRevision.current) setOperation(null); });
+  }
+
   async function action(kind: "disable" | "test") {
     if (kind === "test" && !canTest) return;
-    setOperation(kind); setError(""); setMessage("");
+    setOperation(kind); setError(""); setMessage(""); setAutoSaveFailed(false);
     try {
       await notificationSettings(credentials, deviceId, kind);
       if (kind === "disable") {
@@ -92,11 +123,11 @@ export default function NotificationSettings({ credentials }: { credentials: Cre
   const timeForm = <form onSubmit={save}>
     <label className="simple-field">
       <span>Godzina przypomnienia</span>
-      <input type="time" required value={settings.time} disabled={busy} onChange={event => setSettings(current => ({ ...current, time: event.target.value }))} aria-describedby="reminder-time-zone" />
+    <input type="time" required value={settings.time} disabled={busy && !(settings.enabled && operation === "save")} onChange={event => changeTime(event.target.value)} aria-describedby="reminder-time-zone" />
     </label>
     <p id="reminder-time-zone" className="notification-hint">Czas: {settings.timeZone}.</p>
     {!settings.enabled && <p>Po kliknięciu przycisku wybierz <strong>„Zezwól”</strong> w oknie przeglądarki.</p>}
-    <button className="main-button" disabled={busy || !canSave}>{operation === "save" ? "Zapisywanie…" : settings.enabled ? "Zapisz godzinę" : "Włącz przypomnienia"}</button>
+    {!settings.enabled && <button className="main-button" disabled={busy || !canSave}>{operation === "save" ? "Zapisywanie…" : "Włącz przypomnienia"}</button>}
   </form>;
 
   let content;
@@ -165,6 +196,8 @@ export default function NotificationSettings({ credentials }: { credentials: Cre
     <section className="settings-card notification-card" aria-label="Powiadomienia o czytaniu" aria-busy={busy}>
       <div className="notification-current-step">{content}</div>
       {loaded && ready && config?.publicKey && error && <p className="simple-alert" role="alert">{error}</p>}
+      {autoSaveFailed && !busy && <button className="small-button" onClick={() => changeTime(settings.time)}>Ponów zapis</button>}
+      {settings.enabled && operation === "save" && <p className="notification-hint" role="status">Zapisywanie godziny…</p>}
       {loaded && ready && message && <p className="notification-feedback" role="status">{message}</p>}
     </section>
   </>;

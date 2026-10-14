@@ -766,15 +766,16 @@ async function notifications(request: Request, groupId: string, scope: string) {
     return json({ enabled: false });
   }
   if (body.action === "save") {
-    if (!validReminderSettings(body.settings) || !body.settings.enabled || !validPushSubscription(body.subscription)) {
+    const subscription = body.subscription === undefined ? ownRecord?.subscription : body.subscription;
+    if (!validReminderSettings(body.settings) || !body.settings.enabled || !validPushSubscription(subscription)) {
       return error("Nieprawidłowa godzina, strefa czasowa lub subskrypcja powiadomień.");
     }
     if (!pushConfigured()) return error("Powiadomienia nie są jeszcze skonfigurowane na serwerze.", 503);
     const reminder: StoredReminder = {
       enabled: true, time: body.settings.time, timeZone: body.settings.timeZone,
       deviceId: body.deviceId, groupId, memberId: member.id,
-      subscription: { endpoint: body.subscription.endpoint, keys: {
-        p256dh: body.subscription.keys.p256dh, auth: body.subscription.keys.auth,
+      subscription: { endpoint: subscription.endpoint, keys: {
+        p256dh: subscription.keys.p256dh, auth: subscription.keys.auth,
       } },
       origin: new URL(request.url).origin,
     };

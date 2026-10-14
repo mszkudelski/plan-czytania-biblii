@@ -207,7 +207,7 @@ test('enabling from onboarding saves 8:00 and explains that the hour can be chan
     expect(response.status()).toBe(200);
     expect(await response.json()).toEqual({ enabled: true, time: '08:00', timeZone: 'Europe/Warsaw' });
     await screenshot(page, 'onboarding-reminder-saved');
-    await confirmation.getByRole('button', { name: 'Rozumiem', exact: true }).click();
+    await page.clock.runFor(5100);
     await expect(confirmation).toBeHidden();
     await page.reload(); await expect(reminder(page)).toBeHidden();
     await tab(page, 'Ustawienia').click();

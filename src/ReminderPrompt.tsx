@@ -21,6 +21,11 @@ export default function ReminderPrompt({ credentials }: { credentials: Credentia
   const key = credentials ? reminderPromptKey(credentials) : "";
   const [preference, setPreference] = useState(() => parseDevicePreference(key ? localStorage.getItem(key) : null));
   useEffect(() => {
+    if (!saved) return;
+    const timeout = setTimeout(() => setSaved(false), 5000);
+    return () => clearTimeout(timeout);
+  }, [saved]);
+  useEffect(() => {
     setPreference(parseDevicePreference(key ? localStorage.getItem(key) : null)); setError(""); setSaved(false);
   }, [key]);
   useEffect(() => {

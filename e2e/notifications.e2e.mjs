@@ -52,6 +52,12 @@ test('notifications persist personal settings and reject invalid inputs without 
     expect(saved.status()).toBe(200);
     expect(await saved.json()).toEqual(settings);
     expect(await (await request.post(path(session), { data: body(session, deviceId, 'read') })).json()).toEqual(settings);
+    const automatic = { ...settings, time: '08:10' };
+    const updated = await request.post(path(session), { data: body(session, deviceId, 'save', { settings: automatic }) });
+    expect(updated.status()).toBe(200); expect(await updated.json()).toEqual(automatic);
+    expect((await request.post(path(session), { data: body(session, crypto.randomUUID(), 'save', { settings: automatic }) })).status()).toBe(400);
+    expect((await request.post(path(session), { data: body(session, deviceId, 'save', { settings, subscription: null }) })).status()).toBe(400);
+    expect((await request.post(path(session), { data: body(session, deviceId, 'save', { settings, subscription }) })).status()).toBe(200);
     expect(await (await request.post(path(session), { data: body(session, crypto.randomUUID(), 'read') })).json()).toBeNull();
     const joined = await request.post('/api/groups/' + session.group.id + '/join', {
       data: { name: 'Notification Guest E2E', inviteToken: session.credentials.inviteToken },
@@ -80,6 +86,11 @@ test('notification settings reload the saved hour and disable through the deploy
   const session = await createPlan(request, 'notifications-browser');
   const deviceId = crypto.randomUUID();
   await page.addInitScript(id => localStorage.setItem('reading-notification-device', id), deviceId);
+  await page.addInitScript(() => {
+    window.permissionRequests = 0;
+    const original = Notification.requestPermission.bind(Notification);
+    Notification.requestPermission = (...args) => { window.permissionRequests++; return original(...args); };
+  });
   expect((await request.post(path(session), { data: body(session, deviceId, 'save', { settings, subscription: testSubscription() }) })).status()).toBe(200);
   try {
     await openPlan(page, session);
@@ -90,12 +101,42 @@ test('notification settings reload the saved hour and disable through the deploy
     await expect(panel).toContainText('włączone na tym urządzeniu');
     await expect(panel).toContainText('Wersja testowa');
     await expect(panel.getByLabel('Godzina przypomnienia')).toBeHidden();
+    await panel.getByText('Zmień godzinę', { exact: true }).click();
+    await expect(panel.getByRole('button', { name: 'Zapisz godzinę', exact: true })).toHaveCount(0);
+    let release, entered;
+    const gate = new Promise(resolve => { release = resolve; });
+    const started = new Promise(resolve => { entered = resolve; });
+    await page.route('**' + path(session), async route => {
+      if (route.request().postDataJSON().action === 'save') { entered(); await gate; }
+      await route.continue();
+    }, { times: 1 });
+    try {
+      await panel.getByLabel('Godzina przypomnienia').fill('06:10'); await started;
+      await panel.getByLabel('Godzina przypomnienia').fill('07:45');
+      await expect(panel.getByLabel('Godzina przypomnienia')).toHaveValue('07:45');
+      await expect(panel.getByRole('status')).toHaveText('Zapisywanie godziny…');
+    } finally { release(); }
+    await expect(panel.getByRole('status')).toHaveText('Zapisano godzinę 07:45.');
+    expect(await (await request.post(path(session), { data: body(session, deviceId, 'read') })).json()).toEqual({ ...settings, time: '07:45' });
+    expect(await page.evaluate(() => window.permissionRequests)).toBe(0);
+    await test.info().attach('notification-hour-autosave', { body: await panel.screenshot(), contentType: 'image/png' });
+    await page.clock.runFor(5100); await expect(panel.locator('.notification-feedback')).toHaveCount(0);
+    await page.route('**' + path(session), async route => {
+      const data = route.request().postDataJSON();
+      await route.continue({ postData: JSON.stringify({ ...data, token: 'invalid' }) });
+    }, { times: 1 });
+    await panel.getByLabel('Godzina przypomnienia').fill('09:15');
+    await expect(panel.getByRole('alert')).toBeVisible();
+    await expect(panel.locator('.notification-feedback')).toHaveCount(0);
+    expect((await (await request.post(path(session), { data: body(session, deviceId, 'read') })).json()).time).toBe('07:45');
+    await panel.getByRole('button', { name: 'Ponów zapis', exact: true }).click();
+    await expect(panel.getByRole('status')).toHaveText('Zapisano godzinę 09:15.');
     await expect(panel.getByRole('button', { name: 'Wyślij powiadomienie testowe' })).toBeHidden();
     await panel.getByText('Narzędzia testowe', { exact: true }).click();
     await expect(panel.getByRole('button', { name: 'Wyślij powiadomienie testowe' })).toBeVisible();
     await page.reload();
     await tab(page, 'Ustawienia').click();
-    await expect(panel.getByLabel('Godzina przypomnienia')).toHaveValue('19:35');
+    await expect(panel.getByLabel('Godzina przypomnienia')).toHaveValue('09:15');
     await panel.getByRole('button', { name: 'Wyłącz przypomnienia', exact: true }).click();
     await expect(panel.getByRole('status')).toContainText('wyłączone');
     expect(await (await request.post(path(session), { data: body(session, deviceId, 'read') })).json()).toBeNull();

@@ -1,5 +1,6 @@
 import Onboarding, { useOnboarding, usePromptOffer } from "./Onboarding";
 import ReminderPrompt from "./ReminderPrompt";
+import GroupAccessHint from "./GroupAccessHint";
 import { devicePromptAllowed, INSTALL_KEY, parseDevicePreference, postponeDevicePrompt, SETUP_KEY, startOnboarding } from "./lib/onboarding";
 import RecoveryPrompt from "./RecoveryPrompt";
 import { isReadingDateComplete, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion } from "./lib/recovery";
@@ -2239,7 +2240,6 @@ function GroupView({
 }) {
   const [managedId, setManagedId] = useState<string | null>(null);
   const managedPerson = group.members.find((person) => person.id === managedId);
-  const admins = group.members.filter((person) => person.isAdmin);
   const ranking = group.members
     .map((person) => ({
       ...person,
@@ -2266,13 +2266,7 @@ function GroupView({
           ) : undefined
         }
       />
-      <aside className="group-access-help">
-        <strong>{member.isAdmin ? "Grupa pomaga odzyskać dostęp" : "Potrzebujesz odzyskać dostęp?"}</strong>
-        <p>{member.isAdmin
-          ? "Wybierz Zarządzaj przy właściwej osobie, aby przywrócić jej profil jednorazowym linkiem lub QR."
-          : `Poproś administratora (${admins.map((person) => person.name).join(", ")}) o jednorazowy link. Otworzy Twój profil z dotychczasowym postępem.`}</p>
-        {member.isAdmin && admins.length === 1 && <p>Jesteś jedynym administratorem. Nadaj tę rolę zaufanej osobie, aby mogła pomóc również Tobie.</p>}
-      </aside>
+      <GroupAccessHint key={`${group.id}:${member.id}`} group={group} member={member} />
       <section className="simple-list">
         {ranking.map((person, index) => (
           <div className="member-row" key={person.id}>
