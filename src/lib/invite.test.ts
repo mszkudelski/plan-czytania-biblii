@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createSessionTransferLink,
+  createMemberAccessLink,
   parseJoinLink,
   parseSessionTransfer,
   readSessionTransferFromHash,
@@ -64,4 +65,20 @@ describe("invite and transfer links", () => {
       parseSessionTransfer("https://example.com/#join=not-a-transfer"),
     ).toBeNull();
   });
+
+  it("creates and reads an administrator recovery link without confusing it with an invite", () => {
+    const link = createMemberAccessLink("ABCD-EFGH");
+    expect(link).toBe("https://plan-czytania.netlify.app/#restore=ABCD-EFGH");
+    expect(parseSessionTransfer(link)).toBe("ABCDEFGH");
+    window.location.hash = "#restore=abcd-efgh";
+    expect(readSessionTransferFromHash()).toBe("ABCDEFGH");
+    expect(parseJoinLink(link)).toBeNull();
+  });
+
+  it("does not shorten personal recovery codes or malformed links into access codes", () => {
+    expect(parseSessionTransfer("ABCD-EFGH-IJKL-MNPQ-RSTU-VWXY-2345-6789")).toBeNull();
+    expect(parseSessionTransfer("https://example.com/#restore=ABCD-EFGH-IJKL")).toBeNull();
+    expect(parseSessionTransfer("https://example.com/#restore=ABCD-EFGH&admin=true")).toBeNull();
+  });
 });
+

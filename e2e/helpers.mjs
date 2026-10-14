@@ -65,7 +65,8 @@ export async function saveProgress(request, session, segmentId, completed = true
   return response.json();
 }
 export async function readGroup(request, session) {
-  const response = await request.get('/api/groups/' + session.group.id, { timeout: 30000 });
+  // Retry only an interrupted, idempotent GET. HTTP failures and state assertions still fail normally.
+  const response = await request.get('/api/groups/' + session.group.id, { timeout: 30000, maxRetries: 2 });
   expect(response.status()).toBe(200);
   return response.json();
 }
@@ -115,13 +116,29 @@ export async function openPlan(page, session, cache = {}) {
     }
   }, { credentials: session.credentials, cache });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Dzisiaj', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: session.group.name, exact: true })).toBeVisible();
 }
 export const reading = (page, label) => page.locator('.simple-readings button').filter({
   has: page.locator('strong', { hasText: new RegExp('^' + label.replace(/[.*+?^$\{\}()|[\]\\]/g, '\\$&') + '$') }),
 });
 export const extraReading = page => page.locator('.simple-readings button.reading-extra');
 export const tab = (page, name) => page.locator('nav:visible').getByRole('button', { name, exact: true });
+export async function expectFloatingPopup(page, popup) {
+  const box = await popup.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box).not.toBeNull();
+  expect(box.x).toBeGreaterThanOrEqual(15);
+  expect(viewport.width - box.x - box.width).toBeGreaterThanOrEqual(15);
+  expect(box.y).toBeGreaterThanOrEqual(15);
+  const navigation = page.locator('.mobile-tabs');
+  const bottom = await navigation.isVisible() ? (await navigation.boundingBox()).y : viewport.height;
+  expect(bottom - box.y - box.height).toBeGreaterThanOrEqual(15);
+  const corners = await popup.evaluate(element => {
+    const style = getComputedStyle(element);
+    return [style.borderTopLeftRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius].map(parseFloat);
+  });
+  expect(corners.every(radius => radius >= 18)).toBe(true);
+}
 export const recoveryKey = session => 'reading-recovery:' + session.group.id + ':' + session.credentials.memberId;
 // Hold a request BEFORE sending it; after release it uses the real backend.
 export async function holdNextProgress(page, session) {
@@ -135,4 +152,33 @@ export async function holdNextProgress(page, session) {
     await route.continue();
   }, { times: 1 });
   return { started, release };
+}
+
+
+// Browse through the same previous/next controls as a reader, without writes.
+export async function browseReading(page, target) {
+  const nav = page.getByRole('navigation', { name: 'Przeglądaj czytania', exact: true });
+  const count = Number(await nav.getAttribute('data-reading-count'));
+  const destination = target === 'last' ? count - 1 : target;
+  expect(destination).toBeGreaterThanOrEqual(0);
+  expect(destination).toBeLessThan(count);
+  let current = Number(await nav.getAttribute('data-selected-index'));
+  while (current !== destination) {
+    await nav.getByRole('button', { name: current < destination ? 'Następne' : 'Poprzednie', exact: true }).click();
+    current += current < destination ? 1 : -1;
+    await expect(nav).toHaveAttribute('data-selected-index', String(current));
+  }
+}
+
+export async function enableRecovery(page) {
+  await page.getByRole('button', { name: 'Nadrabianie', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Chcesz włączyć nadrabianie?', exact: true });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Włącz', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+}
+export async function expectWeek(page, expected) {
+  await tab(page, 'Plan').click();
+  await expect(page.getByTestId('weekly-readings')).toHaveText(expected);
+  await tab(page, 'Czytaj').click();
 }

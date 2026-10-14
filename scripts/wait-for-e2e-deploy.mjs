@@ -3,6 +3,17 @@ const { GITHUB_TOKEN, GITHUB_REPOSITORY, E2E_COMMIT, GITHUB_OUTPUT } = process.e
 if (!GITHUB_TOKEN || !GITHUB_REPOSITORY || !E2E_COMMIT) throw new Error('Missing GitHub deployment lookup configuration.');
 const deadline = Date.now() + 15 * 60 * 1000;
 while (Date.now() < deadline) {
+  // A PR preview may fail while the same commit's develop deployment is ready.
+  // Always require the exact SHA and a non-production context before using it.
+  try {
+    const info = await fetch('https://develop--plan-czytania.netlify.app/build-info.json', { cache: 'no-store' }).then(r => r.json());
+    if (info.commit === E2E_COMMIT && info.context === 'branch-deploy' && /^[a-f0-9]{24}$/.test(info.deployId)) {
+      const baseURL = 'https://' + info.deployId + '--plan-czytania.netlify.app';
+      appendFileSync(GITHUB_OUTPUT, 'base_url=' + baseURL + '\n');
+      console.log('Testing develop deployment of commit ' + E2E_COMMIT + ': ' + baseURL);
+      process.exit(0);
+    }
+  } catch { /* A preview remains eligible if the develop alias is unavailable. */ }
   const response = await fetch('https://api.github.com/repos/' + GITHUB_REPOSITORY + '/commits/' + E2E_COMMIT + '/status', {
     headers: { authorization: 'Bearer ' + GITHUB_TOKEN, accept: 'application/vnd.github+json' },
   });
@@ -10,9 +21,7 @@ while (Date.now() < deadline) {
   const { statuses } = await response.json();
   const deployment = statuses.find(status =>
     /^netlify\/plan-czytania\/(deploy-preview|branch-deploy)$/.test(status.context));
-  if (deployment && ['failure', 'error'].includes(deployment.state)) {
-    throw new Error('Netlify deployment failed for the tested commit.');
-  }
+  // Keep waiting if a preview fails: the same SHA's branch deployment can still finish.
   if (deployment?.state === 'success') {
     const target = new URL(deployment.target_url);
     let baseURL;
