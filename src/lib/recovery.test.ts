@@ -227,7 +227,7 @@ it("balances uneven debt and keeps streams stable across book transitions and ge
   g.planDays[4].segments[1].label = "Mk 1";
   const portions = projectRecoveryPortions(g, "a", "2026-09-11", {}, "");
   expect(portions[0].extra?.label).toBe("Mt 2");
-  expect(portions[1].extra?.label).toBe("Ps 3");
+  expect(portions[1].extra?.label).toBe("Mt 4");
   for (const day of g.planDays) for (const segment of day.segments) segment.section = "Fragment";
   const generic = projectRecoveryPortions(g, "a", "2026-09-11", {}, "");
   expect(generic[0].extra?.label).toBe("Mt 2");
