@@ -289,7 +289,7 @@ for (const width of [1280, 390]) {
     await openPlan(page, session);
     await expect(page.getByTestId('overdue-readings')).toHaveText('2');
     await enableRecovery(page);
-    await expect(page.getByTestId('reading-balance')).toHaveText('Nadrabianie');
+    await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
     await expect(page.getByTestId('overdue-readings')).toHaveCount(0);
     await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(0));
     await expect(reading(page, 'Rdz 3')).toBeVisible();
