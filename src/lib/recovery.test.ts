@@ -154,10 +154,12 @@ it("re-dates the first unread content to today and navigates only forward recove
   const portions = projectRecoveryPortions(g, "a", "2026-09-05", {}, "").slice(0, 2);
   expect(portions[0].day.id).toBe("recovery:2026-09-05");
   expect(Object.keys(portions[0].chapterIndices)[0]).toBe("day-3-segment-1");
-  const navigation = getRecoveryNavigationDays(g, "2026-09-05", portions);
-  expect(navigation.map(day => day.id)).toEqual(["recovery:2026-09-05", "recovery:2026-09-06"]);
-  expect(navigation.some(day => day.id.startsWith("day-"))).toBe(false);
-  expect(getRecoveryNavigationDays(g, "2026-09-05", [])).toBe(g.planDays);
+  const navigation = getRecoveryNavigationDays(g, "a", "2026-09-05", portions);
+  expect(navigation.map(day => day.id)).toEqual([
+    "day-1", "day-2", "recovery:2026-09-05", "recovery:2026-09-06",
+  ]);
+  expect(navigation.some(day => day.id === "day-3" || day.id === "day-4")).toBe(false);
+  expect(getRecoveryNavigationDays(g, "a", "2026-09-05", [])).toBe(g.planDays);
 });
 
 it("finds locally completed recovery segments that still need backend progress", () => {

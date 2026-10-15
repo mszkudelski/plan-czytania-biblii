@@ -146,10 +146,17 @@ export type RecoveryPortion = {
 
 export function getRecoveryNavigationDays(
   group: Group,
-  _today: string,
+  memberId: string,
+  today: string,
   portions: RecoveryPortion[],
 ) {
-  return portions.length ? portions.map(portion => portion.day) : group.planDays;
+  if (!portions.length) return group.planDays;
+  const progress = group.progress[memberId] ?? {};
+  const history = group.planDays.filter(day =>
+    day.date < today &&
+    day.segments.length > 0 &&
+    day.segments.every(segment => progress[segment.id]));
+  return [...history, ...portions.map(portion => portion.day)];
 }
 
 type Chapter = RecoveryReading & { section: string; lane: string; dayIndex: number };

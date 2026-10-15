@@ -295,8 +295,16 @@ for (const width of [1280, 390]) {
     await expect(reading(page, 'Rdz 3')).toBeVisible();
     await expect(reading(page, 'Mt 3')).toBeVisible();
     await expect(extraReading(page)).toContainText('Rdz 4');
+    await expect(page.locator('.reading-date[data-day-id="t0"]')).toBeVisible();
+    await expect(page.locator('.reading-date[data-day-id="t1"]')).toBeVisible();
     await expect(page.locator('.reading-date[data-day-id="t2"], .reading-date[data-day-id="t3"]')).toHaveCount(0);
     await expect(page.locator('.reading-date[data-day-id^="recovery:"]')).not.toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Poprzednie', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-3));
+    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Wróć do swojego miejsca', exact: true }).click();
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(0));
     await page.getByRole('button', { name: 'Następne', exact: true }).click();
     await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(1));
     await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b']);

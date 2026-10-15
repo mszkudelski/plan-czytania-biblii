@@ -1935,11 +1935,16 @@ function TodayView({
   }, [dailyKey, group.planDays, portionKey, progress, recoveryHasExtra, recoveryKey, recoveryStart, week.overdueReadings]);
   const useRecoveryView = Boolean(recoveryStart && !notificationDay);
   const navigationDays = useRecoveryView
-    ? getRecoveryNavigationDays(group, today, recoveryPortions)
+    ? getRecoveryNavigationDays(group, member.id, today, recoveryPortions)
     : group.planDays;
   const browsedPortion = recoveryPortions.find(portion => portion.day.id === browsedRecoveryDayId);
+  const historicalDay = useRecoveryView
+    ? group.planDays.find(day => day.id === browsedRecoveryDayId &&
+        day.date < today && day.segments.length > 0 &&
+        day.segments.every(segment => progress[segment.id]))
+    : undefined;
   const displayedDay = useRecoveryView
-    ? (browsedPortion?.day ?? currentPortion?.day)
+    ? (browsedPortion?.day ?? historicalDay ?? currentPortion?.day)
     : selectedDay;
   const isRecoveryPortion = Boolean(useRecoveryView && displayedDay && displayedDay.id === currentPortion?.day.id);
   const isForecast = Boolean(useRecoveryView && browsedPortion && !isRecoveryPortion);
