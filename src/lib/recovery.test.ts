@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, projectRecoveryPortions, setRecoveryChapters, parseChapterMarks, parseRecoveryPortion, getRecoveryNavigationDays, getRecoveryCompletedSegmentIds, shouldKeepRecoveryEnabled } from "./recovery";
+import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, projectRecoveryPortions, setRecoveryChapters, parseChapterMarks, parseRecoveryPortion, getRecoveryNavigationDays, getRecoveryCompletedSegmentIds } from "./recovery";
 import { buildSchedule } from "./schedule";
 import type { Group } from "../types";
 function fixture(): Group {
@@ -147,20 +147,17 @@ it("respects reading weekdays and stops adding extras when caught up", () => {
   expect(projectRecoveryPortions(g, "a", "2026-09-11", {}, "")).toEqual([]);
 });
 
-it("keeps past plan days visible before projected recovery days", () => {
+it("re-dates the first unread content to today and navigates only forward recovery days", () => {
   const g = fixture();
+  g.progress.a["day-1-segment-1"] = "done";
+  g.progress.a["day-2-segment-1"] = "done";
   const portions = projectRecoveryPortions(g, "a", "2026-09-05", {}, "").slice(0, 2);
+  expect(portions[0].day.id).toBe("recovery:2026-09-05");
+  expect(Object.keys(portions[0].chapterIndices)[0]).toBe("day-3-segment-1");
   const navigation = getRecoveryNavigationDays(g, "2026-09-05", portions);
-  expect(navigation.slice(0, 4).map(day => day.id)).toEqual(["day-1", "day-2", "day-3", "day-4"]);
-  expect(navigation[4].id).toBe("recovery:2026-09-05");
-  expect(navigation.some(day => day.id === "day-5")).toBe(false);
+  expect(navigation.map(day => day.id)).toEqual(["recovery:2026-09-05", "recovery:2026-09-06"]);
+  expect(navigation.some(day => day.id.startsWith("day-"))).toBe(false);
   expect(getRecoveryNavigationDays(g, "2026-09-05", [])).toBe(g.planDays);
-});
-
-it("keeps recovery active only while overdue readings remain", () => {
-  expect(shouldKeepRecoveryEnabled(2)).toBe(true);
-  expect(shouldKeepRecoveryEnabled(1)).toBe(true);
-  expect(shouldKeepRecoveryEnabled(0)).toBe(false);
 });
 
 it("finds locally completed recovery segments that still need backend progress", () => {
@@ -258,5 +255,5 @@ it("keeps a prechecked standard row on activation without counting yesterday's r
   // The same completed chapter recorded by recovery must be skipped in a new
   // day's full normal quota, while keeping the other parallel streams present.
   const nextDay = projectRecoveryPortions(g, "a", "2026-09-12", { "day-1-segment-1": 1 }, "");
-  expect(nextDay[0].day.segments.map(s => s.label)).toEqual(["Rdz 2", "Mt 1", "Ps 1"]);
+  expect(nextDay[0].day.segments.map(s => s.label)).toEqual(["Mt 1", "Ps 1", "Rdz 2"]);
 });

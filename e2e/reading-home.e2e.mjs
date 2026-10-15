@@ -282,17 +282,24 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 
-  test('catch-up keeps overdue original days visible in reading navigation at width ' + width, async ({ page, request }) => {
+  test('catch-up re-dates the first unread day to today and only navigates forward at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
-    const session = await timeline(request, 'home-catchup-history-' + width, [-4, -3, -2, -1, 0]);
-    for (const id of ['t0a', 't0b', 't1a', 't1b', 't2a', 't3a']) await saveProgress(request, session, id);
+    const session = await timeline(request, 'home-catchup-forward-' + width, [-4, -3, -2, -1, 0]);
+    for (const id of ['t0a', 't0b', 't1a', 't1b']) await saveProgress(request, session, id);
     await openPlan(page, session);
+    await expect(page.getByTestId('overdue-readings')).toHaveText('2');
     await enableRecovery(page);
-    await expect(page.locator('.reading-date[data-day-id="t2"]')).toBeVisible();
-    await expect(page.locator('.reading-date[data-day-id="t3"]')).toBeVisible();
-    await page.locator('.reading-date[data-day-id="t2"]').click();
-    await expect(reading(page, 'Mt 3')).toHaveAttribute('aria-pressed', 'false');
-    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b', 't2a', 't3a']);
+    await expect(page.getByTestId('reading-balance')).toHaveText('Nadrabianie');
+    await expect(page.getByTestId('overdue-readings')).toHaveCount(0);
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(0));
+    await expect(reading(page, 'Rdz 3')).toBeVisible();
+    await expect(reading(page, 'Mt 3')).toBeVisible();
+    await expect(extraReading(page)).toContainText('Rdz 4');
+    await expect(page.locator('.reading-date[data-day-id="t2"], .reading-date[data-day-id="t3"]')).toHaveCount(0);
+    await expect(page.locator('.reading-date[data-day-id^="recovery:"]')).not.toHaveCount(0);
+    await page.getByRole('button', { name: 'Następne', exact: true }).click();
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(1));
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b']);
     await fitsViewport(page);
   });
 
