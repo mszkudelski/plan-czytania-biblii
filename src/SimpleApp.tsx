@@ -1833,7 +1833,10 @@ export function TodayView({
   const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
   const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
   const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
+  const [finishedRecoveryView, setFinishedRecoveryView] = useState(false);
   const recoveryActive = Boolean(recoveryStart && (week.overdueReadings > 0 || savingProgress));
+  const hadRecoverySession = useRef(recoveryActive);
+  useEffect(() => { if (recoveryActive) hadRecoverySession.current = true; }, [recoveryActive]);
   useEffect(() => {
     if (dailyDayId && !recoveryStart) localStorage.setItem(normalPortionKey, dailyDayId);
   }, [dailyDayId, normalPortionKey, recoveryStart]);
@@ -1934,7 +1937,7 @@ export function TodayView({
   );
   const verifiedRecoveryCache = useRef(false);
   useEffect(() => {
-    if (!promptReady) { verifiedRecoveryCache.current = false; return; }
+    if (!promptReady) { verifiedRecoveryCache.current = false; setFinishedRecoveryView(false); return; }
     if (savingProgress || verifiedRecoveryCache.current) return;
     verifiedRecoveryCache.current = true;
     if (dailySchedule && !parseRecoverySchedule(group, member.id, today, readChapters, chapterMarks, JSON.stringify(dailySchedule))) {
@@ -1977,6 +1980,12 @@ export function TodayView({
     setDailySchedule(recoveryPortions);
   }, [promptReady, recoveryActive, dailySchedule, recoveryPortions, scheduleKey]);
   useEffect(() => {
+    // Undoing completion restores the mode without replacing its frozen card.
+    if (!finishedRecoveryView || recoveryStart || week.overdueReadings === 0) return;
+    localStorage.setItem(recoveryKey, today);
+    setRecoveryStart(today);
+  }, [finishedRecoveryView, recoveryStart, week.overdueReadings, recoveryKey, today]);
+  useEffect(() => {
     // Projected extras can remain after the backlog is cleared. End recovery
     // using actual debt, once fresh session progress is available.
     if (!promptReady || savingProgress || !recoveryStart || week.overdueReadings > 0) return;
@@ -1985,18 +1994,16 @@ export function TodayView({
     localStorage.removeItem(dailyKey);
     localStorage.removeItem(portionKey);
     localStorage.removeItem(scheduleKey);
+    // Ending the mode must not navigate away from the row just checked.
+    // Keep this session's card until explicit navigation or refresh.
+    setFinishedRecoveryView(hadRecoverySession.current);
     setRecoveryStart("");
-    setBrowsedRecoveryDayId(null);
-    setRecoveryDayAnchor("");
-    setDailyReading(null);
-    setDailyPortion(undefined);
-    setDailySchedule(undefined);
     const nextIndex = group.planDays.findIndex(day => day.segments.some(segment => !progress[segment.id]));
     const resumedIndex = nextIndex >= 0 ? nextIndex : Math.max(0, group.planDays.length - 1);
     setDailyDayId(group.planDays[resumedIndex]?.id ?? "");
-    if (!notificationDay) setSelectedIndex(resumedIndex);
+    if (!hadRecoverySession.current && !notificationDay) setSelectedIndex(resumedIndex);
   }, [dailyKey, group.planDays, portionKey, progress, promptReady, recoveryKey, recoveryStart, week.overdueReadings, savingProgress, notificationDay, scheduleKey]);
-  const useRecoveryView = Boolean(recoveryActive && !notificationDay);
+  const useRecoveryView = Boolean((recoveryActive || finishedRecoveryView) && !notificationDay);
   // Checking a row changes progress, not the navigation or the selected date.
   // Rebuild this snapshot only when entering/leaving recovery or its schedule changes.
   const navigationDays = useMemo(() => useRecoveryView
@@ -2020,6 +2027,15 @@ export function TodayView({
     ? (displayedDay ? Math.max(0, navigationDays.findIndex(day => day.id === displayedDay.id)) : initialIndex)
     : selectedIndex;
   function selectDay(index: number) {
+    if (finishedRecoveryView && !recoveryActive) {
+      const nextUnread = group.planDays.findIndex(day => day.segments.some(segment => !progress[segment.id]));
+      const sourceId = navigationDays[index]?.segments[0]?.id;
+      const sourceIndex = group.planDays.findIndex(day => day.segments.some(segment => segment.id === sourceId));
+      setSelectedIndex(index > displayedIndex && nextUnread >= 0 ? nextUnread : Math.max(0, sourceIndex));
+      setFinishedRecoveryView(false);
+      setBrowsedRecoveryDayId(null);
+      return;
+    }
     if (!useRecoveryView) { setSelectedIndex(index); return; }
     const day = navigationDays[index];
     if (day) setBrowsedRecoveryDayId(day.id === currentPortion?.day.id ? null : day.id);
@@ -2141,6 +2157,8 @@ export function TodayView({
     await toggleChapterSelection(segmentId, indices.length ? indices : allIndices, !Boolean(displayedProgress[segmentId]));
   }
   function changeRecovery(start: string) {
+    hadRecoverySession.current = Boolean(start && week.overdueReadings > 0);
+    setFinishedRecoveryView(false);
     setNotificationDay(undefined);
     setDailyReading(null);
     localStorage.removeItem(dailyKey);

@@ -112,16 +112,66 @@ it("keeps recovery enabled while the final overdue check is pending and after a 
   expect(container.textContent).toContain("Wyłącz nadrabianie");
 });
 
-it("exits recovery after the final overdue check has actually been saved", async () => {
+it("ends recovery without replacing the card when the final overdue check is saved", async () => {
   const g = plan(); g.planDays.forEach((day, i) => { day.date = date(i - 1); });
-  const f = mount(g); await act(async () => f.render()); await click("Rdz 1");
+  const f = mount(g); await act(async () => f.render());
+  const readingDate = () => container.querySelector('.reading-card-head time')?.getAttribute('datetime');
+  const before = readingDate();
+  const entries = [...container.querySelectorAll('.reading-date')].map(node => node.getAttribute('data-day-id'));
+  await click("Rdz 1");
   await act(async () => f.writes[0].resolve()); await flush();
   expect(localStorage.getItem(KEY)).toBeNull();
   expect(container.textContent).not.toContain("Wyłącz nadrabianie");
   expect(f.writes).toHaveLength(1);
+  expect(readingDate()).toBe(before);
+  expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("true");
+  expect([...container.querySelectorAll('.reading-date')].map(node => node.getAttribute('data-day-id'))).toEqual(entries);
   await act(async () => root.unmount()); root = createRoot(container);
   const reloaded = mount(f.group, false); await act(async () => reloaded.render());
   expect(container.querySelector(".simple-readings strong")?.textContent).toBe("Rdz 2");
+});
+
+it("can undo catching up and save it again without changing the selected card", async () => {
+  const g = plan(); g.planDays.forEach((day, i) => { day.date = date(i - 1); });
+  const f = mount(g); await act(async () => f.render());
+  const card = () => container.querySelector('.reading-card-head time')?.getAttribute('datetime');
+  const before = card();
+  await click("Rdz 1"); await act(async () => f.writes[0].resolve());
+  await click("Rdz 1"); await act(async () => f.writes[1].resolve());
+  expect(card()).toBe(before);
+  expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("false");
+  expect(localStorage.getItem(KEY)).not.toBeNull();
+  await click("Rdz 1"); await act(async () => f.writes[2].resolve());
+  expect(card()).toBe(before);
+  expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("true");
+  expect(localStorage.getItem(KEY)).toBeNull();
+  await click("Następne");
+  expect(button("Rdz 2")).toBeDefined();
+  expect(container.querySelector('.reading-extra')).toBeNull();
+});
+
+it("keeps the last recovery extra on its card when it clears the backlog and when it is undone", async () => {
+  const g = plan(); g.planDays.forEach((day, i) => { day.date = date(i - 2); });
+  const f = mount(g); await act(async () => f.render());
+  await click("Rdz 1"); await act(async () => f.writes[0].resolve());
+  const labels = () => [...container.querySelectorAll('.simple-readings strong')].map(node => node.textContent);
+  const before = labels();
+  await click("Rdz 2"); await act(async () => f.writes[1].resolve());
+  expect(labels()).toEqual(before);
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("true");
+  expect(localStorage.getItem(KEY)).toBeNull();
+  await click("Rdz 2"); await act(async () => f.writes[2].resolve());
+  expect(labels()).toEqual(before);
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
+  expect(localStorage.getItem(KEY)).not.toBeNull();
+});
+
+it("clears an already stale recovery flag on entry without retaining an old recovery card", async () => {
+  const g = plan(); g.progress.m = { s0: "done", s1: "done", s2: "done", s3: "done" };
+  const f = mount(g); await act(async () => f.render());
+  expect(localStorage.getItem(KEY)).toBeNull();
+  expect(container.querySelector('.simple-readings strong')?.textContent).toBe("Rdz 5");
+  expect(container.querySelector('.reading-extra')).toBeNull();
 });
 
 it("does not freeze a stale cached portion before fresh progress is loaded", async () => {

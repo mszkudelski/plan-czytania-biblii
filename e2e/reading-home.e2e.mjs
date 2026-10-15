@@ -282,7 +282,7 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 
-  test('catch-up ends immediately after the final overdue reading despite a frozen extra at width ' + width, async ({ page, request }) => {
+  test('catch-up ends without replacing its card after the final overdue reading at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await timeline(request, 'home-catchup-frozen-extra-' + width, [-1, 0, 1, 2]);
     await openPlan(page, session);
@@ -295,8 +295,16 @@ for (const width of [1280, 390]) {
     await expect.poll(() => page.evaluate(key => localStorage.getItem(key), key)).toBeNull();
     await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
     await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
-    await expect(extraReading(page)).toHaveCount(0);
-    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
+    await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(extraReading(page)).toContainText('Rdz 2');
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['t0a']);
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['t0a', 't0b']);
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
     await page.reload();
     await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
     await expect(extraReading(page)).toHaveCount(0);
