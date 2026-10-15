@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import { DayCard } from "./SimpleApp";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DayCard, TodayView } from "./SimpleApp";
+import Onboarding from "./Onboarding";
 import { getDailyReadingDay, getReadingHomeSummary } from "./lib/reading-home";
 import type { Group } from "./types";
 
@@ -63,5 +64,54 @@ describe("rest-day hint inside the existing reading card", () => {
     const group = plan();
     group.progress.member = { s0: "done", s1: "done" };
     expect(render(group)).not.toContain(HINT);
+  });
+});
+
+describe("catch-up controls after the backlog is cleared", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  function renderHome(overdue: boolean, ahead = false) {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+    const group = plan();
+    group.frequency = { kind: "daily", days: [0, 1, 2, 3, 4, 5, 6] };
+    group.planDays.push({ id: "today", index: 2, date: TODAY, title: "",
+      segments: [{ id: "today-reading", label: "Rdz 3", section: "Biblia" }] });
+    group.planDays.sort((a, b) => a.date.localeCompare(b.date));
+    if (!overdue) group.progress.member.s0 = "done";
+    if (ahead) group.progress.member.s1 = "done";
+    // A frozen portion still contains an extra even after its debt is read.
+    const key = `reading-recovery:${group.id}:member`;
+    const storage = new Map([
+      [key, "enabled"],
+      [`${key}:ordered:${TODAY}:day`, "d0"],
+      [`${key}:ordered:${TODAY}:portion-v3`, JSON.stringify({
+        day: { ...group.planDays[0], id: `recovery:${TODAY}`, date: TODAY },
+        chapterIndices: { s0: [0] },
+        extra: { segmentId: "today-reading", label: "Rdz 3", originalDate: TODAY, chapterIndex: 0, chapterCount: 1 },
+      })],
+    ]);
+    vi.stubGlobal("localStorage", { getItem: (key: string) => storage.get(key) ?? null });
+    vi.stubGlobal("window", { location: { search: "" } });
+    const credentials = { groupId: group.id, memberId: "member", token: "test" };
+    return renderToStaticMarkup(<Onboarding group={group} credentials={credentials} ready>
+      <TodayView group={group} member={group.members[0]} credentials={credentials} promptReady active
+        onToggle={async () => undefined} onError={() => undefined} onWaitForSegments={async () => undefined} />
+    </Onboarding>);
+  }
+
+  it.each([false, true])("ignores a saved recovery flag and frozen extra with zero debt (ahead: %s)", ahead => {
+    const html = renderHome(false, ahead);
+    expect(html).not.toContain("reading-recovery-link");
+    expect(html).not.toContain("Wyłącz nadrabianie");
+    expect(html).not.toContain("reading-extra");
+    expect(html).toContain(ahead ? "Do przodu" : "Na bieżąco");
+    expect(html).toContain(`dateTime="${TODAY}"`);
+  });
+
+  it("keeps the stop control and extra chapter while actual debt remains", () => {
+    const html = renderHome(true);
+    expect(html).toContain("Wyłącz nadrabianie");
+    expect(html).toContain("reading-extra");
   });
 });

@@ -282,6 +282,30 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 
+  test('catch-up ends immediately after the final overdue reading despite a frozen extra at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await timeline(request, 'home-catchup-frozen-extra-' + width, [-1, 0, 1, 2]);
+    await openPlan(page, session);
+    await enableRecovery(page);
+    await expect(extraReading(page)).toContainText('Rdz 2');
+    await reading(page, 'Rdz 1').click();
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['t0a', 't0b']);
+    const key = 'reading-recovery:' + session.group.id + ':' + session.credentials.memberId;
+    await expect.poll(() => page.evaluate(key => localStorage.getItem(key), key)).toBeNull();
+    await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
+    await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
+    await expect(extraReading(page)).toHaveCount(0);
+    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
+    await page.reload();
+    await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
+    await expect(extraReading(page)).toHaveCount(0);
+    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
+    await expectSaved(request, session, ['t0a', 't0b']);
+    expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
+    await fitsViewport(page);
+  });
+
   test('catch-up re-dates the first unread day to today and only navigates forward at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await timeline(request, 'home-catchup-forward-' + width, [-4, -3, -2, -1, 0]);

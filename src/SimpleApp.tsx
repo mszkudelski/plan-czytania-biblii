@@ -1791,7 +1791,7 @@ function Dashboard({
   );
 }
 
-function TodayView({
+export function TodayView({
   group,
   credentials,
   promptReady,
@@ -1830,6 +1830,7 @@ function TodayView({
   const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
   const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
   const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
+  const recoveryActive = Boolean(recoveryStart && week.overdueReadings > 0);
   useEffect(() => {
     if (dailyDayId && !recoveryStart) localStorage.setItem(normalPortionKey, dailyDayId);
   }, [dailyDayId, normalPortionKey, recoveryStart]);
@@ -1915,12 +1916,10 @@ function TodayView({
       extra, chapterMarks, currentPortion),
     [recoveryStart, currentPortion],
   );
-  const recoveryHasExtra = recoveryPortions.some(portion => Boolean(portion.extra));
   useEffect(() => {
-    // Recovery ends when the personal forward schedule has caught up. Calendar
-    // debt alone does not control the recovery view, but zero past debt plus no
-    // remaining extra chapter means there is nothing left to catch up.
-    if (!recoveryStart || week.overdueReadings > 0 || recoveryHasExtra) return;
+    // Projected extras can remain after the backlog is cleared. End recovery
+    // using actual debt, once fresh session progress is available.
+    if (!promptReady || !recoveryStart || week.overdueReadings > 0) return;
     localStorage.removeItem(recoveryKey);
     localStorage.removeItem(`${dailyKey}:day`);
     localStorage.removeItem(dailyKey);
@@ -1932,8 +1931,8 @@ function TodayView({
     setDailyPortion(undefined);
     const nextIndex = group.planDays.findIndex(day => day.segments.some(segment => !progress[segment.id]));
     setSelectedIndex(nextIndex >= 0 ? nextIndex : Math.max(0, group.planDays.length - 1));
-  }, [dailyKey, group.planDays, portionKey, progress, recoveryHasExtra, recoveryKey, recoveryStart, week.overdueReadings]);
-  const useRecoveryView = Boolean(recoveryStart && !notificationDay);
+  }, [dailyKey, group.planDays, portionKey, progress, promptReady, recoveryKey, recoveryStart, week.overdueReadings]);
+  const useRecoveryView = Boolean(recoveryActive && !notificationDay);
   const navigationDays = useRecoveryView
     ? getRecoveryNavigationDays(group, member.id, today, recoveryPortions)
     : group.planDays;
@@ -2080,7 +2079,7 @@ function TodayView({
     }
     setRecoveryStart(start);
   }
-  const showRecoveryControl = week.overdueReadings > 0 || Boolean(recoveryStart);
+  const showRecoveryControl = week.overdueReadings > 0;
   const previewPortions = recoveryStart ? recoveryPortions : showRecoveryControl
     ? projectRecoveryPortions(group, member.id, today, readChapters, getNextDay(group, member.id)?.id ?? "", undefined, chapterMarks)
     : [];
@@ -2093,7 +2092,7 @@ function TodayView({
   const returnIndex = useRecoveryView
     ? navigationDays.findIndex(day => day.id === currentPortion?.day.id)
     : nextUnread;
-  const returnToRecovery = Boolean(recoveryStart && notificationDay);
+  const returnToRecovery = Boolean(recoveryActive && notificationDay);
   const showReturn = returnToRecovery || (returnIndex >= 0 && displayedIndex !== returnIndex);
   function returnToReading() {
     if (returnToRecovery) {
@@ -2129,9 +2128,9 @@ function TodayView({
             <strong>{formatProgressPercent(overallPercent)}%</strong>
           </div>
         </div>
-        <div className={`reading-stat reading-status ${recoveryStart ? "is-current" : week.overdueReadings ? "is-behind" : "is-current"}`}>
+        <div className={`reading-stat reading-status ${recoveryActive ? "is-current" : week.overdueReadings ? "is-behind" : "is-current"}`}>
           <div data-testid="reading-balance" className="reading-balance" aria-live="polite">
-            {recoveryStart ? <strong className="reading-on-track">Na bieżąco</strong>
+            {recoveryActive ? <strong className="reading-on-track">Na bieżąco</strong>
               : week.overdueReadings > 0 ? <>
                 <span>Zaległość</span><strong data-testid="overdue-readings">{week.overdueReadings}</strong><span>{dayWord(week.overdueReadings)}</span>
               </> : week.aheadReadings > 0 ? <>
@@ -2179,7 +2178,7 @@ function TodayView({
         </div>
         <button type="button" aria-label="Następne" disabled={displayedIndex >= navigationDays.length - 1} onClick={() => selectDay(displayedIndex + 1)}><Icon name="right" size={18} /></button>
       </nav>}
-      <RecoveryPrompt credentials={credentials} overdue={week.overdueReadings} enabled={Boolean(recoveryStart) || home.planComplete}
+      <RecoveryPrompt credentials={credentials} overdue={week.overdueReadings} enabled={recoveryActive || home.planComplete}
         ready={promptReady} active={active} open={recoveryDetailsOpen} example={previewPortions[0]}
         onOpen={() => setRecoveryDetailsOpen(true)} onClose={closeRecoveryDetails} onEnable={() => changeRecovery(today)} />
     </div>
