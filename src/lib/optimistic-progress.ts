@@ -3,6 +3,8 @@ import type { Group } from "../types";
 type ProgressOperation = {
   segmentId: string;
   completed: boolean;
+  optimistic: boolean;
+  previousValue?: string;
   timestamp: string;
   promise: Promise<void>;
   resolve: () => void;
@@ -29,6 +31,11 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
     if (!pending.length) return confirmedGroup;
     const progress = { ...confirmedGroup.progress[options.memberId] };
     for (const operation of pending) {
+      if (!operation.optimistic) {
+        if (operation.previousValue) progress[operation.segmentId] = operation.previousValue;
+        else delete progress[operation.segmentId];
+        continue;
+      }
       if (operation.completed) progress[operation.segmentId] = operation.timestamp;
       else delete progress[operation.segmentId];
     }
@@ -98,7 +105,7 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
       }
       return confirmedGroup;
     },
-    toggle(segmentId: string, desiredCompleted?: boolean) {
+    toggle(segmentId: string, desiredCompleted?: boolean, optimistic = true) {
       const completed = desiredCompleted ?? !snapshot().progress[options.memberId]?.[segmentId];
       let resolve!: () => void;
       let reject!: (error: unknown) => void;
@@ -109,6 +116,8 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
       pending.push({
         segmentId,
         completed,
+        optimistic,
+        previousValue: snapshot().progress[options.memberId]?.[segmentId],
         timestamp: new Date().toISOString(),
         promise,
         resolve,

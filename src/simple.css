@@ -998,6 +998,19 @@ button {
   background: var(--success);
 }
 
+.reading-row-spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--green);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reading-row-spinner { animation: none; }
+}
+
 .simple-readings > button.checked {
   background: var(--success-soft);
 }
@@ -1870,7 +1883,7 @@ body:has(.notification-card) .install-app-card { display: none; }
 .reading-status.is-current { background:var(--success-soft); }
 .reading-status .reading-balance { display:flex; flex-direction:column; align-items:center; gap:3px; text-align:center; margin:0; color:var(--ink); }
 .reading-balance > strong { font-size:2rem; line-height:1.2; font-weight:500; font-variant-numeric:tabular-nums; }
-.reading-balance > span, .reading-balance > small { font-size:.75rem; }
+.reading-balance > span, .reading-balance > small { font-size:.75rem; line-height:1.2; }
 .reading-balance .reading-on-track { font-size:1rem; }
 .reading-recovery-link { min-height:28px; padding:4px 0; font-size:.72rem; }
 .reading-home .reading-card-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:56px; padding:6px 17px; border-bottom:1px solid var(--border); font-size:.78rem; }
@@ -1914,7 +1927,7 @@ body:has(.notification-card) .install-app-card { display: none; }
 .recovery-never { display:block; min-height:44px; margin:8px auto -8px; font-size:.75rem; }
 @media(max-width:700px) {
   .reading-summary { gap:10px; }
-  .reading-stat { min-height:118px; padding:12px 8px; }
+  .reading-stat { min-height:132px; padding:12px 8px; }
   .reading-progress-donut { width:78px; height:78px; }
   .reading-home .simple-readings > button { min-height:56px; padding:14px 16px; }
   .reading-navigation { grid-template-columns:30px minmax(0,1fr) 30px; gap:4px; }

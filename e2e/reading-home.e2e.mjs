@@ -282,34 +282,45 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 
-  test('catch-up ends without replacing its card after the final overdue reading at width ' + width, async ({ page, request }) => {
+  test('catch-up finishes only after the whole daily portion, without replacing the card at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await timeline(request, 'home-catchup-frozen-extra-' + width, [-1, 0, 1, 2]);
     await openPlan(page, session);
     await enableRecovery(page);
     await expect(extraReading(page)).toContainText('Rdz 2');
+    const initialCard = await page.locator('.reading-focus').boundingBox();
     await reading(page, 'Rdz 1').click();
     await reading(page, 'Mt 1').click();
     await expectSaved(request, session, ['t0a', 't0b']);
     const key = 'reading-recovery:' + session.group.id + ':' + session.credentials.memberId;
+    await expect(page.getByTestId('reading-balance')).toHaveText('Dokończ dzisiejszą porcję');
+    expect(Math.abs((await page.locator('.reading-focus').boundingBox()).y - initialCard.y)).toBeLessThanOrEqual(1);
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
+    await page.reload();
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+    await extraReading(page).click();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
     await expect.poll(() => page.evaluate(key => localStorage.getItem(key), key)).toBeNull();
     await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
+    expect(Math.abs((await page.locator('.reading-focus').boundingBox()).y - initialCard.y)).toBeLessThanOrEqual(1);
     await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
     await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
     await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
     await expect(extraReading(page)).toContainText('Rdz 2');
     await reading(page, 'Mt 1').click();
-    await expectSaved(request, session, ['t0a']);
+    await expectSaved(request, session, ['t0a', 't1a']);
     await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
     await reading(page, 'Mt 1').click();
-    await expectSaved(request, session, ['t0a', 't0b']);
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
     await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
     await page.reload();
     await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
     await expect(extraReading(page)).toHaveCount(0);
-    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
-    await expectSaved(request, session, ['t0a', 't0b']);
+    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
+    await expect(reading(page, 'Mt 2')).toHaveAttribute('aria-pressed', 'false');
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
     expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
     await fitsViewport(page);
   });
@@ -359,6 +370,10 @@ for (const width of [1280, 390]) {
     await saveProgress(request, session, 't0a');
     await openPlan(page, session);
     await enableRecovery(page);
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['t0a', 't0b']);
+    const percent = await page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true }).getAttribute('aria-valuenow');
+    const cardBeforeSave = await page.locator('.reading-focus').boundingBox();
     let release;
     const gate = new Promise(resolve => { release = resolve; });
     await page.route('**/api/groups/' + session.group.id + '/progress', async route => {
@@ -366,16 +381,22 @@ for (const width of [1280, 390]) {
       await route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), token: 'E2E invalid token' }) });
     }, { times: 1 });
     try {
-      await reading(page, 'Mt 1').click();
+      await extraReading(page).click();
       await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
-      await expect(page.getByTestId('reading-balance')).toHaveText('Zapisuję postęp…');
-      await expectSaved(request, session, ['t0a']);
+      await expect(page.getByTestId('reading-balance')).toHaveText('Zapisuję dzień…');
+      await expect(extraReading(page)).toHaveAttribute('aria-busy', 'true');
+      await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+      await expect(extraReading(page).getByRole('status', { name: 'Zapisywanie dnia' })).toBeVisible();
+      expect(Math.abs((await page.locator('.reading-focus').boundingBox()).y - cardBeforeSave.y)).toBeLessThanOrEqual(1);
+      await expect(page.getByRole('button', { name: 'Następne', exact: true })).toBeDisabled();
+      await expect(page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true })).toHaveAttribute('aria-valuenow', percent);
+      await expectSaved(request, session, ['t0a', 't0b']);
     } finally { release(); }
     await expect(page.getByRole('alert')).toContainText('Nie udało się zapisać');
-    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'false');
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
-    await reading(page, 'Mt 1').click();
-    await expectSaved(request, session, ['t0a', 't0b']);
+    await extraReading(page).click();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
     await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
     await page.reload();
     await expect(page.locator('.reading-recovery-link')).toHaveCount(0);

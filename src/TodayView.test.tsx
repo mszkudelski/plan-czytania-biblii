@@ -47,7 +47,7 @@ function mount(initial: Group, enabled = true, ready = true) {
   function render() {
     root.render(<TodayView group={group} credentials={{ groupId: "g", memberId: "m", token: "test" }}
       member={group.members[0]} active promptReady={verified} savingProgress={queue.hasPending}
-      onToggle={(id, completed) => queue.toggle(id, completed)}
+      onToggle={(id, completed, optimistic) => queue.toggle(id, completed, optimistic)}
       onWaitForSegments={queue.waitForSegments} onError={message => { if (message) errors.push(message); }} />);
   }
   return { writes, errors, render,
@@ -112,7 +112,7 @@ it("keeps recovery enabled while the final overdue check is pending and after a 
   expect(container.textContent).toContain("Wyłącz nadrabianie");
 });
 
-it("ends recovery without replacing the card when the final overdue check is saved", async () => {
+it("waits for the entire daily portion before ending recovery and preserves the card after confirmation", async () => {
   const g = plan(); g.planDays.forEach((day, i) => { day.date = date(i - 1); });
   const f = mount(g); await act(async () => f.render());
   const readingDate = () => container.querySelector('.reading-card-head time')?.getAttribute('datetime');
@@ -120,15 +120,22 @@ it("ends recovery without replacing the card when the final overdue check is sav
   const entries = [...container.querySelectorAll('.reading-date')].map(node => node.getAttribute('data-day-id'));
   await click("Rdz 1");
   await act(async () => f.writes[0].resolve()); await flush();
+  expect(localStorage.getItem(KEY)).not.toBeNull();
+  expect(container.textContent).toContain("Dokończ dzisiejszą porcję");
+  await click("Rdz 2");
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
+  expect(button("Rdz 2").getAttribute("aria-busy")).toBe("true");
+  expect(localStorage.getItem(KEY)).not.toBeNull();
+  await act(async () => f.writes[1].resolve());
   expect(localStorage.getItem(KEY)).toBeNull();
   expect(container.textContent).not.toContain("Wyłącz nadrabianie");
-  expect(f.writes).toHaveLength(1);
+  expect(f.writes).toHaveLength(2);
   expect(readingDate()).toBe(before);
   expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("true");
   expect([...container.querySelectorAll('.reading-date')].map(node => node.getAttribute('data-day-id'))).toEqual(entries);
   await act(async () => root.unmount()); root = createRoot(container);
   const reloaded = mount(f.group, false); await act(async () => reloaded.render());
-  expect(container.querySelector(".simple-readings strong")?.textContent).toBe("Rdz 2");
+  expect(container.querySelector(".simple-readings strong")?.textContent).toBe("Rdz 3");
 });
 
 it("can undo catching up and save it again without changing the selected card", async () => {
@@ -144,9 +151,10 @@ it("can undo catching up and save it again without changing the selected card", 
   await click("Rdz 1"); await act(async () => f.writes[2].resolve());
   expect(card()).toBe(before);
   expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("true");
+  await click("Rdz 2"); await act(async () => f.writes[3].resolve());
   expect(localStorage.getItem(KEY)).toBeNull();
   await click("Następne");
-  expect(button("Rdz 2")).toBeDefined();
+  expect(button("Rdz 3")).toBeDefined();
   expect(container.querySelector('.reading-extra')).toBeNull();
 });
 
@@ -172,6 +180,59 @@ it("clears an already stale recovery flag on entry without retaining an old reco
   expect(localStorage.getItem(KEY)).toBeNull();
   expect(container.querySelector('.simple-readings strong')?.textContent).toBe("Rdz 5");
   expect(container.querySelector('.reading-extra')).toBeNull();
+});
+
+it("holds the last check, progress and navigation while showing a spinner, then allows retry after failure", async () => {
+  const g = plan(); g.planDays.forEach((day, i) => { day.date = date(i - 2); });
+  const f = mount(g); await act(async () => f.render());
+  await click("Rdz 1"); await act(async () => f.writes[0].resolve());
+  const percent = () => container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow');
+  const before = percent();
+  const cache = localStorage.getItem(`${KEY}:chapters`);
+  await click("Rdz 2");
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
+  expect(button("Rdz 2").getAttribute("aria-busy")).toBe("true");
+  expect(container.querySelector('[role="status"][aria-label="Zapisywanie dnia"]')).not.toBeNull();
+  expect(button("Następne").disabled).toBe(true);
+  expect(button("Rdz 1").disabled).toBe(true);
+  expect(percent()).toBe(before);
+  expect(localStorage.getItem(`${KEY}:chapters`)).toBe(cache);
+  await click("Rdz 2"); expect(f.writes).toHaveLength(2);
+  await act(async () => f.writes[1].reject());
+  expect(button("Rdz 2").getAttribute("aria-busy")).toBeNull();
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
+  expect(button("Następne").disabled).toBe(false);
+  expect(localStorage.getItem(KEY)).not.toBeNull();
+  await click("Rdz 2"); await act(async () => f.writes[2].resolve());
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("true");
+  expect(localStorage.getItem(KEY)).toBeNull();
+});
+
+it("cancels the final extra if its preceding optimistic base write fails", async () => {
+  const f = mount(plan()); await act(async () => f.render());
+  await click("Rdz 1");
+  await click("Rdz 2");
+  expect(f.writes).toHaveLength(1);
+  expect(button("Rdz 2").getAttribute("aria-busy")).toBe("true");
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
+  await act(async () => f.writes[0].reject());
+  expect(f.writes).toHaveLength(1);
+  expect(button("Rdz 2").getAttribute("aria-busy")).toBeNull();
+  expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("false");
+  expect(button("Rdz 2").disabled).toBe(true);
+});
+
+it("resumes an unfinished daily portion after reload even when its past debt is already cleared", async () => {
+  const g = plan(); g.planDays.forEach((day, i) => { day.date = date(i - 1); });
+  const f = mount(g); await act(async () => f.render());
+  await click("Rdz 1"); await act(async () => f.writes[0].resolve());
+  await act(async () => root.unmount()); root = createRoot(container);
+  const reloaded = mount(f.group); await act(async () => reloaded.render());
+  expect(localStorage.getItem(KEY)).not.toBeNull();
+  expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("true");
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
+  await click("Rdz 2"); await act(async () => reloaded.writes[0].resolve());
+  expect(localStorage.getItem(KEY)).toBeNull();
 });
 
 it("does not freeze a stale cached portion before fresh progress is loaded", async () => {
@@ -292,7 +353,8 @@ it("keeps the labels and chapter selection stable while toggling a normal partia
   localStorage.setItem(`${KEY}:chapters`, JSON.stringify({ s0: 1 }));
   const f = mount(g, false); await act(async () => f.render());
   await click("Rdz 2 · Rdz 3");
-  expect(button("Rdz 2 · Rdz 3").getAttribute("aria-pressed")).toBe("true");
+  expect(button("Rdz 2 · Rdz 3").getAttribute("aria-pressed")).toBe("false");
+  expect(button("Rdz 2 · Rdz 3").getAttribute("aria-busy")).toBe("true");
   await act(async () => f.writes[0].resolve());
   await click("Rdz 2 · Rdz 3");
   await act(async () => f.writes[1].resolve());

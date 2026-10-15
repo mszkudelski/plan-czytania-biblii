@@ -147,7 +147,8 @@ test('extra waits for the standard writes and rolls back if the base fails', asy
   try {
     await reading(page, 'Mt 1').click();
     await extraReading(page).click();
-    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+    await expect(extraReading(page)).toHaveAttribute('aria-busy', 'true');
     await expectSaved(request, session, ['s0']);
   } finally { release(); }
   await expect(page.getByRole('alert')).toBeVisible();
@@ -171,7 +172,8 @@ test('extra rollback remains correct when leaving and returning to Today during 
   }, { times: 1 });
   try {
     await extraReading(page).click();
-    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+    await expect(extraReading(page)).toHaveAttribute('aria-busy', 'true');
     await tab(page, 'Plan').click();
     await tab(page, 'Czytaj').click();
   } finally { release(); }

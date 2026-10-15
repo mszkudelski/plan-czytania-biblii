@@ -239,3 +239,27 @@ it("saves an explicit uncheck even when a stale cache does not show server compl
   await save;
   expect(f.visible.progress.a.s1).toBeUndefined();
 });
+
+it("keeps a final reading unchecked until its write responds, even if a refresh sees the commit first", async () => {
+  const f = fixture();
+  const save = f.queue.toggle("s1", true, false);
+  expect(f.visible.progress.a.s1).toBeUndefined();
+  expect(f.queue.hasPending).toBe(true);
+  f.queue.replaceGroup(groupWith({ s1: "committed-before-response" }));
+  expect(f.visible.progress.a.s1).toBeUndefined();
+  f.requests[0].task.resolve(groupWith({ s1: "confirmed" }));
+  await save;
+  expect(f.visible.progress.a.s1).toBe("confirmed");
+});
+
+it("does not expose a failed final reading as complete and preserves unrelated optimistic checks", async () => {
+  const f = fixture();
+  const final = f.queue.toggle("s1", true, false).catch(() => undefined);
+  const other = f.queue.toggle("s2", true);
+  expect(f.visible.progress.a.s1).toBeUndefined();
+  expect(f.visible.progress.a.s2).toBeDefined();
+  f.requests[0].task.reject(new Error("offline")); await final;
+  expect(f.visible.progress.a.s1).toBeUndefined();
+  f.requests[1].task.resolve(groupWith({ s2: "confirmed" })); await other;
+  expect(f.visible.progress.a).toEqual({ s2: "confirmed" });
+});
