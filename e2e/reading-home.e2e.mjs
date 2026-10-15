@@ -258,19 +258,27 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 
-  test('completed recovery cache repairs backend progress and clears stale debt at width ' + width, async ({ page, request }) => {
+  test('catch-up turns itself off after debt is cleared even when the member is far ahead at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
-    const session = await timeline(request, 'home-catchup-reconcile-' + width, [-2, -1, 0]);
-    for (const id of ['t0a', 't0b', 't1a']) await saveProgress(request, session, id);
+    const session = await timeline(request, 'home-catchup-reconcile-' + width, [-2, -1, 0, 1, 2, 3, 4, 5, 6]);
+    const future = Array.from({ length: 6 }, (_, index) => [`t${index + 3}a`, `t${index + 3}b`]).flat();
+    for (const id of ['t0a', 't0b', 't1a', ...future]) await saveProgress(request, session, id);
     await openPlan(page, session);
     await expect(page.getByTestId('overdue-readings')).toHaveText('1');
     await page.evaluate(({ groupId, memberId }) => {
-      localStorage.setItem(`reading-recovery:${groupId}:${memberId}:chapters`, JSON.stringify({ t1b: 1 }));
+      const recoveryKey = `reading-recovery:${groupId}:${memberId}`;
+      localStorage.setItem(recoveryKey, 'enabled');
+      localStorage.setItem(`${recoveryKey}:chapters`, JSON.stringify({ t1b: 1 }));
     }, { groupId: session.group.id, memberId: session.credentials.memberId });
     await page.reload();
-    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b']);
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b', ...future]);
     await expect(page.getByTestId('overdue-readings')).toHaveCount(0);
-    await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
+    await expect(page.getByTestId('reading-balance')).toContainText('Do przodu');
+    await expect(page.getByTestId('ahead-readings')).toHaveText('6');
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toHaveCount(0);
+    expect(await page.evaluate(({ groupId, memberId }) =>
+      localStorage.getItem(`reading-recovery:${groupId}:${memberId}`),
+    { groupId: session.group.id, memberId: session.credentials.memberId })).toBeNull();
     await fitsViewport(page);
   });
 

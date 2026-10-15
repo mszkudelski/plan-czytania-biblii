@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, projectRecoveryPortions, setRecoveryChapters, parseChapterMarks, parseRecoveryPortion, getRecoveryNavigationDays, getRecoveryCompletedSegmentIds } from "./recovery";
+import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, projectRecoveryPortions, setRecoveryChapters, parseChapterMarks, parseRecoveryPortion, getRecoveryNavigationDays, getRecoveryCompletedSegmentIds, shouldKeepRecoveryEnabled } from "./recovery";
 import { buildSchedule } from "./schedule";
 import type { Group } from "../types";
 function fixture(): Group {
@@ -155,6 +155,12 @@ it("keeps past plan days visible before projected recovery days", () => {
   expect(navigation[4].id).toBe("recovery:2026-09-05");
   expect(navigation.some(day => day.id === "day-5")).toBe(false);
   expect(getRecoveryNavigationDays(g, "2026-09-05", [])).toBe(g.planDays);
+});
+
+it("keeps recovery active only while overdue readings remain", () => {
+  expect(shouldKeepRecoveryEnabled(2)).toBe(true);
+  expect(shouldKeepRecoveryEnabled(1)).toBe(true);
+  expect(shouldKeepRecoveryEnabled(0)).toBe(false);
 });
 
 it("finds locally completed recovery segments that still need backend progress", () => {

@@ -120,6 +120,10 @@ export function getRecoveryCompletedSegmentIds(
       isRecoveryChapterRead(readChapters, marks, segment.id, index));
   }).map(segment => segment.id);
 }
+
+export function shouldKeepRecoveryEnabled(overdueReadings: number) {
+  return overdueReadings > 0;
+}
 export function setRecoveryChapters(
   readChapters: Record<string, number>, marks: ReadChapterMarks, segmentId: string,
   indices: number[], completed: boolean,

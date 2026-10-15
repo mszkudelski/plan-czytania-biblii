@@ -4,7 +4,7 @@ import { reminderReadingDay } from "./lib/notifications";
 import GroupAccessHint from "./GroupAccessHint";
 import { devicePromptAllowed, INSTALL_KEY, parseDevicePreference, postponeDevicePrompt, SETUP_KEY, startOnboarding } from "./lib/onboarding";
 import RecoveryPrompt from "./RecoveryPrompt";
-import { isReadingDateComplete, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion, getRecoveryNavigationDays, getRecoveryCompletedSegmentIds } from "./lib/recovery";
+import { isReadingDateComplete, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion, getRecoveryNavigationDays, getRecoveryCompletedSegmentIds, shouldKeepRecoveryEnabled } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1892,6 +1892,20 @@ function TodayView({
   const [dailyPortion, setDailyPortion] = useState<RecoveryPortion | undefined>(() =>
     parseRecoveryPortion(group, member.id, today, readChapters, chapterMarks, localStorage.getItem(portionKey)),
   );
+  useEffect(() => {
+    if (!recoveryStart || shouldKeepRecoveryEnabled(week.overdueReadings)) return;
+    localStorage.removeItem(recoveryKey);
+    localStorage.removeItem(`${dailyKey}:day`);
+    localStorage.removeItem(dailyKey);
+    localStorage.removeItem(portionKey);
+    setRecoveryStart("");
+    setBrowsedRecoveryDayId(null);
+    setRecoveryDayAnchor("");
+    setDailyReading(null);
+    setDailyPortion(undefined);
+    const nextIndex = group.planDays.findIndex(day => day.segments.some(segment => !progress[segment.id]));
+    setSelectedIndex(nextIndex >= 0 ? nextIndex : Math.max(0, group.planDays.length - 1));
+  }, [dailyKey, group.planDays, portionKey, progress, recoveryKey, recoveryStart, week.overdueReadings]);
   const legacyDailyReading = validateDailyRecoveryReading(
     group, member.id, today, readChapters, recoveryDayId, dailyReading,
   );
@@ -1915,7 +1929,7 @@ function TodayView({
       extra, chapterMarks, currentPortion),
     [recoveryStart, currentPortion],
   );
-  const useRecoveryView = Boolean(recoveryStart && !notificationDay);
+  const useRecoveryView = Boolean(recoveryStart && shouldKeepRecoveryEnabled(week.overdueReadings) && !notificationDay);
   const navigationDays = useRecoveryView
     ? getRecoveryNavigationDays(group, today, recoveryPortions)
     : group.planDays;
@@ -2059,7 +2073,7 @@ function TodayView({
     }
     setRecoveryStart(start);
   }
-  const showRecoveryControl = week.overdueReadings > 0 || Boolean(recoveryStart);
+  const showRecoveryControl = shouldKeepRecoveryEnabled(week.overdueReadings);
   const previewPortions = recoveryStart ? recoveryPortions : showRecoveryControl
     ? projectRecoveryPortions(group, member.id, today, readChapters, getNextDay(group, member.id)?.id ?? "", undefined, chapterMarks)
     : [];
@@ -2072,7 +2086,7 @@ function TodayView({
   const returnIndex = useRecoveryView
     ? navigationDays.findIndex(day => day.id === currentPortion?.day.id)
     : nextUnread;
-  const returnToRecovery = Boolean(recoveryStart && notificationDay);
+  const returnToRecovery = Boolean(recoveryStart && shouldKeepRecoveryEnabled(week.overdueReadings) && notificationDay);
   const showReturn = returnToRecovery || (returnIndex >= 0 && displayedIndex !== returnIndex);
   function returnToReading() {
     if (returnToRecovery) {
@@ -2157,7 +2171,7 @@ function TodayView({
         </div>
         <button type="button" aria-label="Następne" disabled={displayedIndex >= navigationDays.length - 1} onClick={() => selectDay(displayedIndex + 1)}><Icon name="right" size={18} /></button>
       </nav>}
-      <RecoveryPrompt credentials={credentials} overdue={week.overdueReadings} enabled={Boolean(recoveryStart) || home.planComplete}
+      <RecoveryPrompt credentials={credentials} overdue={week.overdueReadings} enabled={Boolean(recoveryStart && shouldKeepRecoveryEnabled(week.overdueReadings)) || home.planComplete}
         ready={promptReady} active={active} open={recoveryDetailsOpen} example={previewPortions[0]}
         onOpen={() => setRecoveryDetailsOpen(true)} onClose={closeRecoveryDetails} onEnable={() => changeRecovery(today)} />
     </div>
