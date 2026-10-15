@@ -211,14 +211,45 @@ it("normal reading shows only chapters not already consumed by a recovery extra"
   expect(f.group.progress.m.s1).toBeDefined();
 });
 
-it("returns to earlier unread history after an explicit uncheck without losing it from the schedule", async () => {
+it("keeps an unchecked historical day and every navigation entry in place during and after saving", async () => {
   const g = plan(); g.progress.m = { s0: "done", s1: "done" };
   const f = mount(g); await act(async () => f.render());
-  await click("Poprzednie"); await click("Rdz 2");
+  await click("Poprzednie");
+  const dates = () => [...container.querySelectorAll('.reading-date')].map(node => node.getAttribute('data-day-id'));
+  const before = dates();
+  const selected = () => container.querySelector('.reading-date[aria-pressed="true"]')?.getAttribute('data-day-id');
+  expect(selected()).toBe("d1");
+  await click("Rdz 2");
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
+  expect(selected()).toBe("d1");
+  expect(dates()).toEqual(before);
   await act(async () => f.writes[0].resolve());
   expect(container.querySelector(".simple-readings strong")?.textContent).toBe("Rdz 2");
   expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
-  expect(container.querySelector('.reading-date[aria-pressed="true"]')?.getAttribute("data-day-id")).toBe(`recovery:${TODAY}`);
+  expect(selected()).toBe("d1");
+  expect(dates()).toEqual(before);
+  await click("Rdz 2"); await act(async () => f.writes[1].resolve());
+  expect(selected()).toBe("d1");
+  expect(dates()).toEqual(before);
+  await click("Rdz 2"); await act(async () => f.writes[2].reject());
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("true");
+  expect(selected()).toBe("d1");
+  expect(dates()).toEqual(before);
+});
+
+it("keeps the labels and chapter selection stable while toggling a normal partial range", async () => {
+  const g = plan(); g.planDays[0].segments[0].label = "Rdz 1-3";
+  localStorage.setItem(`${KEY}:chapters`, JSON.stringify({ s0: 1 }));
+  const f = mount(g, false); await act(async () => f.render());
+  await click("Rdz 2 · Rdz 3");
+  expect(button("Rdz 2 · Rdz 3").getAttribute("aria-pressed")).toBe("true");
+  await act(async () => f.writes[0].resolve());
+  await click("Rdz 2 · Rdz 3");
+  await act(async () => f.writes[1].resolve());
+  expect(button("Rdz 2 · Rdz 3").getAttribute("aria-pressed")).toBe("false");
+  expect(JSON.parse(localStorage.getItem(`${KEY}:chapters`) ?? "{}").s0).toBe(1);
+  await click("Rdz 2 · Rdz 3"); await act(async () => f.writes[2].reject());
+  expect(button("Rdz 2 · Rdz 3").getAttribute("aria-pressed")).toBe("false");
 });
 
 it("keeps a notification's selected day when a stale recovery flag is cleared", async () => {

@@ -327,6 +327,16 @@ for (const width of [1280, 390]) {
     await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
     await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-3));
     await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
+    const historyCount = await page.locator('.reading-navigation').getAttribute('data-reading-count');
+    await reading(page, 'Mt 2').click();
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-3));
+    await expect(reading(page, 'Mt 2')).toHaveAttribute('aria-pressed', 'false');
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-3));
+    await expect(page.locator('.reading-navigation')).toHaveAttribute('data-reading-count', historyCount);
+    await reading(page, 'Mt 2').click();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b']);
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-3));
     await page.getByRole('button', { name: 'Wróć do swojego miejsca', exact: true }).click();
     await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(0));
     await page.getByRole('button', { name: 'Następne', exact: true }).click();

@@ -225,6 +225,22 @@ test('stale recovery anchor and unfinished extra cannot skip earlier progress', 
   await expect(extraReading(page)).toContainText('Rdz 2');
 });
 
+test('normal partial reading keeps its label and date when checked and unchecked', async ({ page, request }) => {
+  const session = await createPlan(request, 'partial-stable-label', true);
+  for (const id of ['s0', 's1']) await saveProgress(request, session, id);
+  await openPlan(page, session, { [recoveryKey(session) + ':chapters']: JSON.stringify({ s2: 1 }) });
+  const selectedDate = await page.locator('.reading-card-head time').getAttribute('dateTime');
+  await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
+  await reading(page, 'Rdz 3').click();
+  await expectSaved(request, session, ['s0', 's1', 's2']);
+  await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', selectedDate);
+  await reading(page, 'Rdz 3').click();
+  await expectSaved(request, session, ['s0', 's1']);
+  await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', selectedDate);
+});
+
 test('invalid and null recovery cache do not break reading', async ({ page, request }) => {
   const session = await createPlan(request, 'bad-cache');
   const key = recoveryKey(session);

@@ -1932,11 +1932,11 @@ export function TodayView({
   const [dailySchedule, setDailySchedule] = useState<RecoveryPortion[] | undefined>(() =>
     parseRecoverySchedule(group, member.id, today, readChapters, chapterMarks, localStorage.getItem(scheduleKey)),
   );
-  const verifiedRecoveryCache = useRef<string | null>(null);
+  const verifiedRecoveryCache = useRef(false);
   useEffect(() => {
-    if (!promptReady) { verifiedRecoveryCache.current = null; return; }
-    if (savingProgress || verifiedRecoveryCache.current === recoveryDayId) return;
-    verifiedRecoveryCache.current = recoveryDayId;
+    if (!promptReady) { verifiedRecoveryCache.current = false; return; }
+    if (savingProgress || verifiedRecoveryCache.current) return;
+    verifiedRecoveryCache.current = true;
     if (dailySchedule && !parseRecoverySchedule(group, member.id, today, readChapters, chapterMarks, JSON.stringify(dailySchedule))) {
       setDailySchedule(undefined);
       setDailyPortion(undefined);
@@ -1997,16 +1997,20 @@ export function TodayView({
     if (!notificationDay) setSelectedIndex(resumedIndex);
   }, [dailyKey, group.planDays, portionKey, progress, promptReady, recoveryKey, recoveryStart, week.overdueReadings, savingProgress, notificationDay, scheduleKey]);
   const useRecoveryView = Boolean(recoveryActive && !notificationDay);
-  const navigationDays = useRecoveryView
+  // Checking a row changes progress, not the navigation or the selected date.
+  // Rebuild this snapshot only when entering/leaving recovery or its schedule changes.
+  const navigationDays = useMemo(() => useRecoveryView
     ? getRecoveryNavigationDays(group, member.id, today, recoveryPortions)
-    : group.planDays;
+    : group.planDays, [useRecoveryView, recoveryPortions]);
   const browsedPortion = recoveryPortions.find(portion => portion.day.id === browsedRecoveryDayId);
   const historicalDay = useRecoveryView
-    ? group.planDays.find(day => day.id === browsedRecoveryDayId &&
-        day.date < today && day.segments.length > 0 &&
-        day.segments.every(segment => progress[segment.id]))
+    ? navigationDays.find(day => day.id === browsedRecoveryDayId &&
+        !recoveryPortions.some(portion => portion.day.id === day.id))
     : undefined;
-  const normalPortion = selectedDay ? getStandardReadingPortion(selectedDay, progress, readChapters, chapterMarks) : undefined;
+  // Keep the visible chapter slice intact until explicit navigation or refresh.
+  const normalPortion = useMemo(() => selectedDay
+    ? getStandardReadingPortion(selectedDay, progress, readChapters, chapterMarks) : undefined,
+    [selectedDay?.id, useRecoveryView, promptReady]);
   const displayedDay = useRecoveryView
     ? (browsedPortion?.day ?? historicalDay ?? currentPortion?.day)
     : normalPortion?.day;
