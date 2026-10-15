@@ -1,6 +1,8 @@
 import { expect, it } from "vitest";
-import { getRecoveryDay, getOverdueDays, getRecoveryReading, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, projectRecoveryPortions, setRecoveryChapters, parseChapterMarks, parseRecoveryPortion, getRecoveryNavigationDays, getRecoveryCompletedSegmentIds } from "./recovery";
+import { getRecoveryDay, getStandardReadingPortion, parseRecoverySchedule, isRecoveryChapterRead, getOverdueDays, getRecoveryReading, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, projectRecoveryPortions, setRecoveryChapters, parseChapterMarks, parseRecoveryPortion, getRecoveryNavigationDays, getRecoveryCompletedSegmentIds } from "./recovery";
 import { buildSchedule } from "./schedule";
+import { BASIC_PLAN_CSV } from "./basic-plan";
+import { parsePlanCsv } from "./csv";
 import type { Group } from "../types";
 function fixture(): Group {
   return { id: "g", name: "G", createdAt: "", startDate: "2026-09-01", frequency: { kind: "daily", days: [] }, members: [], progress: { a: {}, b: {} }, planDays: buildSchedule(Array.from({length: 12}, () => ({ title: "", segments: [{label: "Rdz 1–3", section: "Biblia"}] })), "2026-09-01", {kind: "daily", days: []}) };
@@ -273,4 +275,81 @@ it("keeps a prechecked standard row on activation without counting yesterday's r
   // day's full normal quota, while keeping the other parallel streams present.
   const nextDay = projectRecoveryPortions(g, "a", "2026-09-12", { "day-1-segment-1": 1 }, "");
   expect(nextDay[0].day.segments.map(s => s.label)).toEqual(["Mt 1", "Ps 1", "Rdz 2"]);
+});
+
+it("never repeats a legacy extra that is already included in a composite base", () => {
+  const g = fixture();
+  const saved = { segmentId: "day-2-segment-1", label: "Rdz 1", originalDate: "2026-09-02", chapterIndex: 0, chapterCount: 3 };
+  const portion = projectRecoveryPortions(g, "a", "2026-09-10", { "day-1-segment-1": 2 }, "day-1", saved)[0];
+  expect(portion.chapterIndices["day-2-segment-1"]).toEqual([0, 1]);
+  expect(portion.extra?.chapterIndex).toBe(2);
+});
+
+it("preserves a valid complete schedule while rejecting duplicates, omissions and another day", () => {
+  const g = parallelFixture(12);
+  const portions = projectRecoveryPortions(g, "a", "2026-09-11", {}, "");
+  expect(parseRecoverySchedule(g, "a", "2026-09-11", {}, {}, JSON.stringify(portions))).toEqual(portions);
+  expect(parseRecoverySchedule(g, "a", "2026-09-12", {}, {}, JSON.stringify(portions))).toBeUndefined();
+  expect(parseRecoverySchedule(g, "a", "2026-09-11", {}, {}, JSON.stringify(portions.slice(0, 1)))).toBeUndefined();
+  const duplicated = structuredClone(portions);
+  duplicated[1] = { ...duplicated[0], day: { ...duplicated[0].day, date: "2026-09-12", id: "recovery:2026-09-12" } };
+  expect(parseRecoverySchedule(g, "a", "2026-09-11", {}, {}, JSON.stringify(duplicated))).toBeUndefined();
+  const invalidDate = structuredClone(portions);
+  invalidDate[1].day.date = "2026-99-99"; invalidDate[1].day.id = "recovery:2026-99-99";
+  expect(parseRecoverySchedule(g, "a", "2026-09-11", {}, {}, JSON.stringify(invalidDate))).toBeUndefined();
+});
+
+it("standard reading retains chapter slices left by recovery without mutating the plan", () => {
+  const g = fixture(); const before = JSON.stringify(g);
+  const portion = getStandardReadingPortion(g.planDays[0], {}, { "day-1-segment-1": 1 }, {});
+  expect(portion.day.segments[0].label).toBe("Rdz 2 · Rdz 3");
+  expect(portion.chapterIndices["day-1-segment-1"]).toEqual([1, 2]);
+  expect(JSON.stringify(g)).toBe(before);
+});
+
+it("covers every unread chapter exactly once across varied progress and reading frequencies", () => {
+  for (let seed = 0; seed < 24; seed++) {
+    const g = parallelFixture(20);
+    g.frequency = seed % 3 === 0 ? { kind: "custom", days: [1, 4] }
+      : seed % 3 === 1 ? { kind: "weekdays", days: [1, 2, 3, 4, 5] } : { kind: "daily", days: [] };
+    const chapters: Record<string, number> = {};
+    for (const [index, day] of g.planDays.entries()) {
+      for (const [lane, segment] of day.segments.entries()) {
+        if (seed % 2) segment.label = `${["Rdz", "Mt", "Ps"][lane]} ${index * 3 + 1}-${index * 3 + 3}`;
+        if ((index * 7 + lane + seed) % 5 === 0) g.progress.a[segment.id] = "done";
+        if ((index * 3 + lane + seed) % 7 === 0) chapters[segment.id] = 1;
+      }
+    }
+    const unchanged = JSON.stringify(g);
+    const portions = projectRecoveryPortions(g, "a", "2026-09-11", chapters, "");
+    const assigned: string[] = [];
+    for (const portion of portions) {
+      for (const [id, indices] of Object.entries(portion.chapterIndices)) assigned.push(...indices.map(index => `${id}:${index}`));
+      if (portion.extra) assigned.push(`${portion.extra.segmentId}:${portion.extra.chapterIndex}`);
+    }
+    expect(new Set(assigned).size, `duplicate assignments for seed ${seed}`).toBe(assigned.length);
+    for (const day of g.planDays) for (const segment of day.segments) {
+      for (const [index] of splitReadingChapters(segment.label).entries()) {
+        if (!g.progress.a[segment.id] && !isRecoveryChapterRead(chapters, {}, segment.id, index)) expect(assigned).toContain(`${segment.id}:${index}`);
+      }
+    }
+    expect(parseRecoverySchedule(g, "a", "2026-09-11", chapters, {}, JSON.stringify(portions)), `cache for seed ${seed}`).toEqual(portions);
+    expect(JSON.stringify(g)).toBe(unchanged);
+  }
+});
+
+it("round-trips the built-in yearly plan through recovery without losing or repeating chapters", () => {
+  const g = fixture();
+  g.planDays = buildSchedule(parsePlanCsv(BASIC_PLAN_CSV), "2026-10-01", g.frequency);
+  const before = JSON.stringify(g);
+  const portions = projectRecoveryPortions(g, "a", "2026-10-15", {}, "");
+  const assignments = portions.flatMap(portion => [
+    ...Object.entries(portion.chapterIndices).flatMap(([id, indices]) => indices.map(index => `${id}:${index}`)),
+    ...(portion.extra ? [`${portion.extra.segmentId}:${portion.extra.chapterIndex}`] : []),
+  ]);
+  const chapterCount = g.planDays.flatMap(day => day.segments).reduce((count, segment) => count + splitReadingChapters(segment.label).length, 0);
+  expect(assignments).toHaveLength(chapterCount);
+  expect(new Set(assignments).size).toBe(chapterCount);
+  expect(parseRecoverySchedule(g, "a", "2026-10-15", {}, {}, JSON.stringify(portions))).toEqual(portions);
+  expect(JSON.stringify(g)).toBe(before);
 });

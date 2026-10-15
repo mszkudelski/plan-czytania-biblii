@@ -73,6 +73,7 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
 
   return {
     get revision() { return revision; },
+    get hasPending() { return pending.length > 0; },
     snapshot,
     waitForSegments(segmentIds: string[]) {
       const writes = pending.filter(operation => segmentIds.includes(operation.segmentId));

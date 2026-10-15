@@ -47,12 +47,15 @@ function fixture(progress: Record<string, string> = {}) {
 
 it("checks immediately before the server responds without mutating confirmed data", async () => {
   const f = fixture();
+  expect(f.queue.hasPending).toBe(false);
   const save = f.queue.toggle("s1");
+  expect(f.queue.hasPending).toBe(true);
   expect(Boolean(f.visible.progress.a.s1)).toBe(true);
   expect(f.initial.progress.a).toEqual({});
   expect(f.saved).toHaveLength(0);
   f.requests[0].task.resolve(groupWith({ s1: "server-time" }));
   await save;
+  expect(f.queue.hasPending).toBe(false);
   expect(f.visible.progress.a.s1).toBe("server-time");
   expect(f.saved).toHaveLength(1);
 });
@@ -63,6 +66,7 @@ it("unchecks immediately and restores the original completion if saving fails", 
   expect(f.visible.progress.a.s1).toBeUndefined();
   f.requests[0].task.reject(new Error("offline"));
   await save;
+  expect(f.queue.hasPending).toBe(false);
   expect(f.visible.progress.a.s1).toBe("original-time");
   expect(f.errors).toHaveLength(1);
 });

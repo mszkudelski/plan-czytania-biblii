@@ -335,6 +335,34 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 
+  test('the final catch-up check stays in recovery until saved and survives backend rejection at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await timeline(request, 'home-catchup-last-save-' + width, [-1, 0, 1]);
+    await saveProgress(request, session, 't0a');
+    await openPlan(page, session);
+    await enableRecovery(page);
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    await page.route('**/api/groups/' + session.group.id + '/progress', async route => {
+      await gate;
+      await route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), token: 'E2E invalid token' }) });
+    }, { times: 1 });
+    try {
+      await reading(page, 'Mt 1').click();
+      await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
+      await expect(page.getByTestId('reading-balance')).toHaveText('Zapisuję postęp…');
+      await expectSaved(request, session, ['t0a']);
+    } finally { release(); }
+    await expect(page.getByRole('alert')).toContainText('Nie udało się zapisać');
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['t0a', 't0b']);
+    await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
+  });
+
   test('completed catch-up rows are not duplicated as adjacent history days at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await createPlan(request, 'home-catchup-history-duplicate-' + width);

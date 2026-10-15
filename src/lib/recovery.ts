@@ -144,6 +144,20 @@ export type RecoveryPortion = {
   day: PlanDay; extra?: RecoveryReading; chapterIndices: Record<string, number[]>;
 };
 
+export function getStandardReadingPortion(day: PlanDay, progress: Record<string, string>,
+  chapters: Record<string, number>, marks: ReadChapterMarks): RecoveryPortion {
+  const chapterIndices: Record<string, number[]> = {};
+  const segments = day.segments.map(segment => {
+    const labels = splitReadingChapters(segment.label);
+    const all = labels.map((_, index) => index);
+    const remaining = progress[segment.id] ? all : all.filter(index => !isRecoveryChapterRead(chapters, marks, segment.id, index));
+    const indices = remaining.length ? remaining : all;
+    chapterIndices[segment.id] = indices;
+    return { ...segment, label: indices.length === all.length ? segment.label : indices.map(index => labels[index]).join(" · ") };
+  });
+  return { day: { ...day, segments }, chapterIndices };
+}
+
 export function getRecoveryNavigationDays(
   group: Group,
   memberId: string,
@@ -246,6 +260,41 @@ export function parseRecoveryPortion(
   } catch { return; }
 }
 
+// Freeze the whole day's navigation, including checked forecast rows. Validate
+// each portion against preceding assignments instead of assuming them read in
+// the real group; never persist this simulated progress to the backend.
+export function parseRecoverySchedule(group: Group, memberId: string, today: string,
+  chapters: Record<string, number>, marks: ReadChapterMarks, value: string | null): RecoveryPortion[] | undefined {
+  try {
+    const saved: unknown = JSON.parse(value ?? "null");
+    if (!Array.isArray(saved) || !saved.length || saved[0]?.day?.date !== today) return;
+    let simulated = { chapters, marks };
+    const assigned = new Set<string>();
+    let previousDate = "";
+    for (const candidate of saved) {
+      const date = candidate?.day?.date;
+      if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+          new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date || date <= previousDate) return;
+      const portion = parseRecoveryPortion(group, memberId, date, simulated.chapters, simulated.marks, JSON.stringify(candidate));
+      if (!portion) return;
+      const selections = Object.entries(portion.chapterIndices).filter(([id]) => portion.day.segments.some(segment => segment.id === id));
+      if (portion.extra) selections.push([portion.extra.segmentId, [portion.extra.chapterIndex]]);
+      for (const [id, indices] of selections) {
+        for (const index of indices) {
+          const key = `${id}:${index}`;
+          if (assigned.has(key)) return;
+          assigned.add(key);
+        }
+        simulated = setRecoveryChapters(simulated.chapters, simulated.marks, id, indices, true);
+      }
+      previousDate = date;
+    }
+    if (group.planDays.some(day => day.segments.some(segment => !group.progress[memberId]?.[segment.id] &&
+        splitReadingChapters(segment.label).some((_, index) => !isRecoveryChapterRead(simulated.chapters, simulated.marks, segment.id, index))))) return;
+    return saved as RecoveryPortion[];
+  } catch { return; }
+}
+
 // Recovery is a personal forward schedule. Start from the earliest unread
 // content, keep the normal daily chapter quota, then add one extra due chapter.
 // Original calendar dates are used only to avoid pulling future plan content
@@ -331,6 +380,9 @@ export function projectRecoveryPortions(
     }
 
     let extra = portions.length === 0 ? savedPortion?.extra ?? savedExtra : undefined;
+    if (extra && base.some(chapter => chapter.segmentId === extra?.segmentId && chapter.chapterIndex === extra.chapterIndex)) {
+      extra = undefined;
+    }
     if (!extra) {
       const nextUnreadDue = chapters.find(c => !isDone(c) && c.originalDate <= date);
       if (nextUnreadDue) extra = readingReference(nextUnreadDue);
