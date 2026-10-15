@@ -2130,7 +2130,9 @@ export function TodayView({
         </div>
         <div className={`reading-stat reading-status ${recoveryActive ? "is-current" : week.overdueReadings ? "is-behind" : "is-current"}`}>
           <div data-testid="reading-balance" className="reading-balance" aria-live="polite">
-            {recoveryActive ? <strong className="reading-on-track">Na bieżąco</strong>
+            {recoveryActive ? <>
+                <span>Do nadrobienia</span><strong data-testid="recovery-remaining-readings">{week.overdueReadings}</strong><span>{dayWord(week.overdueReadings)}</span>
+              </>
               : week.overdueReadings > 0 ? <>
                 <span>Zaległość</span><strong data-testid="overdue-readings">{week.overdueReadings}</strong><span>{dayWord(week.overdueReadings)}</span>
               </> : week.aheadReadings > 0 ? <>

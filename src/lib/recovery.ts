@@ -152,9 +152,16 @@ export function getRecoveryNavigationDays(
 ) {
   if (!portions.length) return group.planDays;
   const progress = group.progress[memberId] ?? {};
+  // Completed rows remain in the frozen daily portion. Do not also insert
+  // their original day into history beside the same assigned reading.
+  const assigned = new Set(portions.flatMap(portion => [
+    ...Object.keys(portion.chapterIndices),
+    ...(portion.extra ? [portion.extra.segmentId] : []),
+  ]));
   const history = group.planDays.filter(day =>
     day.date < today &&
     day.segments.length > 0 &&
+    !day.segments.some(segment => assigned.has(segment.id)) &&
     day.segments.every(segment => progress[segment.id]));
   return [...history, ...portions.map(portion => portion.day)];
 }

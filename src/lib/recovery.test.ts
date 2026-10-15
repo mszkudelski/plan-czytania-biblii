@@ -178,6 +178,21 @@ it("finds locally completed recovery segments that still need backend progress",
   }, {})).toEqual([]);
 });
 
+it("does not duplicate the frozen recovery portion or its extra in completed history", () => {
+  const g = parallelFixture(12);
+  for (const segment of g.planDays[0].segments) g.progress.a[segment.id] = "done";
+  const portions = projectRecoveryPortions(g, "a", "2026-09-11", {}, "");
+  for (const day of g.planDays.slice(1, 3)) {
+    for (const segment of day.segments) g.progress.a[segment.id] = "done";
+  }
+  const navigation = getRecoveryNavigationDays(g, "a", "2026-09-11", portions);
+  expect(navigation.map(day => day.id)).toEqual([
+    "day-1", ...portions.map(portion => portion.day.id),
+  ]);
+  expect(navigation[0].segments.map(segment => segment.label)).toEqual(["Rdz 1", "Mt 1", "Ps 1"]);
+  expect(navigation[1].segments.map(segment => segment.label)).toEqual(["Rdz 2", "Mt 2", "Ps 2"]);
+});
+
 it("records future chapter slices without treating an assumed earlier chapter as read", () => {
   const first = setRecoveryChapters({}, {}, "s", [1, 2], true);
   expect(first).toEqual({ chapters: { s: 0 }, marks: { s: [1, 2] } });

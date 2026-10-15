@@ -313,7 +313,7 @@ for (const width of [1280, 390]) {
     await openPlan(page, session);
     await expect(page.getByTestId('overdue-readings')).toHaveText('2');
     await enableRecovery(page);
-    await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
+    await expect(page.getByTestId('reading-balance')).toHaveText('Do nadrobienia2dni');
     await expect(page.getByTestId('overdue-readings')).toHaveCount(0);
     await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(0));
     await expect(reading(page, 'Rdz 3')).toBeVisible();
@@ -332,6 +332,30 @@ for (const width of [1280, 390]) {
     await page.getByRole('button', { name: 'Następne', exact: true }).click();
     await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(1));
     await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b']);
+    await fitsViewport(page);
+  });
+
+  test('completed catch-up rows are not duplicated as adjacent history days at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await createPlan(request, 'home-catchup-history-duplicate-' + width);
+    await openPlan(page, session);
+    await enableRecovery(page);
+    await expect(page.getByTestId('reading-balance')).toContainText('Do nadrobienia');
+    await reading(page, 'Rdz 1').click();
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['s0', 's1']);
+    await expect(page.locator('.reading-date[data-day-id="d0"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Poprzednie', exact: true })).toBeDisabled();
+    await extraReading(page).click();
+    await expectSaved(request, session, ['s0', 's1', 's2']);
+    await expect(page.locator('.reading-date[data-day-id="d0"], .reading-date[data-day-id="d1"]')).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator('.reading-date[data-day-id="d0"], .reading-date[data-day-id="d1"]')).toHaveCount(0);
+    await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Następne', exact: true }).click();
+    await expect(reading(page, 'Rdz 4')).toBeVisible();
+    await expect(reading(page, 'Rdz 1')).toHaveCount(0);
+    await expectSaved(request, session, ['s0', 's1', 's2']);
     await fitsViewport(page);
   });
 

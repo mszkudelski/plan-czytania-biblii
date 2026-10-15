@@ -113,5 +113,7 @@ describe("catch-up controls after the backlog is cleared", () => {
     const html = renderHome(true);
     expect(html).toContain("Wyłącz nadrabianie");
     expect(html).toContain("reading-extra");
+    expect(html).toContain("Do nadrobienia");
+    expect(html).not.toContain("Na bieżąco");
   });
 });
