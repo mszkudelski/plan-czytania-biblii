@@ -2131,7 +2131,7 @@ function TodayView({
         </div>
         <div className={`reading-stat reading-status ${recoveryStart ? "is-current" : week.overdueReadings ? "is-behind" : "is-current"}`}>
           <div data-testid="reading-balance" className="reading-balance" aria-live="polite">
-            {recoveryStart ? <strong className="reading-on-track">Nadrabianie</strong>
+            {recoveryStart ? <strong className="reading-on-track">Na bieżąco</strong>
               : week.overdueReadings > 0 ? <>
                 <span>Zaległość</span><strong data-testid="overdue-readings">{week.overdueReadings}</strong><span>{dayWord(week.overdueReadings)}</span>
               </> : week.aheadReadings > 0 ? <>
