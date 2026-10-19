@@ -101,7 +101,7 @@ describe("status czytań i tygodnia", () => {
     plan.progress.member["s0-1"] = "done";
     expect(getReadingWeekSummary(plan, "member", TODAY).overdueReadings).toBe(0);
   });
-  it("a three-reading week has no debt until Monday and only later weeks count as ahead", () => {
+  it("a three-reading week counts missed dates immediately without changing the weekly goal", () => {
     const plan = group();
     plan.frequency = { kind: "custom", days: [1, 3, 5] };
     plan.planDays = ["2026-10-05", "2026-10-07", "2026-10-09", "2026-10-12"].map((date, i) => ({
@@ -109,7 +109,7 @@ describe("status czytań i tygodnia", () => {
       segments: [{ id: `s${i}`, label: `Rdz ${i + 1}`, section: "Biblia" }],
     }));
     expect(getReadingWeekSummary(plan, "member", TODAY)).toEqual({
-      overdueReadings: 0, aheadReadings: 0, weeklyTotal: 3, weeklyCompleted: 0,
+      overdueReadings: 3, aheadReadings: 0, weeklyTotal: 3, weeklyCompleted: 0,
     });
     plan.progress.member = { s0: "done", s1: "done", s2: "done", s3: "done" };
     expect(getReadingWeekSummary(plan, "member", TODAY)).toEqual({
@@ -165,7 +165,7 @@ describe("status czytań i tygodnia", () => {
     plan.planDays.push({ id: "empty", index: 3, date: "2025-12-20", title: "", segments: [] });
     plan.progress.other = Object.fromEntries(plan.planDays.flatMap(day => day.segments).map(s => [s.id, "done"]));
     expect(getReadingWeekSummary(plan, "member", "2026-01-04")).toEqual({
-      overdueReadings: 1, aheadReadings: 0, weeklyTotal: 1, weeklyCompleted: 0,
+      overdueReadings: 2, aheadReadings: 0, weeklyTotal: 1, weeklyCompleted: 0,
     });
     expect(getReadingWeekSummary(plan, "member", "2026-01-05")).toEqual({
       overdueReadings: 2, aheadReadings: 0, weeklyTotal: 1, weeklyCompleted: 0,

@@ -63,9 +63,11 @@ for (const width of [1280, 390]) {
     const session = await timeline(request, 'home-week-' + width,
       [monday - 7, monday - 5, monday - 3, monday, monday + 2, monday + 4, monday + 7, monday + 9], monday - 7, true);
     const saved = [];
+    const initialDebt = 3 + [monday, monday + 2, monday + 4].filter(offset => offset < 0).length;
+    const aheadAfterNextWeek = 1 + [monday, monday + 2, monday + 4].filter(offset => offset > 0).length;
     await openPlan(page, session);
     await expect(page.getByTestId('reading-balance')).toContainText('Zaległość');
-    await expect(page.getByTestId('overdue-readings')).toHaveText('3');
+    await expect(page.getByTestId('overdue-readings')).toHaveText(String(initialDebt));
     await expectWeek(page, '0 z 3 czytań');
     for (let i = 3; i <= 5; i++) {
       await browseReading(page, i);
@@ -88,12 +90,12 @@ for (const width of [1280, 390]) {
     await reading(page, 'Mt 7').click();
     saved.push('t6a', 't6b');
     await expectSaved(request, session, saved);
-    await expect(page.getByTestId('ahead-readings')).toHaveText('Do przodu: +1 czytanie');
+    await expect(page.getByTestId('ahead-readings')).toHaveText(`Do przodu: +${aheadAfterNextWeek} ${aheadAfterNextWeek === 1 ? 'czytanie' : 'czytania'}`);
     await expect(page.getByTestId('reading-balance')).toContainText('Zaległość');
     await expect(page.getByTestId('overdue-readings')).toHaveText('3');
     await expectWeek(page, '3 z 3 czytań');
     await page.reload();
-    await expect(page.getByTestId('ahead-readings')).toHaveText('Do przodu: +1 czytanie');
+    await expect(page.getByTestId('ahead-readings')).toHaveText(`Do przodu: +${aheadAfterNextWeek} ${aheadAfterNextWeek === 1 ? 'czytanie' : 'czytania'}`);
     await expect(page.getByTestId('reading-balance')).toContainText('Zaległość');
     await expect(page.getByTestId('overdue-readings')).toHaveText('3');
     await expectWeek(page, '3 z 3 czytań');
@@ -103,6 +105,44 @@ for (const width of [1280, 390]) {
     await expect(page.getByTestId('reading-balance')).toContainText('Zaległość');
     await expect(page.getByTestId('overdue-readings')).toHaveText('3');
     await expectWeek(page, '1 z 2 czytań');
+    await fitsViewport(page);
+  });
+
+  test('Sunday debt and today agree between reading and group at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const monday = -((NOW.getUTCDay() + 6) % 7);
+    const session = await timeline(request, 'home-balance-consistency-' + width,
+      [monday - 3, monday, monday + 2, monday + 4, monday + 7], monday - 3, true);
+    for (const id of ['t0a', 't0b', 't1a', 't1b']) await saveProgress(request, session, id);
+    await openPlan(page, session);
+    await page.clock.setSystemTime(new Date(NOW.getTime() + (monday + 6) * 86400000));
+    await page.reload();
+    await expect(page.getByTestId('overdue-readings')).toHaveText('2');
+    await tab(page, 'Grupa').click();
+    await expect(page.locator('.member-row .member-actions > b')).toHaveText('-2 d.');
+    await tab(page, 'Czytaj').click();
+    // A future completion cannot hide either of the two missing readings.
+    for (const id of ['t4a', 't4b']) await saveProgress(request, session, id);
+    await page.reload();
+    await expect(page.getByTestId('overdue-readings')).toHaveText('2');
+    await expect(page.getByTestId('ahead-readings')).toHaveText('Do przodu: +1 czytanie');
+    await tab(page, 'Grupa').click();
+    await expect(page.locator('.member-row .member-actions > b')).toHaveText('-2 d.');
+    // Undo that completion: Monday's unfinished work is not overdue on Monday.
+    for (const id of ['t4a', 't4b']) await saveProgress(request, session, id, false);
+    await page.clock.setSystemTime(new Date(NOW.getTime() + (monday + 7) * 86400000));
+    await page.reload();
+    await tab(page, 'Grupa').click();
+    await expect(page.locator('.member-row .member-actions > b')).toHaveText('-2 d.');
+    await tab(page, 'Czytaj').click();
+    await expect(page.getByTestId('overdue-readings')).toHaveText('2');
+    await page.clock.setSystemTime(new Date(NOW.getTime() + (monday + 8) * 86400000));
+    await page.reload();
+    await expect(page.getByTestId('overdue-readings')).toHaveText('3');
+    await tab(page, 'Grupa').click();
+    await expect(page.locator('.member-row .member-actions > b')).toHaveText('-3 d.');
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b']);
+    expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
     await fitsViewport(page);
   });
 

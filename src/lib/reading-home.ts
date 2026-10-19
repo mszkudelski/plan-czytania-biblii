@@ -1,4 +1,5 @@
 import type { Group } from "../types";
+import { getReadingBalance } from "./metrics";
 import type { RecoveryPortion } from "./recovery";
 
 export function formatFragmentCount(count: number) {
@@ -42,13 +43,8 @@ export function getReadingWeekSummary(group: Group, memberId: string, today: str
   const remainingAtWeekStart = days.filter(day => !complete(day) || completedOn(day) >= weekStart).length;
   const weeklyTotal = weekly.length || (today > (days.at(-1)?.date ?? today)
     ? Math.min(group.frequency.days.length, remainingAtWeekStart) : 0);
-  // A less frequent plan has a weekly goal: unfinished work becomes debt
-  // after the week closes. Future work never erases earlier missing readings.
-  const cutoff = group.frequency.kind === "daily" ? today : weekStart;
-  const aheadCutoff = group.frequency.kind === "daily" ? today : weekEnd;
   return {
-    overdueReadings: days.filter(day => day.date < cutoff && !complete(day)).length,
-    aheadReadings: days.filter(day => (group.frequency.kind === "daily" ? day.date > aheadCutoff : day.date >= aheadCutoff) && complete(day)).length,
+    ...getReadingBalance(group, memberId, today),
     weeklyTotal,
     weeklyCompleted: Math.min(weeklyTotal, days.filter(day => complete(day) &&
       ((day.date >= weekStart && day.date < weekEnd) || completedThisWeek(day))).length),

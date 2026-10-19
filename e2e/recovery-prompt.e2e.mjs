@@ -130,7 +130,9 @@ test('three overdue readings and a three-times-weekly plan do not trigger the pr
   const weekly = await weeklyCreated.json();
   const other = await page.context().newPage();
   await openPlan(other, weekly);
-  await expect(other.getByTestId('reading-balance')).toHaveText('Na bieżąco');
+  const missedReadings = weeklyPlan.planDays.filter(day => day.date < NOW.toISOString().slice(0, 10)).length;
+  if (missedReadings) await expect(other.getByTestId('overdue-readings')).toHaveText(String(missedReadings));
+  else await expect(other.getByTestId('reading-balance')).toHaveText('Na bieżąco');
   await tab(other, 'Plan').click();
   await expect(other.getByTestId('weekly-readings')).toHaveText('0 z 3 czytań');
   await tab(other, 'Czytaj').click();
