@@ -115,7 +115,18 @@ export async function openPlan(page, session, cache = {}) {
       sessionStorage.setItem('e2e-cache-seeded', 'yes');
     }
   }, { credentials: session.credentials, cache });
+  // A real backend request has its own 30s deadline. Keep the UI assertion's
+  // 10s deadline after it completes; cached-startup tests must remain immediate.
+  const cachedGroup = cache['plan-czytania-biblii-group-' + session.group.id];
+  const sessionResponse = cachedGroup ? null : page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/session' && response.request().method() === 'POST',
+  { timeout: 30000 });
   await page.goto('/');
+  if (sessionResponse) {
+    const response = await sessionResponse;
+    expect(response.status()).toBe(200);
+    expect(await response.finished()).toBeNull();
+  }
   await expect(page.getByRole('heading', { name: session.group.name, exact: true })).toBeVisible();
 }
 export const reading = (page, label) => page.locator('.simple-readings button').filter({
