@@ -62,8 +62,14 @@ for (const width of [1280, 390]) {
     await openPlan(page, session);
     const notice = page.getByRole('complementary', { name: 'Propozycja nadrabiania' });
     await expect(notice).toBeVisible();
+    const savedChoice = page.waitForResponse(response =>
+      new URL(response.url()).pathname === path(session) && response.request().method() === 'POST' &&
+      response.request().postDataJSON().action === 'later', { timeout: 30000 });
     await notice.getByRole('button', { name: 'Nie teraz', exact: true }).click();
     await expect(notice).not.toBeVisible();
+    const response = await savedChoice;
+    expect(response.status()).toBe(200);
+    expect((await response.json()).snoozedUntil).not.toBeNull();
     await expect.poll(async () => (await preference(request, session)).snoozedUntil).not.toBeNull();
     const snoozed = await preference(request, session);
     expect(snoozed.disabled).toBe(false);
