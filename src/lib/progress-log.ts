@@ -21,8 +21,10 @@ export function progressLogKey(
 export function applyProgressLog<T extends Group>(group: T, keys: string[]): T {
   const prefix = progressLogPrefix(group.id);
   const segments = group.planDays.flatMap(day => day.segments);
+  const segmentIds = group.progressSegmentIds ?? segments.map(segment => segment.id);
+  const activeIds = new Set(segments.map(segment => segment.id));
   const progress = Object.fromEntries(group.members.map(member => [
-    member.id, { ...group.progress[member.id] },
+    member.id, Object.fromEntries(Object.entries(group.progress[member.id] ?? {}).filter(([id]) => activeIds.has(id))),
   ]));
   for (const key of [...keys].sort()) {
     if (!key.startsWith(prefix)) continue;
@@ -30,9 +32,9 @@ export function applyProgressLog<T extends Group>(group: T, keys: string[]): T {
     const index = Number(indexText);
     if (rest.length || !/^\d+$/.test(indexText) || !Number.isSafeInteger(index) ||
         !/^\d{13}-[a-f0-9-]+$/.test(version) ||
-        !Object.hasOwn(progress, memberId) || !segments[index] ||
+        !Object.hasOwn(progress, memberId) || !segmentIds[index] || !activeIds.has(segmentIds[index]) ||
         !["0", "1"].includes(completed)) continue;
-    const segmentId = segments[index].id;
+    const segmentId = segmentIds[index];
     if (completed === "1") {
       progress[memberId][segmentId] = new Date(Number(version.slice(0, 13))).toISOString();
     } else {

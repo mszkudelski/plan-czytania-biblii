@@ -1,0 +1,71 @@
+import { describe, expect, it } from "vitest";
+import type { Group, PlanDay } from "../types";
+import { replaceGroupPlan, replacementSummary } from "./plan-replacement";
+import { applyProgressLog, progressLogKey } from "./progress-log";
+
+const time = Date.parse("2026-10-19T12:00:00Z");
+function plan(labels: string[]): PlanDay[] {
+  return labels.map((label, i) => ({ id: `d${i}`, index: i, date: "2026-10-20", title: "Nowy dzień",
+    segments: [{ id: `s${i}`, label, section: "Nowy nagłówek" }] }));
+}
+function fixture(): Group {
+  return { id: "g", name: "Grupa", createdAt: "", startDate: "2026-10-01",
+    frequency: { kind: "daily", days: [] }, planDays: plan(["Rdz 1", "Mt 1-2", "Ps 1", "Ps 1"]),
+    members: [{ id: "a", name: "A", color: "", isAdmin: true }, { id: "b", name: "B", color: "", isAdmin: false }],
+    progress: { a: { s0: "legacy", s3: "second psalm" }, b: { s1: "other member" } } };
+}
+function replace(group: Group, labels: string[], revision = "v1") {
+  return replaceGroupPlan(group, { planDays: plan(labels), startDate: "2026-10-20",
+    frequency: { kind: "weekdays", days: [] }, expectedRevision: group.planRevision ?? "" }, revision);
+}
+
+describe("plan replacement", () => {
+  it("retains dates and per-member timestamps by reading rather than position or CSV heading", () => {
+    const group = fixture();
+    const original = JSON.stringify(group);
+    const next = replace(group, ["mt 1 – 2", "J 1", "  RDZ   1  "]);
+    expect(next.planDays.map(day => day.segments[0].id)).toEqual(["s1", "plan-v1-segment-2", "s0"]);
+    expect(next.progress).toEqual({ a: { s0: "legacy" }, b: { s1: "other member" } });
+    expect(next.startDate).toBe("2026-10-20");
+    expect(next.planDays[0].date).toBe("2026-10-20");
+    expect(next.members).toEqual(group.members);
+    expect(JSON.stringify(group)).toBe(original);
+  });
+  it("matches repeated readings one-to-one in occurrence order, without copying completion to new repeats", () => {
+    const next = replace(fixture(), ["Ps 1", "Ps 1", "Ps 1"]);
+    expect(next.planDays.map(day => day.segments[0].id)).toEqual(["s2", "s3", "plan-v1-segment-3"]);
+    expect(next.progress.a).toEqual({ s3: "second psalm" });
+    expect(replacementSummary(fixture(), plan(["Rdz 1", "J 1"]))).toEqual({
+      matched: 1, total: 2, members: [
+        { memberId: "a", name: "A", retained: 1, unmatched: 1 },
+        { memberId: "b", name: "B", retained: 0, unmatched: 1 },
+      ],
+    });
+  });
+  it("does not guess different abbreviations, removed passages or split/merged readings", () => {
+    const next = replace(fixture(), ["Rodzaju 1", "Mt 1", "Mt 2"]);
+    expect(next.progress).toEqual({ a: {}, b: {} });
+    expect(replacementSummary(fixture(), next.planDays).matched).toBe(0);
+  });
+  it("replays old logs and in-flight writes using their original indices after reorder and removal", () => {
+    const next = replace(fixture(), ["Mt 1-2", "J 1", "Rdz 1"]);
+    const result = applyProgressLog(next, [
+      progressLogKey("g", "a", 0, false, time, "a"),
+      progressLogKey("g", "b", 1, true, time, "b"),
+      progressLogKey("g", "a", 2, true, time, "c"), // removed Psalm must not mark Rdz 1
+      progressLogKey("g", "a", 4, true, time, "d"), // newly added J 1
+    ]);
+    expect(result.progress.a).toEqual({ "plan-v1-segment-2": new Date(time).toISOString() });
+    expect(result.progress.b).toEqual({ s1: new Date(time).toISOString() });
+  });
+  it("keeps the log index append-only across repeated replacements, including logs absent from the snapshot", () => {
+    const first = replace(fixture(), ["J 1", "Rdz 1"]);
+    const second = replace(first, ["Rdz 1", "J 1", "J 2"], "v2");
+    expect(second.progressSegmentIds).toEqual(["s0", "s1", "s2", "s3", "plan-v1-segment-1", "plan-v2-segment-3"]);
+    expect(second.planVersion).toBe(2);
+    const result = applyProgressLog(second, [progressLogKey("g", "b", 4, true, time, "a")]);
+    expect(result.progress.b).toEqual({ "plan-v1-segment-1": new Date(time).toISOString() });
+    expect(() => replaceGroupPlan(second, { planDays: plan(["J 1"]), startDate: second.startDate,
+      frequency: second.frequency, expectedRevision: "v1" })).toThrow(/podmieniony/);
+  });
+});

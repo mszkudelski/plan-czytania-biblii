@@ -263,3 +263,19 @@ it("does not expose a failed final reading as complete and preserves unrelated o
   f.requests[1].task.resolve(groupWith({ s2: "confirmed" })); await other;
   expect(f.visible.progress.a).toEqual({ s2: "confirmed" });
 });
+
+it("ignores late old-plan responses and reads after a replacement, without overlaying removed readings", async () => {
+  const f = fixture();
+  const save = f.queue.toggle("s1");
+  const next = { ...groupWith({ retained: "timestamp" }), planVersion: 1, planRevision: "new",
+    planDays: [{ id: "new-day", index: 0, date: "2026-10-19", title: "", segments: [
+      { id: "retained", label: "Rdz 1", section: "" },
+    ] }] };
+  f.queue.replaceGroup(next);
+  expect(f.visible.progress.a.s1).toBeUndefined();
+  f.requests[0].task.resolve(groupWith({ s1: "old response" }));
+  await save;
+  expect(f.visible).toEqual(next);
+  expect(f.saved.at(-1)).toEqual(next);
+  expect(f.queue.replaceGroup(groupWith(), 0)).toEqual(next);
+});

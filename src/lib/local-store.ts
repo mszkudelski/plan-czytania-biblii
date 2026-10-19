@@ -1,3 +1,4 @@
+import { replaceGroupPlan, type PlanReplacementInput } from "./plan-replacement";
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference, type RecoveryPromptAction } from "./recovery-prompt";
 import type {
   Credentials,
@@ -106,6 +107,9 @@ export function localUpdateProgress(
     !memberTokens(group, credentials.memberId).includes(credentials.token)
   ) {
     throw new Error("Nieprawidłowy link członka.");
+  }
+  if (!group.planDays.some(day => day.segments.some(segment => segment.id === segmentId))) {
+    throw new Error("Nieprawidłowy fragment. Odśwież plan.");
   }
   const memberProgress = group.progress[credentials.memberId] ?? {};
   if (completed) memberProgress[segmentId] = new Date().toISOString();
@@ -325,4 +329,17 @@ export function localRecoveryPrompt(credentials: Credentials, action: "read" | R
   group.recoveryPrompts = { ...group.recoveryPrompts, [credentials.memberId]: preference };
   saveAll(groups);
   return preference;
+}
+
+export function localReplacePlan(credentials: Credentials, input: PlanReplacementInput): Group {
+  const all = loadAll();
+  const group = all[credentials.groupId];
+  const member = group?.members.find(person => person.id === credentials.memberId);
+  if (!group || !memberTokens(group, credentials.memberId).includes(credentials.token)) {
+    throw new Error("Nieprawidłowy link dostępu.");
+  }
+  if (!member?.isAdmin) throw new Error("Tylko administrator może podmienić plan.");
+  all[group.id] = replaceGroupPlan(group, input);
+  saveAll(all);
+  return publicGroup(all[group.id]);
 }

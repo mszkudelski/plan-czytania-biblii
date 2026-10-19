@@ -33,6 +33,10 @@ export type Group = {
   startDate: string;
   frequency: Frequency;
   planDays: PlanDay[];
+  planRevision?: string;
+  planVersion?: number;
+  // Append-only index for immutable progress logs, including older plans.
+  progressSegmentIds?: string[];
   members: Member[];
   progress: Record<string, Record<string, string>>;
 };

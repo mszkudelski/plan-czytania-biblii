@@ -30,7 +30,9 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
   function snapshot() {
     if (!pending.length) return confirmedGroup;
     const progress = { ...confirmedGroup.progress[options.memberId] };
+    const activeIds = new Set(confirmedGroup.planDays.flatMap(day => day.segments.map(segment => segment.id)));
     for (const operation of pending) {
+      if (confirmedGroup.planVersion && !activeIds.has(operation.segmentId)) continue;
       if (!operation.optimistic) {
         if (operation.previousValue) progress[operation.segmentId] = operation.previousValue;
         else delete progress[operation.segmentId];
@@ -66,10 +68,10 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
           operation.reject(error);
           continue;
         }
-        confirmedGroup = savedGroup;
+        if ((savedGroup.planVersion ?? 0) >= (confirmedGroup.planVersion ?? 0)) confirmedGroup = savedGroup;
         pending.shift();
         revision += 1;
-        if (active) options.onSave(savedGroup);
+        if (active) options.onSave(confirmedGroup);
         notify();
         operation.resolve();
       }
@@ -91,8 +93,9 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
       if (active) notify();
     },
     replaceGroup(group: Group, requestRevision = revision) {
+      if ((group.planVersion ?? 0) < (confirmedGroup.planVersion ?? 0)) return confirmedGroup;
       // A read started before a click/save must not erase the confirmed changes.
-      const nextGroup = requestRevision === revision ? group : {
+      const nextGroup = requestRevision === revision || (group.planVersion ?? 0) > (confirmedGroup.planVersion ?? 0) ? group : {
         ...group,
         progress: {
           ...group.progress,

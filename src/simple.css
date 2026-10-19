@@ -1951,3 +1951,27 @@ body:has(.notification-card) .install-app-card { display: none; }
 .join-plan-summary { padding:16px; margin:16px 0; border:1px solid var(--border); border-radius:12px; display:grid; gap:6px; }
 .join-plan-summary span, .join-plan-summary p { color:var(--muted); font-size:.85rem; margin:0; }
 .install-card-content > .link-button { margin-top:5px; }
+
+.plan-replacement form { display: grid; gap: 16px; }
+.plan-replacement h3 { margin: 0; font-size: 1rem; }
+.plan-replacement p { line-height: 1.55; }
+.plan-replacement fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 16px; }
+.plan-replacement .simple-field { display: grid; gap: 8px; }
+.plan-replacement input[type="file"] { max-width: 100%; }
+.replacement-weekdays { display: flex; flex-wrap: wrap; gap: 12px; }
+.replacement-weekdays label { display: flex; align-items: center; gap: 6px; }
+.replacement-weekdays input { width: auto; }
+.replacement-preview { min-width: 0; }
+.replacement-preview strong { overflow-wrap: anywhere; }
+.replacement-table { overflow-x: auto; }
+.replacement-table table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.replacement-table caption { text-align: left; margin-bottom: 8px; }
+.replacement-table th, .replacement-table td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--border); }
+.plan-replacement .access-actions { flex-wrap: wrap; }
+
+.plan-replacement select { width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: 9px; color: var(--ink); background: var(--field); font: inherit; }
+.plan-replacement select:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.plan-replacement input[type="file"] { padding: 9px; height: auto; }
+
+.replacement-preview summary { color: var(--green); cursor: pointer; font-size: .875rem; }
+.replacement-warning { padding: 12px; border-radius: 9px; color: var(--danger); background: var(--danger-soft); }

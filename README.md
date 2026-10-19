@@ -100,6 +100,23 @@ Jeżeli każdy wiersz ma datę w formacie `YYYY-MM-DD` lub `DD.MM.YYYY`, aplikac
 użyje dat z pliku. W przeciwnym razie wyliczy daty od wybranego startu i według
 wybranej częstotliwości.
 
+## Podmiana planu
+
+Administrator może wybrać **Ustawienia → Plan → Podmień plan**, wgrać nowy CSV
+lub wybrać plan podstawowy, a następnie sprawdzić podgląd dla wszystkich osób.
+Podmiana obejmuje całą grupę; członkowie, role i dostęp pozostają zachowane.
+
+Postęp dopasowujemy po zapisie fragmentu, niezależnie od jego daty, pozycji
+czy nagłówka kolumny. Ignorujemy wielkość liter, odstępy i rodzaj myślnika.
+Powtarzające się fragmenty dopasowujemy kolejno, jeden do jednego.
+Różnych skrótów ksiąg oraz dzielonych lub łączonych fragmentów nie dopasowujemy.
+Podgląd pokazuje liczbę zachowanych i nieprzeniesionych zaznaczeń dla każdej osoby.
+Dni i lokalne ustawienia nadrabiania są wyznaczane od nowa dla nowego planu.
+
+W zapisie postępu indeks fragmentów jest dopisywany, a nie przestawiany.
+Dzięki temu wcześniejsze i trwające zapisy nie oznaczą innego czytania po zmianie
+kolejności. Kolejne podmiany są wersjonowane; stary podgląd nie nadpisze nowszego planu.
+
 ## Uruchomienie
 
 ```bash

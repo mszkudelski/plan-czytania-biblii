@@ -1,3 +1,4 @@
+import { replaceGroupPlan, replacementPlanError, type PlanReplacementInput } from "../../src/lib/plan-replacement";
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference } from "../../src/lib/recovery-prompt";
 import { getStore } from "@netlify/blobs";
 import { cleanupE2e, e2eRunHash, e2eRunToken, registerE2eGroup, trackE2eResource } from "./_shared/e2e-cleanup";
@@ -574,9 +575,9 @@ async function updateProgress(request: Request, groupId: string) {
   if (!group) return error("Nie znaleziono grupy.", 404);
   const member = await authenticate(group, body);
   if (!member) return error("Nieprawidłowy link dostępu.", 401);
-  const segmentIndex = group.planDays.flatMap(day => day.segments)
-    .findIndex(segment => segment.id === segmentId);
-  if (segmentIndex < 0 || typeof body.completed !== "boolean") {
+  const segments = group.planDays.flatMap(day => day.segments);
+  const segmentIndex = (group.progressSegmentIds ?? segments.map(segment => segment.id)).indexOf(segmentId);
+  if (segmentIndex < 0 || !segments.some(segment => segment.id === segmentId) || typeof body.completed !== "boolean") {
     return error("Nieprawidłowy fragment.");
   }
 
@@ -588,6 +589,39 @@ async function updateProgress(request: Request, groupId: string) {
   );
   const current = await storedGroup(groupId);
   return json(publicGroup(current ?? group));
+}
+
+async function replacePlan(request: Request, groupId: string) {
+  const body = await request.json() as Partial<Credentials & PlanReplacementInput> | null;
+  if (!body) return error("Nieprawidłowy plan.");
+  if (body.groupId !== groupId) return error("Nieprawidłowy link dostępu.", 401);
+  const planDays = validatePlanDays(body.planDays);
+  const frequency = body.frequency;
+  const validDate = (value: unknown) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+  if (!planDays || !validDate(body.startDate) || typeof body.expectedRevision !== "string" ||
+      !frequency || !["daily", "weekdays", "custom"].includes(frequency.kind) ||
+      !Array.isArray(frequency.days) || (frequency.kind === "custom" && !frequency.days.length) ||
+      !frequency.days.every(day => Number.isInteger(day) && day >= 0 && day <= 6) ||
+      planDays.some(day => !validDate(day.date) || day.segments.some(segment => !segment.label))) {
+    return error("Nieprawidłowy plan, daty lub dni czytania.");
+  }
+  // Reject oversized text before normalization; otherwise preview and save could match different passages.
+  const planError = replacementPlanError(body.planDays!);
+  if (planError) return error(planError);
+  return updateStoredGroup(groupId, async group => {
+    const member = await authenticate(group, body);
+    if (!member) return error("Nieprawidłowy link dostępu.", 401);
+    if (!member.isAdmin) return error("Tylko administrator może podmienić plan.", 403);
+    if ((group.planRevision ?? "") !== body.expectedRevision) {
+      return error("Plan został już podmieniony. Odśwież plan i sprawdź podgląd ponownie.", 409);
+    }
+    // Keep the existing log index forever: requests already in flight still
+    // refer to the same reading even when its position changes in the new plan.
+    Object.assign(group, replaceGroupPlan(group, {
+      planDays, startDate: body.startDate!, frequency, expectedRevision: body.expectedRevision!,
+    }));
+  });
 }
 
 async function ensureInvite(request: Request, groupId: string) {
@@ -914,6 +948,14 @@ export default async (request: Request, context: Context) => {
       route[0] === "groups"
     ) {
       return getGroup(route[1]);
+    }
+    if (
+      request.method === "POST" &&
+      route.length === 3 &&
+      route[0] === "groups" &&
+      route[2] === "plan"
+    ) {
+      return replacePlan(request, route[1]);
     }
     if (
       request.method === "POST" &&

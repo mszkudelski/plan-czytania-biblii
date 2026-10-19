@@ -106,3 +106,13 @@ test('Required CI validates actual workflow shell for selection, skips, failures
     { ...main, SELECTION_MODE: 'none' },
   ]) assert.notEqual(check(overrides), 0, JSON.stringify(overrides));
 });
+
+test('plan replacement retains group permissions, reading, notification and replacement regressions', () => {
+  for (const file of ['src/PlanReplacement.tsx', 'src/lib/plan-replacement.ts', 'src/lib/plan-replacement.test.ts']) {
+    const result = select([file]);
+    assert.equal(result.mode, 'selected');
+    for (const name of ['plan-replacement', 'backend', 'browser', 'identity', 'reading-home', 'recovery-prompt', 'notifications', 'onboarding']) {
+      assert.ok(result.files.includes(`${name}.e2e.mjs`), file);
+    }
+  }
+});
