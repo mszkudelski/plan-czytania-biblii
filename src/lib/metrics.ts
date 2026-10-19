@@ -20,6 +20,18 @@ export function formatProgressPercent(percent: number) {
     : percent.toFixed(1).replace(".", ",");
 }
 
+// Both reading and group views use calendar dates, regardless of cadence.
+// Today's unfinished reading is due today; future work cannot erase past debt.
+export function getReadingBalance(group: Group, memberId: string, today: string) {
+  const completed = group.progress[memberId] ?? {};
+  const days = group.planDays.filter(day => day.segments.length > 0);
+  const complete = (day: PlanDay) => day.segments.every(segment => completed[segment.id]);
+  return {
+    overdueReadings: days.filter(day => day.date < today && !complete(day)).length,
+    aheadReadings: days.filter(day => day.date > today && complete(day)).length,
+  };
+}
+
 export function getMemberMetrics(
   group: Group,
   memberId: string,
@@ -36,10 +48,8 @@ export function getMemberMetrics(
       day.segments.length > 0 &&
       day.segments.every((segment) => completed[segment.id]),
   ).length;
-  const expectedDayCount = expectedDays.filter(
-    (day) => day.segments.length > 0,
-  ).length;
-  const paceDays = completedDays - expectedDayCount;
+  const { overdueReadings, aheadReadings } = getReadingBalance(group, memberId, today);
+  const paceDays = overdueReadings > 0 ? -overdueReadings : aheadReadings;
 
   return {
     completedSegments,
