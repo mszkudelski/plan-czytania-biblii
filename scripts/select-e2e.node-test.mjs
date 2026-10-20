@@ -30,7 +30,7 @@ test('group access changes retain identity, permissions and backend coverage', (
   }
 });
 test('shared files, unknown files, selector and config changes run all', () => {
-  for (const file of ['src/SimpleApp.tsx', 'src/simple.css', 'src/lib/api.ts', 'src/lib/group-state.ts', 'src/lib/progress-log.ts', 'src/lib/optimistic-progress.ts', 'src/lib/schedule.ts', 'src/types.ts', 'public/sw.js', 'netlify/functions/api.mts', 'package-lock.json', 'scripts/select-e2e.mjs', '.github/workflows/ci.yml', 'e2e/helpers.mjs', 'e2e/playwright.config.mjs', 'src/NewThing.tsx', 'AGENTS.md']) {
+  for (const file of ['src/SimpleApp.tsx', 'src/simple.css', 'src/lib/api.ts', 'src/lib/group-state.ts', 'src/lib/progress-log.ts', 'src/lib/optimistic-progress.ts', 'src/lib/schedule.ts', 'src/types.ts', 'public/sw.js', 'netlify/functions/api.mts', 'netlify/tests/plan-replacement.test.ts', 'scripts/check-netlify-functions.mjs', 'package-lock.json', 'scripts/select-e2e.mjs', '.github/workflows/ci.yml', 'e2e/helpers.mjs', 'e2e/playwright.config.mjs', 'src/NewThing.tsx', 'AGENTS.md']) {
     assert.equal(select([file]).mode, 'all', file);
     assert.deepEqual(select([file]).files, available, file);
   }
@@ -105,4 +105,14 @@ test('Required CI validates actual workflow shell for selection, skips, failures
     { ...main, E2E_RESULT: 'cancelled' }, { ...main, PRODUCTION_RESULT: 'failure' },
     { ...main, SELECTION_MODE: 'none' },
   ]) assert.notEqual(check(overrides), 0, JSON.stringify(overrides));
+});
+
+test('plan replacement retains group permissions, reading, notification and replacement regressions', () => {
+  for (const file of ['src/PlanReplacement.tsx', 'src/lib/plan-replacement.ts', 'src/lib/plan-replacement.test.ts']) {
+    const result = select([file]);
+    assert.equal(result.mode, 'selected');
+    for (const name of ['plan-replacement', 'backend', 'browser', 'identity', 'reading-home', 'recovery-prompt', 'notifications', 'onboarding']) {
+      assert.ok(result.files.includes(`${name}.e2e.mjs`), file);
+    }
+  }
 });

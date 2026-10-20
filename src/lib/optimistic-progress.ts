@@ -28,7 +28,9 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
   function snapshot() {
     if (!pending.length) return confirmedGroup;
     const progress = { ...confirmedGroup.progress[options.memberId] };
+    const activeIds = new Set(confirmedGroup.planDays.flatMap(day => day.segments.map(segment => segment.id)));
     for (const operation of pending) {
+      if (confirmedGroup.planVersion && !activeIds.has(operation.segmentId)) continue;
       if (operation.completed) progress[operation.segmentId] = operation.timestamp;
       else delete progress[operation.segmentId];
     }
@@ -59,10 +61,10 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
           operation.reject(error);
           continue;
         }
-        confirmedGroup = savedGroup;
+        if ((savedGroup.planVersion ?? 0) >= (confirmedGroup.planVersion ?? 0)) confirmedGroup = savedGroup;
         pending.shift();
         revision += 1;
-        if (active) options.onSave(savedGroup);
+        if (active) options.onSave(confirmedGroup);
         notify();
         operation.resolve();
       }
@@ -73,6 +75,7 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
 
   return {
     get revision() { return revision; },
+    get hasPending() { return pending.length > 0; },
     snapshot,
     waitForSegments(segmentIds: string[]) {
       const writes = pending.filter(operation => segmentIds.includes(operation.segmentId));
@@ -83,8 +86,9 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
       if (active) notify();
     },
     replaceGroup(group: Group, requestRevision = revision) {
+      if ((group.planVersion ?? 0) < (confirmedGroup.planVersion ?? 0)) return confirmedGroup;
       // A read started before a click/save must not erase the confirmed changes.
-      const nextGroup = requestRevision === revision ? group : {
+      const nextGroup = requestRevision === revision || (group.planVersion ?? 0) > (confirmedGroup.planVersion ?? 0) ? group : {
         ...group,
         progress: {
           ...group.progress,

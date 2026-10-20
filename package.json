@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "node --test scripts/*.node-test.mjs && vitest run",
     "netlify:dev": "netlify dev",
-    "prebuild": "node scripts/build-info.mjs",
+    "prebuild": "node scripts/check-netlify-functions.mjs && node scripts/build-info.mjs",
     "test:e2e": "npm --prefix e2e test --"
   },
   "dependencies": {
@@ -29,6 +29,7 @@
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
     "@types/web-push": "^3.6.4",
+    "jsdom": "^26.1.0",
     "typescript": "~5.9.2",
     "vitest": "^5.0.1"
   }

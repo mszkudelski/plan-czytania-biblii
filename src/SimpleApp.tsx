@@ -1,3 +1,4 @@
+import PlanReplacement from "./PlanReplacement";
 import Onboarding, { useOnboarding, usePromptOffer } from "./Onboarding";
 import ReminderPrompt from "./ReminderPrompt";
 import { reminderReadingDay } from "./lib/notifications";
@@ -289,6 +290,8 @@ export default function SimpleApp() {
   }, []);
 
   const setGroupAndCache = useCallback((nextGroup: Group) => {
+    if (latestGroup.current?.id === nextGroup.id &&
+        (latestGroup.current.planVersion ?? 0) > (nextGroup.planVersion ?? 0)) return;
     latestGroup.current = nextGroup;
     setGroup(nextGroup);
     setCachedAt(saveCachedGroup(nextGroup));
@@ -1740,7 +1743,7 @@ function Dashboard({
         {progressError && <p className="progress-error" role="alert">{progressError}</p>}
         <div hidden={tab !== "today"}>
           <TodayView
-            key={`${group.id}:${member.id}:${today}`}
+            key={`${group.id}:${member.id}:${today}:${visibleGroup.planRevision ?? ""}`}
             group={visibleGroup}
             credentials={credentials}
             promptReady={promptReady}
@@ -1771,6 +1774,8 @@ function Dashboard({
             group={visibleGroup}
             member={member}
             onLeave={onLeave}
+            savingProgress={progressQueue.hasPending}
+            onReplace={next => setGroup(progressQueue.replaceGroup(next))}
           />
         )}
       </main>
@@ -1816,7 +1821,7 @@ function TodayView({
   const today = todayIso();
   const home = getReadingHomeSummary(group, member.id, today);
   const week = getReadingWeekSummary(group, member.id, today);
-  const normalPortionKey = `reading-home:${group.id}:${member.id}:${today}`;
+  const normalPortionKey = `reading-home:${group.id}:${member.id}:${today}${group.planRevision ? `:${group.planRevision}` : ""}`;
   const [dailyDayId] = useState(() => getDailyReadingDay(
     group, member.id, today, localStorage.getItem(normalPortionKey) ?? "",
   )?.id ?? "");
@@ -1829,7 +1834,7 @@ function TodayView({
     ? group.planDays.findIndex(day => day.id === notificationDay.id) : Math.max(0, initialIndex));
   const selectedDay = group.planDays[selectedIndex];
   const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
-  const recoveryKey = `reading-recovery:${group.id}:${member.id}`;
+  const recoveryKey = `reading-recovery:${group.id}:${member.id}${group.planRevision ? `:${group.planRevision}` : ""}`;
   const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
   useEffect(() => {
     if (dailyDayId && !recoveryStart) localStorage.setItem(normalPortionKey, dailyDayId);
@@ -2345,11 +2350,15 @@ function SettingsView({
   group,
   member,
   onLeave,
+  savingProgress,
+  onReplace,
 }: {
   credentials: Credentials;
   group: Group;
   member: Member;
   onLeave: () => void;
+  savingProgress: boolean;
+  onReplace: (group: Group) => void;
 }) {
   const startDate = group.planDays[0]?.date ?? group.startDate;
   const endDate = group.planDays.at(-1)?.date ?? group.startDate;
@@ -2397,6 +2406,7 @@ function SettingsView({
         />
         <Setting label="Dni czytania" value={frequency} />
       </section>
+      <PlanReplacement group={group} credentials={credentials} disabled={savingProgress} onReplace={onReplace} />
       {onboarding.installAvailable &&
         <section className="settings-card"><button type="button" className="small-button" onClick={() => window.dispatchEvent(new Event("reading-install-request"))}>
           Dodaj aplikację do ekranu głównego

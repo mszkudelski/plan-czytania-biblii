@@ -1,3 +1,4 @@
+import type { PlanReplacementInput } from "./plan-replacement";
 import type { RecoveryPromptPreference, RecoveryPromptAction } from "./recovery-prompt";
 import type {
   Credentials,
@@ -8,6 +9,7 @@ import type {
 } from "../types";
 import {
   localCreateGroup,
+  localReplacePlan,
   localRecoveryPrompt,
   localCreateRecoveryCode,
   localCreateMemberAccess,
@@ -297,5 +299,12 @@ export async function recoveryPromptSettings(credentials: Credentials, action: "
   if (useLocalOnly()) return localRecoveryPrompt(credentials, action);
   return request<RecoveryPromptPreference>(`/groups/${credentials.groupId}/recovery-prompt`, {
     method: "POST", body: JSON.stringify({ ...credentials, action }),
+  });
+}
+
+export async function replacePlan(credentials: Credentials, input: PlanReplacementInput) {
+  if (useLocalOnly()) return localReplacePlan(credentials, input);
+  return request<Group>(`/groups/${credentials.groupId}/plan`, {
+    method: "POST", body: JSON.stringify({ ...credentials, ...input }),
   });
 }
