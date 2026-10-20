@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures.mjs';
+import { readGroupRequest } from './read-group-request.mjs';
 export const NOW = new Date();
 NOW.setUTCHours(12, 0, 0, 0);
 export const TODAY = NOW.toISOString().slice(0, 10);
@@ -65,8 +66,7 @@ export async function saveProgress(request, session, segmentId, completed = true
   return response.json();
 }
 export async function readGroup(request, session) {
-  // Retry only an interrupted, idempotent GET. HTTP failures and state assertions still fail normally.
-  const response = await request.get('/api/groups/' + session.group.id, { timeout: 30000, maxRetries: 2 });
+  const response = await readGroupRequest(request, '/api/groups/' + session.group.id);
   expect(response.status()).toBe(200);
   return response.json();
 }
