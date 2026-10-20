@@ -49,6 +49,7 @@ test('replacement keeps all members, occurrence timestamps and log identity thro
 });
 
 test('administrator previews lost marks, imports CSV, retains progress after reload and opens the first unread day', async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   const owner = await createPlan(request, 'replace-ui');
   await saveProgress(request, owner, 's0');
   await saveProgress(request, owner, 's2');
@@ -59,6 +60,23 @@ test('administrator previews lost marks, imports CSV, retains progress after rel
     buffer: Buffer.from('tytuł,czytanie\nPierwszy,Rdz 1\nDrugi,J 1\nTrzeci,Mt 1\n'),
   });
   await page.getByLabel('Data rozpoczęcia').fill(TODAY);
+  const layout = await page.locator('.plan-replacement').evaluate(card => {
+    const bounds = card.getBoundingClientRect();
+    const form = card.querySelector('form').getBoundingClientRect();
+    const previous = card.previousElementSibling.getBoundingClientRect();
+    const action = card.querySelector('button[type=submit]').getBoundingClientRect();
+    const cancel = card.querySelector('.replacement-actions .link-button').getBoundingClientRect();
+    return { left: form.left - bounds.left, right: bounds.right - form.right,
+      topGap: bounds.top - previous.bottom, buttonHeight: action.height,
+      actionsStacked: cancel.top >= action.bottom,
+      overflows: document.documentElement.scrollWidth > window.innerWidth };
+  });
+  expect(layout.left).toBeGreaterThanOrEqual(16);
+  expect(layout.right).toBeGreaterThanOrEqual(16);
+  expect(layout.topGap).toBeGreaterThanOrEqual(12);
+  expect(layout.buttonHeight).toBeGreaterThanOrEqual(44);
+  expect(layout.actionsStacked).toBe(true);
+  expect(layout.overflows).toBe(false);
   const preview = page.getByLabel('Podgląd zachowanego postępu');
   await expect(preview).toContainText('Dopasowane fragmenty: 2 z 3.');
   await expect(preview.getByRole('row').filter({ hasText: 'Tester E2E' }).getByRole('cell')).toHaveText(['Tester E2E', '1', '1']);

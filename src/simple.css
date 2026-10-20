@@ -1952,26 +1952,44 @@ body:has(.notification-card) .install-app-card { display: none; }
 .join-plan-summary span, .join-plan-summary p { color:var(--muted); font-size:.85rem; margin:0; }
 .install-card-content > .link-button { margin-top:5px; }
 
-.plan-replacement form { display: grid; gap: 16px; }
-.plan-replacement h3 { margin: 0; font-size: 1rem; }
-.plan-replacement p { line-height: 1.55; }
-.plan-replacement fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 16px; }
-.plan-replacement .simple-field { display: grid; gap: 8px; }
-.plan-replacement input[type="file"] { max-width: 100%; }
-.replacement-weekdays { display: flex; flex-wrap: wrap; gap: 12px; }
-.replacement-weekdays label { display: flex; align-items: center; gap: 6px; }
-.replacement-weekdays input { width: auto; }
-.replacement-preview { min-width: 0; }
-.replacement-preview strong { overflow-wrap: anywhere; }
-.replacement-table { overflow-x: auto; }
-.replacement-table table { width: 100%; border-collapse: collapse; font-size: .875rem; }
-.replacement-table caption { text-align: left; margin-bottom: 8px; }
-.replacement-table th, .replacement-table td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--border); }
-.plan-replacement .access-actions { flex-wrap: wrap; }
-
-.plan-replacement select { width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: 9px; color: var(--ink); background: var(--field); font: inherit; }
+/* Plan replacement is a padded settings card, including its collapsed state. */
+.plan-replacement { display: grid; gap: 16px; min-width: 0; margin: 12px 0 20px; padding: 20px; }
+.plan-replacement > .small-button { justify-self: start; min-height: 44px; }
+.plan-replacement form { display: grid; min-width: 0; gap: 20px; }
+.plan-replacement h3 { margin: 0; font-size: .95rem; line-height: 1.45; }
+.plan-replacement p { margin: 0; font-size: .82rem; line-height: 1.6; }
+.replacement-intro { display: grid; gap: 8px; }
+.replacement-intro p { color: var(--muted); }
+.plan-replacement fieldset { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.plan-replacement .simple-field { min-width: 0; gap: 8px; }
+.plan-replacement .simple-field > span { font-size: .78rem; }
+.replacement-schedule { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.plan-replacement input[type="date"], .plan-replacement select { width: 100%; min-width: 0; height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: 9px; color: var(--ink); background: var(--field); font: inherit; font-size: .85rem; }
 .plan-replacement select:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
-.plan-replacement input[type="file"] { padding: 9px; height: auto; }
-
-.replacement-preview summary { color: var(--green); cursor: pointer; font-size: .875rem; }
+.plan-replacement .replacement-upload { position: relative; display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 52px; padding: 12px; border: 1px dashed var(--border); border-radius: 9px; background: var(--subtle); color: var(--ink); cursor: pointer; }
+.plan-replacement .replacement-upload:focus-within { outline: 2px solid var(--green); outline-offset: 2px; }
+.plan-replacement .replacement-upload input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; opacity: 0; cursor: pointer; }
+.replacement-file-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.replacement-file-action { flex-shrink: 0; color: var(--green); font-size: .72rem; font-weight: 700; }
+.plan-replacement fieldset > .link-button { max-width: 100%; min-height: 32px; text-align: left; line-height: 1.5; }
+.replacement-weekdays { display: flex; flex-wrap: wrap; gap: 12px; }
+.replacement-weekdays label { display: flex; align-items: center; gap: 6px; font-size: .8rem; }
+.replacement-weekdays input { width: auto; }
+.replacement-preview { display: grid; gap: 14px; min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--subtle); }
+.replacement-preview > strong { font-size: .85rem; overflow-wrap: anywhere; }
+.replacement-preview summary { color: var(--green); cursor: pointer; font-size: .8rem; line-height: 1.5; }
+.replacement-preview details p { margin-top: 8px; }
+.replacement-table { overflow-x: auto; }
+.replacement-table table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+.replacement-table caption { text-align: left; margin-bottom: 8px; line-height: 1.5; }
+.replacement-table th, .replacement-table td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--border); }
 .replacement-warning { padding: 12px; border-radius: 9px; color: var(--danger); background: var(--danger-soft); }
+.plan-replacement .replacement-actions { flex-wrap: wrap; padding-top: 4px; }
+.replacement-actions .main-button { min-height: 44px; max-width: 100%; padding: 12px 16px; white-space: normal; line-height: 1.4; }
+.replacement-actions .link-button { min-height: 44px; padding: 10px 8px; }
+@media (max-width: 520px) {
+  .plan-replacement { padding: 18px; }
+  .replacement-schedule { grid-template-columns: minmax(0, 1fr); }
+  .plan-replacement .replacement-actions { flex-direction: column; align-items: stretch; gap: 4px; }
+  .replacement-actions .main-button, .replacement-actions .link-button { width: 100%; }
+}

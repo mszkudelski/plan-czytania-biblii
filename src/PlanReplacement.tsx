@@ -60,11 +60,15 @@ export default function PlanReplacement({ group, credentials, disabled, onReplac
     {!open ? <button type="button" className="small-button" disabled={locked} onClick={() => {
       reset(); setSuccess(""); setOpen(true);
     }}>Podmień plan</button> : <form onSubmit={submit}>
-      <h3>Podmień plan dla całej grupy</h3>
-      <p>Wybierz nowy plan. Zachowamy zaznaczenia wszystkich osób dla tych samych fragmentów, także po zmianie dat i kolejności.</p>
+      <div className="replacement-intro">
+        <h3>Podmień plan dla całej grupy</h3>
+        <p>Zachowamy postęp wszystkich osób dla fragmentów, które znajdziemy w nowym planie.</p>
+      </div>
       <fieldset disabled={locked}>
-        <label className="simple-field">Nowy plan CSV
-          <input type="file" accept=".csv,text/csv" onChange={async event => {
+        <label className="simple-field replacement-file-field">
+          <span>Nowy plan CSV</span>
+          <span className="replacement-upload">
+          <input type="file" aria-label="Nowy plan CSV" accept=".csv,text/csv" onChange={async event => {
             const file = event.target.files?.[0];
             const attempt = ++fileRead.current;
             setCsv(""); setError(""); setFileName(file?.name ?? "");
@@ -76,14 +80,18 @@ export default function PlanReplacement({ group, credentials, disabled, onReplac
               setCsv(text);
             } catch { if (attempt === fileRead.current) setError("Nie udało się odczytać pliku."); }
           }} />
+            <span className="replacement-file-name">{fileName || "Wybierz plik CSV"}</span>
+            <span className="replacement-file-action" aria-hidden="true">Wybierz</span>
+          </span>
         </label>
         <button type="button" className="link-button" onClick={() => {
           fileRead.current++; setCsv(BASIC_PLAN_CSV); setFileName("Plan podstawowy · M’Cheyne · 365 dni"); setError("");
         }}>Użyj planu podstawowego · 365 dni</button>
-        <label className="simple-field">Data rozpoczęcia
+        <div className="replacement-schedule">
+        <label className="simple-field"><span>Data rozpoczęcia</span>
           <input type="date" value={startDate} required onChange={event => setStartDate(event.target.value)} />
         </label>
-        <label className="simple-field">Dni czytania
+        <label className="simple-field"><span>Dni czytania</span>
           <select value={frequency.kind} onChange={event => setFrequency({
             kind: event.target.value as Frequency["kind"], days: group.frequency.days,
           })}>
@@ -92,6 +100,7 @@ export default function PlanReplacement({ group, credentials, disabled, onReplac
             <option value="custom">Wybrane dni tygodnia</option>
           </select>
         </label>
+        </div>
         {frequency.kind === "custom" && <div className="replacement-weekdays">
           {["Niedziela", "Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota"].map((label, day) =>
             <label key={day}><input type="checkbox" checked={frequency.days.includes(day)} onChange={event => setFrequency({
@@ -116,7 +125,7 @@ export default function PlanReplacement({ group, credentials, disabled, onReplac
         </div>}
         {validationError && <p className="simple-alert" role="alert">{validationError}</p>}
         {error && <p className="simple-alert" role="alert">{error}</p>}
-        <div className="access-actions">
+        <div className="access-actions replacement-actions">
           <button type="submit" className="main-button" disabled={!days.length || Boolean(validationError)}>{busy ? "Podmienianie…" : "Podmień plan dla całej grupy"}</button>
           <button type="button" className="link-button" onClick={() => { reset(); setOpen(false); }}>Anuluj</button>
         </div>
