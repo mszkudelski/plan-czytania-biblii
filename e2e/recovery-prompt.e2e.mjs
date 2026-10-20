@@ -117,16 +117,30 @@ test('snoozed suggestion returns after a week and a rejected choice is retryable
   await expectSaved(request, session, []);
 });
 
-test('three overdue readings and a three-times-weekly plan do not trigger the proposal prematurely', async ({ page, request }) => {
-  const plan = inputPlan('prompt-threshold');
-  plan.planDays = plan.planDays.slice(0, 3);
-  const created = await request.post('/api/groups', { data: plan });
-  expect(created.status()).toBe(201);
-  const session = await created.json();
-  await openPlan(page, session);
-  await page.getByRole('button', { name: 'Nadrabianie', exact: true }).click();
-  await expect(page.getByRole('complementary', { name: 'Propozycja nadrabiania' })).not.toBeVisible();
-  await page.getByRole('dialog').getByRole('button', { name: 'Nie teraz', exact: true }).click();
+for (const overdue of [0, 1, 2, 3, 4]) {
+  test('manual and automatic recovery require at least four overdue days: ' + overdue, async ({ page, request }) => {
+    const session = await createPlan(request, 'prompt-threshold-' + overdue);
+    const completed = session.group.planDays.slice(overdue).flatMap(day => day.segments).map(segment => segment.id);
+    for (const id of completed) await saveProgress(request, session, id);
+    await openPlan(page, session);
+    const control = page.getByRole('button', { name: 'Nadrabianie', exact: true });
+    const notice = page.getByRole('complementary', { name: 'Propozycja nadrabiania' });
+    if (overdue < 4) {
+      await expect(control).toHaveCount(0);
+      await expect(notice).not.toBeVisible();
+      await expect(page.getByRole('dialog', { name: 'Chcesz włączyć nadrabianie?' })).not.toBeVisible();
+    } else {
+      await expect(notice).toBeVisible();
+      await control.click();
+      await expect(page.getByRole('dialog', { name: 'Chcesz włączyć nadrabianie?' })).toBeVisible();
+      await page.getByRole('dialog').getByRole('button', { name: 'Włącz', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
+    }
+    await expectSaved(request, session, completed);
+  });
+}
+
+test('a three-times-weekly plan does not offer recovery prematurely', async ({ page, request }) => {
   const weeklyPlan = inputPlan('prompt-cadence');
   weeklyPlan.frequency = { kind: 'custom', days: [1, 3, 5] };
   const monday = new Date(NOW); monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7);
@@ -142,8 +156,22 @@ test('three overdue readings and a three-times-weekly plan do not trigger the pr
   await tab(other, 'Plan').click();
   await expect(other.getByTestId('weekly-readings')).toHaveText('0 z 3 czytań');
   await tab(other, 'Czytaj').click();
+  await expect(other.getByRole('button', { name: 'Nadrabianie', exact: true })).toHaveCount(0);
   await expect(other.getByRole('complementary', { name: 'Propozycja nadrabiania' })).not.toBeVisible();
   await other.close();
+});
+
+test('active recovery can be stopped below the activation threshold and cannot be re-enabled', async ({ page, request }) => {
+  const session = await createPlan(request, 'prompt-active-threshold');
+  await openPlan(page, session);
+  await page.getByRole('complementary', { name: 'Propozycja nadrabiania' }).getByRole('button', { name: 'Włącz', exact: true }).click();
+  for (const id of ['s0', 's1', 's2']) await saveProgress(request, session, id);
+  await page.reload();
+  await expect(page.getByTestId('overdue-readings')).toHaveText('3');
+  await page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Nadrabianie', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('complementary', { name: 'Propozycja nadrabiania' })).not.toBeVisible();
+  await expectSaved(request, session, ['s0', 's1', 's2']);
 });
 
 test('direct activation from the notice survives reload without writing reading progress', async ({ page, request }) => {

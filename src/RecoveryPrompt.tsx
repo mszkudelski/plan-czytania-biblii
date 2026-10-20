@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Credentials } from "./types";
 import type { RecoveryPortion } from "./lib/recovery";
 import { recoveryPromptSettings } from "./lib/api";
-import { recoveryPromptPreference, shouldSuggestRecovery, type RecoveryPromptPreference, type RecoveryPromptAction } from "./lib/recovery-prompt";
+import { canStartRecovery, recoveryPromptPreference, shouldSuggestRecovery, type RecoveryPromptPreference, type RecoveryPromptAction } from "./lib/recovery-prompt";
 
 export default function RecoveryPrompt({ credentials, overdue, enabled, ready, active, open, example, onOpen, onClose, onEnable }: {
   credentials: Credentials; overdue: number; enabled: boolean; ready: boolean; active: boolean; open: boolean;
@@ -17,6 +17,7 @@ export default function RecoveryPrompt({ credentials, overdue, enabled, ready, a
   const [error, setError] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
   const revision = useRef(0);
+  const available = canStartRecovery(overdue) && !enabled;
   useEffect(() => {
     setLoaded(false);
     if (!ready || !active) return;
@@ -31,10 +32,10 @@ export default function RecoveryPrompt({ credentials, overdue, enabled, ready, a
   useEffect(() => {
     const node = dialog.current;
     if (!node) return;
-    if (open && active) {
+    if (open && active && available) {
       if (!node.open) node.showModal();
     } else if (node.open) node.close();
-  }, [open, active]);
+  }, [open, active, available]);
 
   const previousEnabled = useRef(enabled);
   useEffect(() => {
@@ -61,7 +62,7 @@ export default function RecoveryPrompt({ credentials, overdue, enabled, ready, a
   }
 
   function enable() {
-    if (busy) return;
+    if (busy || !available) return;
     setDismissed(true); setError(""); queue.finish("recovery"); onEnable(); onClose();
   }
   const candidate = Boolean(active && ready && loaded && preference && !dismissed && !open && queue.recoveryAllowed &&

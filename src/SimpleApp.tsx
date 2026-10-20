@@ -5,6 +5,7 @@ import { reminderReadingDay } from "./lib/notifications";
 import GroupAccessHint from "./GroupAccessHint";
 import { devicePromptAllowed, INSTALL_KEY, parseDevicePreference, postponeDevicePrompt, SETUP_KEY, startOnboarding } from "./lib/onboarding";
 import RecoveryPrompt from "./RecoveryPrompt";
+import { canStartRecovery } from "./lib/recovery-prompt";
 import { isReadingDateComplete, getStandardReadingPortion, parseRecoverySchedule, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion, getRecoveryNavigationDays, getRecoveryCompletedSegmentIds } from "./lib/recovery";
 import {
   type ChangeEvent,
@@ -2202,6 +2203,7 @@ export function TodayView({
     else await save();
   }
   function changeRecovery(start: string) {
+    if (start && !canStartRecovery(week.overdueReadings)) return;
     if (finalWrite.current) return;
     hadRecoverySession.current = Boolean(start && week.overdueReadings > 0);
     if (start) localStorage.setItem(recoveryDayKey, today);
@@ -2227,7 +2229,7 @@ export function TodayView({
     }
     setRecoveryStart(start);
   }
-  const showRecoveryControl = week.overdueReadings > 0 || recoveryActive;
+  const showRecoveryControl = canStartRecovery(week.overdueReadings) || recoveryActive;
   const previewPortions = recoveryStart ? recoveryPortions : showRecoveryControl
     ? projectRecoveryPortions(group, member.id, today, readChapters, getNextDay(group, member.id)?.id ?? "", undefined, chapterMarks)
     : [];

@@ -289,13 +289,22 @@ it("does not persist a failed extra as complete and allows a successful retry", 
 });
 
 it("disabling and re-enabling starts from the new unread position without reusing a finished extra", async () => {
-  const f = mount(plan()); await act(async () => f.render());
+  const g = plan(); g.planDays.forEach((day, i) => { day.date = date(i - 6); });
+  const f = mount(g); await act(async () => f.render());
   await click("Rdz 1"); await act(async () => f.writes[0].resolve());
   await click("Rdz 2"); await act(async () => f.writes[1].resolve());
   await click("Wyłącz nadrabianie");
   await click("Włącz testowo");
   expect([...container.querySelectorAll(".simple-readings strong")].map(node => node.textContent)).toEqual(["Rdz 3", "Rdz 4"]);
   expect(localStorage.getItem(`${KEY}:ordered:${TODAY}`)).toBeNull();
+});
+
+it.each([0, 1, 2, 3, 4])("only offers and enables recovery above three overdue days: %i", async overdue => {
+  const g = plan(); g.planDays.forEach((day, i) => { day.date = date(i - overdue); });
+  const f = mount(g, false); await act(async () => f.render());
+  expect(container.querySelector(".reading-recovery-link")?.textContent ?? null).toBe(overdue >= 4 ? "Nadrabianie" : null);
+  await click("Włącz testowo");
+  expect(localStorage.getItem(KEY)).toBe(overdue >= 4 ? TODAY : null);
 });
 
 it("keeps checked forecast assignments on the same date after reload", async () => {

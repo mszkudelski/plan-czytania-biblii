@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, shouldSuggestRecovery } from "./recovery-prompt";
+import { canStartRecovery, DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, shouldSuggestRecovery } from "./recovery-prompt";
 import { isReadingDateComplete, type RecoveryPortion } from "./recovery";
 import type { PlanDay } from "../types";
 const NOW = Date.parse("2026-10-12T12:00:00Z");
 describe("recovery suggestions", () => {
+  it.each([0, 1, 2, 3, 4, 5])("uses the same activation and suggestion threshold for %i overdue days", overdue => {
+    expect(canStartRecovery(overdue)).toBe(overdue >= 4);
+    expect(shouldSuggestRecovery(overdue, false, DEFAULT_RECOVERY_PROMPT, NOW)).toBe(overdue >= 4);
+  });
   it("suggests only beyond three overdue readings and never in active recovery", () => {
     expect(shouldSuggestRecovery(3, false, DEFAULT_RECOVERY_PROMPT, NOW)).toBe(false);
     expect(shouldSuggestRecovery(4, false, DEFAULT_RECOVERY_PROMPT, NOW)).toBe(true);
