@@ -108,7 +108,7 @@ test('Required CI validates actual workflow shell for selection, skips, failures
 });
 
 test('plan replacement retains group permissions, reading, notification and replacement regressions', () => {
-  for (const file of ['src/PlanReplacement.tsx', 'src/lib/plan-replacement.ts', 'src/lib/plan-replacement.test.ts']) {
+  for (const file of ['src/PlanReplacement.tsx', 'src/lib/plan-replacement.ts', 'src/lib/plan-replacement.test.ts', 'src/lib/plan-export.ts', 'src/lib/plan-export.test.ts']) {
     const result = select([file]);
     assert.equal(result.mode, 'selected');
     for (const name of ['plan-replacement', 'backend', 'browser', 'identity', 'reading-home', 'recovery-prompt', 'notifications', 'onboarding']) {

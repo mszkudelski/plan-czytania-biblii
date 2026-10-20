@@ -1,4 +1,6 @@
 import { test, expect } from './fixtures.mjs';
+import { readFile } from 'node:fs/promises';
+import { parsePlanCsv } from '../src/lib/csv.ts';
 import { createPlan, saveProgress, readGroup, expectSaved, openPlan, tab, reading, TODAY } from './helpers.mjs';
 
 const path = session => `/api/groups/${session.group.id}/plan`;
@@ -95,6 +97,15 @@ test('administrator previews lost marks, imports CSV, retains progress after rel
   await expect(reading(page, 'J 1')).toBeVisible();
   await tab(page, 'Plan').click();
   await expect(page.locator('.simple-content')).toContainText('Rdz 1');
+  await tab(page, 'Ustawienia').click();
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Pobierz plan CSV', exact: true }).click();
+  const file = await downloaded;
+  expect(file.suggestedFilename()).toMatch(/\.csv$/);
+  const exported = parsePlanCsv(await readFile(await file.path(), 'utf8'));
+  const current = await readGroup(request, owner);
+  expect(exported.map(day => ({ date: day.date, title: day.title, labels: day.segments.map(segment => segment.label) })))
+    .toEqual(current.planDays.map(day => ({ date: day.date, title: day.title, labels: day.segments.map(segment => segment.label) })));
 });
 
 test('a participant cannot see the replacement action', async ({ page, request }) => {
@@ -106,4 +117,9 @@ test('a participant cannot see the replacement action', async ({ page, request }
   await openPlan(page, await joined.json());
   await tab(page, 'Ustawienia').click();
   await expect(page.getByRole('button', { name: 'Podmień plan', exact: true })).toHaveCount(0);
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Pobierz plan CSV', exact: true }).click();
+  const file = await downloaded;
+  expect(parsePlanCsv(await readFile(await file.path(), 'utf8')).flatMap(day => day.segments.map(segment => segment.label)))
+    .toEqual(owner.group.planDays.flatMap(day => day.segments.map(segment => segment.label)));
 });

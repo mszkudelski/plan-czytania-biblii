@@ -10,7 +10,7 @@ const access = ['backend.e2e.mjs', 'browser.e2e.mjs', 'identity.e2e.mjs', 'membe
 // Explicit allowlist: shared app/API/storage/configuration and unknown files run all.
 // Keep cross-feature consumers here, even when they import a module indirectly.
 const rules = [
-  { paths: ["src/PlanReplacement.tsx", "src/lib/plan-replacement.ts"], tests: [...reading, ...access, ...notifications, "plan-replacement.e2e.mjs"] },
+  { paths: ["src/PlanReplacement.tsx", "src/lib/plan-replacement.ts", "src/lib/plan-export.ts"], tests: [...reading, ...access, ...notifications, "plan-replacement.e2e.mjs"] },
   { paths: ['src/NotificationSettings.tsx', 'src/NotificationTestControls.tsx', 'src/ReminderPrompt.tsx', 'src/lib/notifications.ts', 'src/lib/push-client.ts', 'src/lib/install.ts', 'src/lib/reminder-time-save.ts', 'netlify/functions/_shared/notifications.ts', 'netlify/functions/reading-reminders.mts'], tests: notifications },
   { paths: ['src/RecoveryPrompt.tsx', 'src/lib/recovery-prompt.ts', 'src/lib/recovery.ts', 'src/lib/reading-home.ts', 'src/lib/metrics.ts'], tests: reading },
   { paths: ['src/MemberAccessModal.tsx', 'src/GroupAccessSettings.tsx', 'src/lib/invite.ts', 'src/lib/access-recovery.ts', 'src/lib/name.ts'], tests: access },
