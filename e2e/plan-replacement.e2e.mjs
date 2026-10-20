@@ -81,7 +81,7 @@ test('administrator previews lost marks, imports CSV, retains progress after rel
   await expect(preview).toContainText('Dopasowane fragmenty: 2 z 3.');
   await expect(preview.getByRole('row').filter({ hasText: 'Tester E2E' }).getByRole('cell')).toHaveText(['Tester E2E', '1', '1', '1 z 3']);
   await expect(preview).toContainText('Dzień nowego planu liczymy jako ukończony, jeśli wszystkie jego fragmenty są już przeczytane.');
-  await expect(preview.getByRole('columnheader', { name: 'Pełne dni', exact: true })).toBeVisible();
+  await expect(preview.locator('th').filter({ hasText: /^Pełne dni$/ })).toBeVisible();
   expect(await preview.locator('.replacement-table').evaluate(table => table.scrollWidth <= table.clientWidth)).toBe(true);
   await expect(preview.getByRole('alert')).toContainText('Nie zostaną przeniesione');
   const saved = page.waitForResponse(response => new URL(response.url()).pathname === path(owner));
