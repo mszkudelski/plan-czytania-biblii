@@ -1984,6 +1984,8 @@ body:has(.notification-card) .install-app-card { display: none; }
 .replacement-table caption { text-align: left; margin-bottom: 8px; line-height: 1.5; }
 .replacement-table th, .replacement-table td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--border); }
 .replacement-table th { overflow-wrap: anywhere; }
+.plan-download { padding: 16px 20px; }
+.plan-download .small-button { min-height: 44px; }
 .replacement-warning { padding: 12px; border-radius: 9px; color: var(--danger); background: var(--danger-soft); }
 .plan-replacement .replacement-actions { flex-wrap: wrap; padding-top: 4px; }
 .replacement-actions .main-button { min-height: 44px; max-width: 100%; padding: 12px 16px; white-space: normal; line-height: 1.4; }

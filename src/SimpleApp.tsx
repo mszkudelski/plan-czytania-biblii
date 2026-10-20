@@ -1,4 +1,5 @@
 import PlanReplacement from "./PlanReplacement";
+import { downloadPlanCsv } from "./lib/plan-export";
 import Onboarding, { useOnboarding, usePromptOffer } from "./Onboarding";
 import ReminderPrompt from "./ReminderPrompt";
 import { reminderReadingDay } from "./lib/notifications";
@@ -2576,6 +2577,9 @@ function SettingsView({
           value={formatPolishDate(endDate, "shortYear")}
         />
         <Setting label="Dni czytania" value={frequency} />
+        <div className="plan-download">
+          <button type="button" className="small-button" onClick={() => downloadPlanCsv(group)}>Pobierz plan CSV</button>
+        </div>
       </section>
       <PlanReplacement group={group} credentials={credentials} disabled={savingProgress} onReplace={onReplace} />
       {onboarding.installAvailable &&
