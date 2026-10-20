@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "node --test scripts/*.node-test.mjs && vitest run",
     "netlify:dev": "netlify dev",
-    "prebuild": "node scripts/build-info.mjs",
+    "prebuild": "node scripts/check-netlify-functions.mjs && node scripts/build-info.mjs",
     "test:e2e": "npm --prefix e2e test --"
   },
   "dependencies": {

@@ -15,7 +15,7 @@ vi.mock("@netlify/blobs", () => ({ getStore: ({ name }: { name: string }) => ({
   list: async ({ prefix }: { prefix: string }) => ({ blobs: [...memory.keys()]
     .filter(key => key.startsWith(`${name}/${prefix}`)).map(key => ({ key: key.slice(name.length + 1) })) }),
 }) }));
-import handler from "./api.mts";
+import handler from "../functions/api.mts";
 import type { Credentials, Group } from "../../src/types";
 const frequency = { kind: "daily", days: [] };
 const days = (labels: string[]) => labels.map((label, index) => ({ id: `d${index}`, index,

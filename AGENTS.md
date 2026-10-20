@@ -2,6 +2,11 @@
 
 Work directly on `develop` unless the user explicitly requests another branch. Do not create a feature branch or pull request for routine changes.
 
+API handler regression tests belong in `netlify/tests/`, outside the configured
+functions directory. A top-level `*.test.ts` in `netlify/functions/` is deployed
+as a function, and its dotted name breaks deployment. `npm run build` checks
+function entry names before compiling.
+
 ## E2E execution policy
 
 E2E runs automatically only after a push to `main`, against the immutable
