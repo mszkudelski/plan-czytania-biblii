@@ -44,13 +44,22 @@ export function replacementSummary(group: Group, planDays: PlanDay[]) {
   const matches = matchPlanSegments(group, planDays);
   const retainedIds = new Set(matches.flatMap(match => match.previous ? [match.previous.id] : []));
   const oldIds = new Set(group.planDays.flatMap(day => day.segments.map(segment => segment.id)));
+  let index = 0;
+  const dayMatches = planDays.map(day => {
+    const start = index;
+    index += day.segments.length;
+    return matches.slice(start, index);
+  });
   return {
     matched: retainedIds.size,
     total: matches.length,
     members: group.members.map(member => {
       const completed = Object.keys(group.progress[member.id] ?? {}).filter(id => oldIds.has(id));
       const retained = completed.filter(id => retainedIds.has(id)).length;
-      return { memberId: member.id, name: member.name, retained, unmatched: completed.length - retained };
+      const completedIds = new Set(completed);
+      const completedDays = dayMatches.filter(day => day.length > 0 &&
+        day.every(match => match.previous && completedIds.has(match.previous.id))).length;
+      return { memberId: member.id, name: member.name, retained, unmatched: completed.length - retained, completedDays };
     }),
   };
 }

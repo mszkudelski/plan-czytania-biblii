@@ -37,10 +37,28 @@ describe("plan replacement", () => {
     expect(next.progress.a).toEqual({ s3: "second psalm" });
     expect(replacementSummary(fixture(), plan(["Rdz 1", "J 1"]))).toEqual({
       matched: 1, total: 2, members: [
-        { memberId: "a", name: "A", retained: 1, unmatched: 1 },
-        { memberId: "b", name: "B", retained: 0, unmatched: 1 },
+        { memberId: "a", name: "A", retained: 1, unmatched: 1, completedDays: 1 },
+        { memberId: "b", name: "B", retained: 0, unmatched: 1, completedDays: 0 },
       ],
     });
+  });
+  it("counts complete new days per member, excluding partial days, new repeats and new passages", () => {
+    const group = fixture();
+    group.progress.a.s1 = "read Matthew";
+    const next = plan(["Rdz 1", "Ps 1", "Ps 1", "Ps 1", "J 1"]);
+    // A completed old day may now be partial; readings from separate days may form one complete day.
+    next[0].segments.push({ id: "extra", label: "Mt 1-2", section: "Reading" });
+    next[2].segments.push({ id: "new", label: "J 2", section: "Reading" });
+    const summary = replacementSummary(group, next);
+    expect(summary.members[0]).toMatchObject({ retained: 3, completedDays: 1 });
+    expect(summary.members[1]).toMatchObject({ retained: 1, completedDays: 0 });
+    const replaced = replaceGroupPlan(group, { planDays: next, startDate: "2026-10-20",
+      frequency: group.frequency, expectedRevision: "" });
+    for (const person of summary.members) {
+      expect(person.completedDays).toBe(replaced.planDays.filter(day =>
+        day.segments.every(segment => replaced.progress[person.memberId]?.[segment.id])).length);
+    }
+    expect(replacementSummary(group, []).members.every(person => person.completedDays === 0)).toBe(true);
   });
   it("does not guess different abbreviations, removed passages or split/merged readings", () => {
     const next = replace(fixture(), ["Rodzaju 1", "Mt 1", "Mt 2"]);
