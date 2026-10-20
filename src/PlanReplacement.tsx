@@ -114,8 +114,8 @@ export default function PlanReplacement({ group, credentials, disabled, onReplac
           <p>Dopasowane fragmenty: {summary.matched} z {summary.total}.</p>
           <details><summary>Jak dopasowujemy postęp?</summary><p>Porównujemy zapis fragmentu, pomijając wielkość liter, odstępy i rodzaj myślnika. Innych skrótów ksiąg oraz podzielonych lub połączonych fragmentów nie dopasowujemy. Powtórzenia łączymy kolejno, każde osobno.</p></details>
           <div className="replacement-table"><table>
-            <caption>Postęp po podmianie</caption>
-            <thead><tr><th>Osoba</th><th>Zachowane zaznaczenia</th><th>Bez dopasowania</th><th>Pełne dni</th></tr></thead>
+            <caption>Postęp po podmianie — zaznaczenia i dni</caption>
+            <thead><tr><th>Osoba</th><th>Zachowane</th><th>Utracone</th><th>Pełne dni</th></tr></thead>
             <tbody>{summary.members.map(person => <tr key={person.memberId}>
               <td>{person.name}</td><td>{person.retained}</td><td>{person.unmatched}</td><td>{person.completedDays} z {days.length}</td>
             </tr>)}</tbody>
