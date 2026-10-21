@@ -10,6 +10,7 @@ import type {
 import {
   localCreateGroup,
   localReplacePlan,
+  localRestorePlan,
   localRecoveryPrompt,
   localCreateRecoveryCode,
   localCreateMemberAccess,
@@ -306,5 +307,12 @@ export async function replacePlan(credentials: Credentials, input: PlanReplaceme
   if (useLocalOnly()) return localReplacePlan(credentials, input);
   return request<Group>(`/groups/${credentials.groupId}/plan`, {
     method: "POST", body: JSON.stringify({ ...credentials, ...input }),
+  });
+}
+
+export async function restorePlan(credentials: Credentials, expectedRevision: string) {
+  if (useLocalOnly()) return localRestorePlan(credentials, expectedRevision);
+  return request<Group>(`/groups/${credentials.groupId}/plan/restore`, {
+    method: "POST", body: JSON.stringify({ ...credentials, expectedRevision }),
   });
 }

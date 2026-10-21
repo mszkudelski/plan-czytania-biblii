@@ -1,4 +1,4 @@
-import { replaceGroupPlan, type PlanReplacementInput } from "./plan-replacement";
+import { replaceGroupPlan, restoreGroupPlan, planRestoreAvailable, type SavedPlan, type PlanReplacementInput } from "./plan-replacement";
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference, type RecoveryPromptAction } from "./recovery-prompt";
 import type {
   Credentials,
@@ -15,6 +15,7 @@ import {
 } from "./access-recovery";
 
 type LocalGroup = Group & {
+  previousPlan?: SavedPlan;
   tokens: Record<string, string | string[]>;
   recoveryPrompts?: Record<string, RecoveryPromptPreference>;
   inviteToken?: string;
@@ -42,8 +43,8 @@ function saveAll(groups: Record<string, LocalGroup>) {
 }
 
 function publicGroup(group: LocalGroup): Group {
-  const { tokens: _tokens, inviteToken: _inviteToken, recoveryPrompts: _prompts, ...rest } = group;
-  return rest;
+  const { previousPlan: _previousPlan, tokens: _tokens, inviteToken: _inviteToken, recoveryPrompts: _prompts, ...rest } = group;
+  return { ...rest, planRestore: planRestoreAvailable(rest.planRestore) ? rest.planRestore : undefined };
 }
 
 function memberTokens(group: LocalGroup, memberId: string) {
@@ -340,6 +341,19 @@ export function localReplacePlan(credentials: Credentials, input: PlanReplacemen
   }
   if (!member?.isAdmin) throw new Error("Tylko administrator może podmienić plan.");
   all[group.id] = replaceGroupPlan(group, input);
+  saveAll(all);
+  return publicGroup(all[group.id]);
+}
+
+export function localRestorePlan(credentials: Credentials, expectedRevision: string): Group {
+  const all = loadAll();
+  const group = all[credentials.groupId];
+  const member = group?.members.find(person => person.id === credentials.memberId);
+  if (!group || !memberTokens(group, credentials.memberId).includes(credentials.token)) {
+    throw new Error("Nieprawidłowy link dostępu.");
+  }
+  if (!member?.isAdmin) throw new Error("Tylko administrator może przywrócić plan.");
+  all[group.id] = restoreGroupPlan(group, expectedRevision);
   saveAll(all);
   return publicGroup(all[group.id]);
 }

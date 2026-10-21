@@ -123,3 +123,62 @@ test('a participant cannot see the replacement action', async ({ page, request }
   expect(parsePlanCsv(await readFile(await file.path(), 'utf8')).flatMap(day => day.segments.map(segment => segment.label)))
     .toEqual(owner.group.planDays.flatMap(day => day.segments.map(segment => segment.label)));
 });
+
+test('administrator restores the previous plan and group progress through confirmation and reload', async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const owner = await createPlan(request, 'restore-plan');
+  const joined = await request.post(`/api/groups/${owner.group.id}/join`, { data: {
+    name: 'Anna E2E', inviteToken: owner.credentials.inviteToken,
+  } });
+  expect(joined.status()).toBe(201);
+  const member = await joined.json();
+  await saveProgress(request, owner, 's0');
+  await saveProgress(request, member, 's2');
+  const before = await readGroup(request, owner);
+  const response = await request.post(path(owner), { data: input(owner, ['Rdz 1', 'J 1']) });
+  expect(response.status()).toBe(200);
+  const replaced = await response.json();
+  expect(replaced.previousPlan).toBeUndefined();
+  expect(Date.parse(replaced.planRestore.expiresAt) - Date.parse(replaced.planRestore.savedAt)).toBe(7 * 86400000);
+  await saveProgress(request, owner, 's0', false);
+  await saveProgress(request, member, replaced.planDays[1].segments[0].id);
+  const restorePath = path(owner) + '/restore';
+  const data = { ...owner.credentials, expectedRevision: replaced.planRevision };
+  expect((await request.post(restorePath, { data: { ...data, ...member.credentials } })).status()).toBe(403);
+  expect((await request.post(restorePath, { data: { ...data, expectedRevision: '' } })).status()).toBe(409);
+  await openPlan(page, owner);
+  await tab(page, 'Ustawienia').click();
+  const card = page.locator('.plan-restore');
+  await expect(card).toContainText('przez 7 dni od podmiany');
+  await card.getByRole('button', { name: 'Przywróć poprzedni plan', exact: true }).click();
+  const confirmation = page.getByRole('group', { name: 'Potwierdź przywrócenie planu' });
+  await expect(confirmation).toContainText('Późniejsze zaznaczenia zostaną cofnięte');
+  await confirmation.getByRole('button', { name: 'Anuluj przywracanie', exact: true }).click();
+  await expect(confirmation).toHaveCount(0);
+  expect((await readGroup(request, owner)).planRevision).toBe(replaced.planRevision);
+  await card.getByRole('button', { name: 'Przywróć poprzedni plan', exact: true }).click();
+  const restoredResponse = page.waitForResponse(response => new URL(response.url()).pathname === restorePath);
+  await page.getByRole('button', { name: 'Przywróć plan i postęp grupy', exact: true }).click();
+  expect((await restoredResponse).status()).toBe(200);
+  await expect(page.getByRole('status').filter({ hasText: 'Poprzedni plan i postęp grupy' })).toBeVisible();
+  await expect(card).toHaveCount(0);
+  const restored = await readGroup(request, owner);
+  expect(restored.members).toEqual(before.members);
+  expect(restored.planVersion).toBe(2);
+  expect(restored.planDays.map(day => day.segments.map(segment => segment.label)))
+    .toEqual(before.planDays.map(day => day.segments.map(segment => segment.label)));
+  const first = restored.planDays[0].segments[0].id;
+  const psalm = restored.planDays[2].segments[0].id;
+  expect(restored.progress).toEqual({ [owner.credentials.memberId]: { [first]: before.progress[owner.credentials.memberId].s0 },
+    [member.credentials.memberId]: { [psalm]: before.progress[member.credentials.memberId].s2 } });
+  expect((await request.post(restorePath, { data: { ...data, expectedRevision: restored.planRevision } })).status()).toBe(404);
+  await page.reload();
+  await tab(page, 'Plan').click();
+  await expect(page.locator('.simple-content')).toContainText('Rdz 1');
+  await expectSaved(request, owner, [first]);
+  await expectSaved(request, member, [psalm]);
+  await saveProgress(request, owner, first, false);
+  await expectSaved(request, owner, []);
+  await saveProgress(request, owner, first);
+  await expectSaved(request, owner, [first]);
+});

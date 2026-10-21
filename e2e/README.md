@@ -110,3 +110,10 @@ and explicit targeted diagnostics. Event selection runs all E2E files only on
 main pushes, and selects none for every other event. The stable Required CI
 check requires E2E and production smoke success on main pushes; elsewhere it
 requires unit/build success and verifies that E2E was skipped.
+
+Plan replacement recovery: the real API snapshots owner and participant timestamps,
+including unmatched readings; admin-only restoration rolls back later progress,
+rejects stale/consumed requests, survives reload and accepts new progress writes.
+The mobile UI checks expiry metadata, confirmation/cancellation and restored readings.
+Exact seven-day expiry and removed/new member behavior are covered by unit/API tests
+without changing production clocks or existing groups.

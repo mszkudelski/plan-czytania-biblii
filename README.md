@@ -117,6 +117,18 @@ W zapisie postępu indeks fragmentów jest dopisywany, a nie przestawiany.
 Dzięki temu wcześniejsze i trwające zapisy nie oznaczą innego czytania po zmianie
 kolejności. Kolejne podmiany są wersjonowane; stary podgląd nie nadpisze nowszego planu.
 
+Po podmianie administrator może wybrać **Przywróć poprzedni plan** przez 7 dni.
+Kopia zawiera harmonogram i postęp wszystkich osób sprzed podmiany, także
+zaznaczenia bez dopasowania. Data wygaśnięcia jest widoczna w ustawieniach;
+serwer odrzuca przywrócenie od chwili jej upływu. Potwierdzone przywrócenie
+zastępuje bieżący plan i późniejsze zaznaczenia. Zachowuje aktualne osoby,
+role i dostęp; nowo dołączone osoby zaczynają odzyskany plan bez zaznaczeń.
+Kopia jest jednorazowa, a każda kolejna podmiana zapisuje tylko bezpośrednio
+poprzedni stan na nowe 7 dni. Kopie powstają dla podmian wykonanych po wdrożeniu
+tej funkcji. Pełna kopia jest prywatna i nie jest zwracana przez API grupy.
+Przywracanie nadaje fragmentom nowe identyfikatory, więc stare i spóźnione
+operacje nie zmienią odzyskanego postępu.
+
 ## Uruchomienie
 
 ```bash

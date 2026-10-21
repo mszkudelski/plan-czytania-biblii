@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   localCreateGroup,
+  localReplacePlan,
+  localRestorePlan,
+  localGetGroup,
   localCreateRecoveryCode,
   localCreateMemberAccess,
   localJoinGroup,
@@ -337,3 +340,23 @@ describe("tożsamość i kod odzyskiwania", () => {
   });
 });
 
+
+it("locally restores a private snapshot, enforces admin access and retains its expiry", () => {
+  vi.stubGlobal("localStorage", memoryStorage());
+  const owner = createLocalPlan();
+  const member = localJoinGroup({ groupId: owner.group.id, inviteToken: owner.credentials.inviteToken! }, "Anna");
+  localUpdateProgress(member.credentials, "segment-1", true);
+  const before = localGetGroup(owner.group.id);
+  const replaced = localReplacePlan(owner.credentials, { ...owner.group, expectedRevision: "", planDays: [
+    { ...owner.group.planDays[0], segments: [{ id: "new", label: "Mt 1", section: "NT" }] },
+  ] });
+  expect(replaced).not.toHaveProperty("previousPlan");
+  expect(() => localRestorePlan(member.credentials, replaced.planRevision!)).toThrow(/administrator/);
+  const restored = localRestorePlan(owner.credentials, replaced.planRevision!);
+  const id = restored.planDays[0].segments[0].id;
+  expect(restored.progress[member.credentials.memberId][id]).toBe(before.progress[member.credentials.memberId]["segment-1"]);
+  expect(localGetGroup(owner.group.id).progress).toEqual(restored.progress);
+  expect(restored).not.toHaveProperty("previousPlan");
+  expect(restored.planRestore).toBeUndefined();
+  expect(() => localRestorePlan(owner.credentials, restored.planRevision!)).toThrow(/Brak poprzedniego/);
+});

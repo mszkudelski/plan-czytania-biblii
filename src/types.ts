@@ -35,6 +35,7 @@ export type Group = {
   planDays: PlanDay[];
   planRevision?: string;
   planVersion?: number;
+  planRestore?: { savedAt: string; expiresAt: string };
   // Append-only index for immutable progress logs, including older plans.
   progressSegmentIds?: string[];
   members: Member[];

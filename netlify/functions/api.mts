@@ -1,4 +1,4 @@
-import { replaceGroupPlan, replacementPlanError, type PlanReplacementInput } from "../../src/lib/plan-replacement";
+import { replaceGroupPlan, restoreGroupPlan, planRestoreAvailable, replacementPlanError, type SavedPlan, type PlanReplacementInput } from "../../src/lib/plan-replacement";
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference } from "../../src/lib/recovery-prompt";
 import { getStore } from "@netlify/blobs";
 import { cleanupE2e, e2eRunHash, e2eRunToken, registerE2eGroup, trackE2eResource } from "./_shared/e2e-cleanup";
@@ -28,6 +28,7 @@ type StoredMember = Member & {
 };
 type StoredGroup = Omit<Group, "members"> & {
   members: StoredMember[];
+  previousPlan?: SavedPlan;
   inviteTokenHash?: string;
   e2eRunHash?: string;
 };
@@ -138,12 +139,14 @@ async function hashToken(token: string) {
 function publicGroup(group: StoredGroup): Group {
   const {
     members,
+    previousPlan: _previousPlan,
     inviteTokenHash: _inviteTokenHash,
     e2eRunHash: _e2eRunHash,
     ...publicFields
   } = group;
   return {
     ...publicFields,
+    planRestore: planRestoreAvailable(group.planRestore) ? group.planRestore : undefined,
     members: members.map(
       ({
         recoveryPrompt: _recoveryPrompt,
@@ -618,9 +621,26 @@ async function replacePlan(request: Request, groupId: string) {
     }
     // Keep the existing log index forever: requests already in flight still
     // refer to the same reading even when its position changes in the new plan.
-    Object.assign(group, replaceGroupPlan(group, {
+    const { blobs } = await groupStore().list({ prefix: progressLogPrefix(groupId) });
+    const hydrated = applyProgressLog(group, blobs.map(blob => blob.key));
+    Object.assign(group, replaceGroupPlan(hydrated, {
       planDays, startDate: body.startDate!, frequency, expectedRevision: body.expectedRevision!,
     }));
+  });
+}
+
+async function restorePlan(request: Request, groupId: string) {
+  const body = await request.json() as Partial<Credentials & { expectedRevision: string }> | null;
+  if (!body || body.groupId !== groupId) return error("Nieprawidłowy link dostępu.", 401);
+  if (typeof body.expectedRevision !== "string") return error("Brak wersji planu.");
+  return updateStoredGroup(groupId, async group => {
+    const member = await authenticate(group, body);
+    if (!member) return error("Nieprawidłowy link dostępu.", 401);
+    if (!member.isAdmin) return error("Tylko administrator może przywrócić plan.", 403);
+    if ((group.planRevision ?? "") !== body.expectedRevision) return error("Plan został już zmieniony. Odśwież plan i spróbuj ponownie.", 409);
+    if (!group.previousPlan) return error("Brak poprzedniego planu do przywrócenia.", 404);
+    if (!planRestoreAvailable(group.previousPlan)) return error("Minęło 7 dni. Przywrócenie poprzedniego planu nie jest już dostępne.", 410);
+    Object.assign(group, restoreGroupPlan(group, body.expectedRevision));
   });
 }
 
@@ -949,6 +969,8 @@ export default async (request: Request, context: Context) => {
     ) {
       return getGroup(route[1]);
     }
+    if (request.method === "POST" && route.length === 4 && route[0] === "groups" &&
+      route[2] === "plan" && route[3] === "restore") return restorePlan(request, route[1]);
     if (
       request.method === "POST" &&
       route.length === 3 &&

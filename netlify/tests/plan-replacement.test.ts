@@ -77,3 +77,68 @@ it("retains real log writes through reorder, repeated replacement and later chec
   const fresh = await (await call(base)).json() as Group;
   expect(fresh.progress).toEqual(second.progress);
 });
+
+it("restores the hydrated pre-replacement snapshot, protects it and rejects stale or consumed recovery", async () => {
+  const session = await fixture();
+  const base = `/groups/${session.group.id}`;
+  const joined = await (await call(base + "/join", { name: "Anna", inviteToken: session.credentials.inviteToken })).json() as { credentials: Credentials };
+  const write = async (credentials: Credentials, segmentId: string, completed: boolean) => {
+    expect((await call(base + "/progress", { ...credentials, segmentId, completed })).status).toBe(200);
+  };
+  const restore = (data: unknown) => call(base + "/plan/restore", data);
+  expect((await restore({ ...session.credentials, expectedRevision: "" })).status).toBe(404);
+  await write(session.credentials, "s0", true);
+  await write(joined.credentials, "s2", true);
+  const before = await (await call(base)).json() as Group;
+  const replaced = await (await call(base + "/plan", { ...session.credentials, startDate: "2026-10-20", frequency,
+    planDays: days(["Rdz 1", "J 1"]), expectedRevision: "" })).json() as Group;
+  expect(replaced).not.toHaveProperty("previousPlan");
+  expect(replaced.planRestore).toBeDefined();
+  await write(session.credentials, "s0", false);
+  await write(joined.credentials, replaced.planDays[1].segments[0].id, true);
+  const input = { ...session.credentials, expectedRevision: replaced.planRevision };
+  expect((await restore(null)).status).toBe(401);
+  expect((await restore({ ...input, groupId: "other" })).status).toBe(401);
+  expect((await restore({ ...input, token: "wrong" })).status).toBe(401);
+  expect((await restore({ ...input, ...joined.credentials })).status).toBe(403);
+  expect((await restore({ ...input, expectedRevision: 2 })).status).toBe(400);
+  expect((await restore({ ...input, expectedRevision: "" })).status).toBe(409);
+  const responses = await Promise.all([restore({ ...input, previousPlan: { progress: {} } }), restore(input)]);
+  expect(responses.map(response => response.status).sort()).toEqual([200, 409]);
+  const response = responses.find(response => response.status === 200)!;
+  const restored = await response.json() as Group;
+  expect(restored.members).toEqual(before.members);
+  expect(restored.planDays.map(day => day.segments[0].label)).toEqual(["Rdz 1", "Mt 1", "Ps 1"]);
+  expect(restored.planVersion).toBe(2);
+  expect(restored.planRevision).not.toBe(replaced.planRevision);
+  expect(restored.planRestore).toBeUndefined();
+  expect(restored).not.toHaveProperty("previousPlan");
+  const first = restored.planDays[0].segments[0].id;
+  const psalm = restored.planDays[2].segments[0].id;
+  expect(restored.progress).toEqual({ [session.credentials.memberId]: { [first]: before.progress[session.credentials.memberId].s0 },
+    [joined.credentials.memberId]: { [psalm]: before.progress[joined.credentials.memberId].s2 } });
+  expect((await restore({ ...input, expectedRevision: restored.planRevision })).status).toBe(404);
+  expect((await call(base + "/progress", { ...session.credentials, segmentId: "s0", completed: true })).status).toBe(400);
+  expect((await (await call(base)).json() as Group).progress).toEqual(restored.progress);
+  await write(session.credentials, first, false);
+  expect((await (await call(base)).json() as Group).progress[session.credentials.memberId]).toEqual({});
+  await write(session.credentials, first, true);
+  expect((await (await call(base)).json() as Group).progress[session.credentials.memberId][first]).toBeDefined();
+});
+
+it("enforces seven days on the server and hides expired availability without changing the current plan", async () => {
+  const session = await fixture();
+  const base = `/groups/${session.group.id}`;
+  const response = await call(base + "/plan", { ...session.credentials, startDate: "2026-10-19", frequency,
+    planDays: days(["J 1"]), expectedRevision: "" });
+  const replaced = await response.json() as Group;
+  const now = vi.spyOn(Date, "now").mockReturnValue(Date.parse(replaced.planRestore!.expiresAt));
+  try {
+    expect((await call(base + "/plan/restore", { ...session.credentials, expectedRevision: replaced.planRevision })).status).toBe(410);
+    const current = await (await call(base)).json() as Group;
+    expect(current.planRestore).toBeUndefined();
+    expect(current).not.toHaveProperty("previousPlan");
+    expect(current.planDays).toEqual(replaced.planDays);
+    expect(current.planRevision).toBe(replaced.planRevision);
+  } finally { now.mockRestore(); }
+});
