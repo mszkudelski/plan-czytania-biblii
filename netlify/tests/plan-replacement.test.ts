@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Context } from "@netlify/functions";
 
 const memory = vi.hoisted(() => new Map<string, string>());
@@ -31,7 +31,14 @@ async function fixture() {
   expect(response.status).toBe(201);
   return response.json() as Promise<{ group: Group; credentials: Credentials }>;
 }
-beforeEach(() => memory.clear());
+beforeEach(() => {
+  memory.clear();
+  // In-memory requests can finish in the same millisecond. Give sequential
+  // writes distinct timestamps, the ordering resolution of the progress log.
+  let now = Date.now();
+  vi.spyOn(Date, "now").mockImplementation(() => now++);
+});
+afterEach(() => vi.restoreAllMocks());
 it("authorizes replacement, validates input and rejects stale previews without modifying the group", async () => {
   const session = await fixture();
   const base = `/groups/${session.group.id}`;
