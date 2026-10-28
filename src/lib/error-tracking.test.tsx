@@ -17,7 +17,7 @@ it("removes dynamic error text, URLs, values, context and functions while preser
   expect(result).toEqual({ $exception_level: "error", error_source: "window_error", app_release: release,
     $exception_list: [{ type: "TypeError", value: "Exception message redacted",
       mechanism: { type: "window_error", handled: false, synthetic: false, exception_id: 0 },
-      stacktrace: { type: "raw", frames: [{ platform: "web:javascript", filename: "https://plan-czytania.netlify.app/assets/index-abc.js",
+      stacktrace: { type: "raw", frames: [{ platform: "web:javascript", filename: "https://plan-czytania.netlify.app/assets/index-abc.js", function: "?",
         lineno: 12, colno: 34, in_app: true }] } }] });
 });
 

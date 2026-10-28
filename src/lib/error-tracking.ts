@@ -31,7 +31,8 @@ function safeFrame(value: unknown) {
     if (url.origin !== "https://plan-czytania.netlify.app" ||
       !/^\/assets\/[A-Za-z0-9_.-]{1,140}\.js$/.test(url.pathname)) return;
     const number = (value: unknown) => typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 10_000_000 ? value : undefined;
-    return { platform: "web:javascript", filename: url.origin + url.pathname,
+    // Cymbal requires a function field, even when the original is redacted.
+    return { platform: "web:javascript", filename: url.origin + url.pathname, function: "?",
       lineno: number(frame.lineno), colno: number(frame.colno), in_app: true };
   } catch { return; }
 }
