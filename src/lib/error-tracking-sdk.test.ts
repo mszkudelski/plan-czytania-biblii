@@ -26,7 +26,7 @@ it("keeps the real SDK exception format ingestible after privacy filtering, with
   expect(events).toHaveLength(1);
   expect(events[0].event).toBe("$exception");
   expect(events[0].properties.$exception_list).toMatchObject([{ type: "TypeError", value: "Exception message redacted",
-    stacktrace: { type: "raw", frames: [{ filename: "https://plan-czytania.netlify.app/assets/index-test.js", lineno: 123, colno: 45 }] } }]);
+    stacktrace: { type: "raw", frames: [{ filename: "https://plan-czytania.netlify.app/assets/index-test.js", function: "?", lineno: 123, colno: 45 }] } }]);
   expect(JSON.stringify(events)).not.toContain("Private name");
   expect(JSON.stringify(events)).not.toContain("secret");
 });
