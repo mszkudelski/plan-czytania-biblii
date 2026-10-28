@@ -44,10 +44,34 @@ Losowe `plan_id` jest trwałym pseudonimem planu, nie poświadczeniem dostępu.
 PostHog używa identyfikatorów użytkownika tylko w pamięci strony; nie ustawiamy
 cookies ani trwałej tożsamości użytkownika. Liczba odwiedzających nie oznacza
 unikalnych osób powracających po przeładowaniu. Autocapture, nagrywanie sesji,
-profile osób, flagi i automatyczne błędy są wyłączone. Blokada skryptu lub brak
+profile osób i flagi są wyłączone. Blokada skryptu lub brak
 sieci nie blokują aplikacji; brakujących zdarzeń nie odtwarzamy.
 
 Instrukcja SDK: https://posthog.com/docs/libraries/react
+
+### Śledzenie błędów
+
+PostHog Error Tracking odbiera `$exception` dla błędów JavaScript (`error`),
+nieobsłużonych Promise (`unhandledrejection`) oraz błędów React 19
+(`onUncaughtError`, `onCaughtError`, `onRecoverableError`). Nasłuchiwanie zaczyna się
+przed asynchronicznym załadowaniem SDK. Kolejka obejmuje do 20 wczesnych błędów;
+ten sam obiekt błędu raportujemy raz na załadowaną stronę. Błędy obsłużone lokalnym
+`catch`, w tym błędy API pokazane w interfejsie, nie są automatycznie raportowane.
+Działają te same ograniczenia środowiska produkcyjnego i wykluczenie testów co dla
+metryk. Nie włączamy przechwytywania `console.error`, nagrywania sesji ani zdalnego
+ładowania rozszerzeń SDK. Własne nasłuchiwanie wywołuje `captureException`, dlatego
+SDK `capture_exceptions` pozostaje wyłączone, aby nie powielać zdarzeń.
+
+Wysyłamy typ błędu, stałą bezpieczną diagnozę (pozostałe komunikaty zastępujemy
+`Exception message redacted`), źródło zgłoszenia oraz SHA wdrożenia jako `app_release`.
+Stos zawiera tylko ścieżki plików `/assets/*.js` z domeny aplikacji oraz numer linii
+i kolumny. Usuwamy parametry URL, fragmenty adresów, nazwy funkcji, kontekst kodu,
+zmienne, dodatkowe właściwości błędu, kroki poprzedzające błąd i dane uczestników.
+Są to pozycje w skompilowanych plikach: nie skonfigurowano jeszcze wysyłki sourcemap
+(do niej potrzebny jest osobny klucz CLI z uprawnieniami do error trackingu).
+SDK lub raportowanie błędu nie mogą blokować czytania ani zapisu postępu.
+
+Dokumentacja: https://posthog.com/docs/error-tracking/capture
 
 ## Funkcje
 

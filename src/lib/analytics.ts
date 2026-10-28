@@ -1,12 +1,15 @@
 import type { Group } from "../types";
 import type { CaptureResult, PostHog } from "posthog-js";
+import { installErrorTracking, sanitizeExceptionProperties, type ErrorSource } from "./error-tracking";
 
 type EventName = "$pageview" | "plan_opened" | "reading_progress_saved" | "reading_day_completed";
 type Properties = Record<string, string | number | boolean>;
 
 let started = false;
-let client: Pick<PostHog, "capture"> | undefined;
+let client: Pick<PostHog, "capture" | "captureException"> | undefined;
 const pending: Array<{ event: EventName; properties?: Properties }> = [];
+const pendingErrors: Array<{ error: unknown; source: ErrorSource }> = [];
+const reportedErrors = new WeakSet<object>();
 const opened = new Set<string>();
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const templates = ["mcheyne_365", "custom_csv", "unknown"];
@@ -28,14 +31,18 @@ function send(event: EventName, properties?: Properties) {
 }
 
 export function sanitizeAnalyticsEvent(event: CaptureResult | null): CaptureResult | null {
-  if (!event || !["$pageview", "plan_opened", "reading_progress_saved", "reading_day_completed"].includes(event.event)) return null;
+  if (!event || !["$pageview", "plan_opened", "reading_progress_saved", "reading_day_completed", "$exception"].includes(event.event)) return null;
   // Explicit, per-event property allowlists keep names, credentials, filenames,
   // invitation URLs and automatically supplied person properties out of events.
   const safe: Record<string, unknown> = {};
   for (const key of ["token", "distinct_id", "$device_id", "$session_id", "$window_id", "$lib", "$lib_version", "$browser", "$os"]) {
     if (key in event.properties) safe[key] = event.properties[key];
   }
-  if (event.event !== "$pageview") {
+  if (event.event === "$exception") {
+    const exception = sanitizeExceptionProperties(event.properties);
+    if (!exception) return null;
+    Object.assign(safe, exception);
+  } else if (event.event !== "$pageview") {
     const p = event.properties;
     if (typeof p.plan_id !== "string" || !uuid.test(p.plan_id) ||
       !Number.isSafeInteger(p.plan_version) || p.plan_version < 0 ||
@@ -59,6 +66,22 @@ export function sanitizeAnalyticsEvent(event: CaptureResult | null): CaptureResu
   return event;
 }
 
+function sendException(error: unknown, source: ErrorSource) {
+  try {
+    client?.captureException(error, { error_source: source, app_release: import.meta.env.VITE_APP_RELEASE });
+  } catch { /* Reporting must never cause another application error. */ }
+}
+
+export function captureAppException(error: unknown, source: ErrorSource) {
+  if (!started) return;
+  if (error && typeof error === "object") {
+    if (reportedErrors.has(error)) return;
+    reportedErrors.add(error);
+  }
+  if (client) sendException(error, source);
+  else if (pendingErrors.length < 20) pendingErrors.push({ error, source });
+}
+
 export function trackPlanOpened(group: Group) {
   const properties = planProperties(group);
   if (!started || !properties) return;
@@ -76,14 +99,19 @@ export async function startAnalytics() {
     typeof token !== "string" || !token.startsWith("phc_") || !host) return;
 
   started = true;
+  let stopErrors: (() => void) | undefined;
   try {
     if (new URL(host).protocol !== "https:") throw new Error("Invalid analytics host");
+    stopErrors = installErrorTracking(captureAppException);
     const { default: posthog } = await import("posthog-js");
     posthog.init(token, {
       api_host: host, defaults: "2026-08-30",
       autocapture: false, capture_pageview: false, capture_pageleave: false,
       capture_dead_clicks: false, rageclick: false,
+      // Our early browser listeners and React handlers call captureException.
+      // SDK autocapture would duplicate them and lazy-load remote code.
       capture_exceptions: false, capture_performance: false, capture_heatmaps: false,
+      error_tracking: { exception_steps: { enabled: false } },
       disable_session_recording: true, enable_recording_console_log: false,
       disable_surveys: true, disable_product_tours: true,
       advanced_disable_flags: true, disable_external_dependency_loading: true,
@@ -93,9 +121,12 @@ export async function startAnalytics() {
         client = instance;
         send("$pageview");
         for (const { event, properties } of pending.splice(0)) send(event, properties);
+        for (const { error, source } of pendingErrors.splice(0)) sendException(error, source);
       },
     });
   } catch {
+    stopErrors?.();
+    pendingErrors.length = 0;
     pending.length = 0;
     client = undefined;
     started = false;
