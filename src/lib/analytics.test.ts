@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Group } from "../types";
 import type { CaptureResult, PostHog, PostHogConfig } from "posthog-js";
-const sdk = vi.hoisted(() => ({ init: vi.fn(), capture: vi.fn() }));
+const sdk = vi.hoisted(() => ({ init: vi.fn(), capture: vi.fn(), captureException: vi.fn() }));
 vi.mock("posthog-js", () => ({ default: sdk }));
 
 beforeEach(() => {
@@ -11,7 +11,8 @@ beforeEach(() => {
   vi.stubEnv("VITE_DEPLOY_CONTEXT", "production");
   vi.stubEnv("VITE_POSTHOG_PROJECT_TOKEN", "phc_test");
   vi.stubEnv("VITE_POSTHOG_HOST", "https://eu.i.posthog.com");
-  vi.stubGlobal("window", { location: { hostname: "plan-czytania.netlify.app", search: "?invite=private-token" } });
+  vi.stubEnv("VITE_APP_RELEASE", "a".repeat(40));
+  vi.stubGlobal("window", { location: { hostname: "plan-czytania.netlify.app", search: "?invite=private-token" }, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   vi.stubGlobal("navigator", { webdriver: false });
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
@@ -65,7 +66,8 @@ it("initializes once with automatic capture, persistent identity and replay disa
   expect(options).toMatchObject({ api_host: "https://eu.i.posthog.com", autocapture: false,
     capture_pageview: false, capture_pageleave: false, disable_session_recording: true,
     capture_exceptions: false, capture_performance: false, capture_heatmaps: false,
-    person_profiles: "never", disable_persistence: true, persistence: "memory", advanced_disable_flags: true });
+    person_profiles: "never", disable_persistence: true, persistence: "memory", advanced_disable_flags: true,
+    error_tracking: { exception_steps: { enabled: false } } });
   expect(count.mock.calls).toEqual([["$pageview"]]);
 });
 
@@ -216,4 +218,51 @@ it("tolerates an SDK initialization failure without interrupting the app", async
   analytics.trackSavedReading(group(), group({ a: "read", b: "read" }), "member", { segmentId: "b", completed: true });
   await expect(start).resolves.toBeUndefined();
   expect(sdk.capture).not.toHaveBeenCalled();
+});
+
+
+it("queues early exceptions, preserves source/release and deduplicates the same error object", async () => {
+  const { captureAppException, options } = await tracker(false);
+  const error = new Error("private access token");
+  captureAppException(error, "react_uncaught");
+  captureAppException(error, "window_error");
+  expect(sdk.captureException).not.toHaveBeenCalled();
+  options.loaded?.(sdk as unknown as PostHog);
+  expect(sdk.captureException.mock.calls).toEqual([[error, { error_source: "react_uncaught", app_release: "a".repeat(40) }]]);
+  captureAppException(error, "react_uncaught");
+  expect(sdk.captureException).toHaveBeenCalledTimes(1);
+  sdk.captureException.mockImplementation(() => { throw new Error("Reporting blocked"); });
+  expect(() => captureAppException(new Error("Private name"), "react_caught")).not.toThrow();
+});
+
+it("does not queue exceptions in previews/test browsers or after SDK initialization fails", async () => {
+  vi.stubEnv("VITE_DEPLOY_CONTEXT", "branch-deploy");
+  const analytics = await import("./analytics");
+  await analytics.startAnalytics();
+  analytics.captureAppException(new Error("private"), "window_error");
+  expect(sdk.captureException).not.toHaveBeenCalled();
+  expect(window.addEventListener).not.toHaveBeenCalled();
+});
+
+it("applies the exception allowlist before transmission and drops unexpected error metadata", async () => {
+  const { sanitizeAnalyticsEvent } = await tracker();
+  const event = sanitizeAnalyticsEvent({ event: "$exception", properties: {
+    token: "phc_test", distinct_id: "anonymous", error_source: "react_uncaught", app_release: "a".repeat(40),
+    $exception_list: [{ type: "TypeError", value: "Private name and token", stacktrace: { type: "raw", frames: [
+      { filename: "https://plan-czytania.netlify.app/assets/index-abc.js?invite=secret", lineno: 12, colno: 34,
+        function: "Private name", vars: { token: "secret" }, context_line: "private CSV" },
+    ] } }],
+    $current_url: "https://plan-czytania.netlify.app/?invite=secret", plan_id: context.plan_id,
+    $exception_fingerprint: "private", $exception_message: "private", $exception_steps: [{ message: "Private name" }],
+    $set: { name: "private" }, $issue_name: "private", $exception_personURL: "private",
+  }, $set: { name: "private" } } as unknown as CaptureResult)!;
+  expect(event.properties).toMatchObject({ error_source: "react_uncaught", app_release: "a".repeat(40),
+    $exception_level: "error", $current_url: "https://plan-czytania.netlify.app/" });
+  for (const key of ["plan_id", "$exception_fingerprint", "$exception_message", "$exception_steps", "$set", "$issue_name", "$exception_personURL"]) {
+    expect(event.properties).not.toHaveProperty(key);
+  }
+  expect(event.$set).toBeUndefined();
+  const serialized = JSON.stringify(event);
+  for (const privateValue of ["Private name", "secret", "private CSV", "?invite", "context_line", "vars"]) expect(serialized).not.toContain(privateValue);
+  expect(sanitizeAnalyticsEvent({ event: "$exception", properties: { $exception_list: [] } } as unknown as CaptureResult)).toBeNull();
 });

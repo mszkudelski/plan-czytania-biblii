@@ -24,6 +24,15 @@ test('standard reading is optimistic, saves to backend and survives reload', asy
   await expectSaved(request, session, []);
   await page.reload();
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'false');
+  // Even reported JS errors/rejected promises in a synthetic browser must not
+  // load PostHog or send exceptions. These dispatched events do not crash reading.
+  await page.evaluate(() => {
+    window.dispatchEvent(new ErrorEvent('error', { error: new TypeError('E2E error tracking exclusion'),
+      message: 'E2E error tracking exclusion' }));
+    window.dispatchEvent(new PromiseRejectionEvent('unhandledrejection', {
+      promise: Promise.resolve(), reason: new Error('E2E rejected promise exclusion'),
+    }));
+  });
   // Synthetic test activity on immutable deploys must never reach analytics.
   expect(analyticsRequests).toEqual([]);
 });
