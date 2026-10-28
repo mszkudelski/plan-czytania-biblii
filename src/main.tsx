@@ -4,7 +4,7 @@ import SimpleApp from "./SimpleApp";
 import "./simple.css";
 import { startAnalytics } from "./lib/analytics";
 
-startAnalytics();
+void startAnalytics();
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {

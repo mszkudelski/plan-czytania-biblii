@@ -1,44 +1,68 @@
 import type { Group } from "../types";
+import type { CaptureResult, PostHog } from "posthog-js";
 
-type Hit = { path: string; title: string; referrer: string; event?: boolean; no_session?: boolean };
-type GoatCounter = { no_onload?: boolean; count?: (hit: Hit) => void };
-declare global {
-  interface Window { goatcounter?: GoatCounter }
-}
+type EventName = "$pageview" | "reading_day_completed";
 
 let started = false;
-let ready = false;
-const pending: Hit[] = [];
+let client: Pick<PostHog, "capture"> | undefined;
+const pending: EventName[] = [];
 
-function send(hit: Hit) {
+function send(event: EventName) {
   if (!started) return;
   try {
-    if (ready) window.goatcounter?.count?.(hit);
-    else if (pending.length < 20) pending.push(hit);
+    if (client) client.capture(event);
+    else if (pending.length < 20) pending.push(event);
   } catch { /* Analytics must never interrupt reading or progress saves. */ }
 }
 
-export function startAnalytics() {
-  const code = import.meta.env.VITE_GOATCOUNTER_CODE;
+export function sanitizeAnalyticsEvent(event: CaptureResult | null): CaptureResult | null {
+  if (!event || (event.event !== "$pageview" && event.event !== "reading_day_completed")) return null;
+  // Allow only SDK identifiers/metadata. Invitation URLs and person properties
+  // can otherwise be added automatically, even without explicit identification.
+  const safe: Record<string, unknown> = {};
+  for (const key of ["token", "distinct_id", "$device_id", "$session_id", "$window_id", "$lib", "$lib_version", "$browser", "$os"]) {
+    if (key in event.properties) safe[key] = event.properties[key];
+  }
+  event.properties = { ...safe, $current_url: "https://plan-czytania.netlify.app/",
+    $host: "plan-czytania.netlify.app", $pathname: "/", $title: "Plan czytania Biblii",
+    $referrer: "", $referring_domain: "", $process_person_profile: false };
+  delete event.$set;
+  delete event.$set_once;
+  return event;
+}
+
+export async function startAnalytics() {
+  const token = import.meta.env.VITE_POSTHOG_PROJECT_TOKEN;
+  const host = import.meta.env.VITE_POSTHOG_HOST;
   if (started || import.meta.env.VITE_DEPLOY_CONTEXT !== "production" ||
     window.location.hostname !== "plan-czytania.netlify.app" || navigator.webdriver ||
-    typeof code !== "string" || !/^[a-z0-9-]+$/.test(code)) return;
+    typeof token !== "string" || !token.startsWith("phc_") || !host) return;
 
   started = true;
-  window.goatcounter = { no_onload: true };
-  const script = document.createElement("script");
-  script.async = true;
-  script.src = "https://gc.zgo.at/count.js";
-  script.referrerPolicy = "no-referrer";
-  script.dataset.goatcounter = `https://${code}.goatcounter.com/count`;
-  script.onload = () => {
-    ready = true;
-    // Fixed values exclude invitation tokens, names and private URL parameters.
-    send({ path: "/", title: "Plan czytania Biblii", referrer: "" });
-    for (const hit of pending.splice(0)) send(hit);
-  };
-  script.onerror = () => { pending.length = 0; started = false; };
-  document.head.append(script);
+  try {
+    if (new URL(host).protocol !== "https:") throw new Error("Invalid analytics host");
+    const { default: posthog } = await import("posthog-js");
+    posthog.init(token, {
+      api_host: host, defaults: "2026-08-30",
+      autocapture: false, capture_pageview: false, capture_pageleave: false,
+      capture_dead_clicks: false, rageclick: false,
+      capture_exceptions: false, capture_performance: false, capture_heatmaps: false,
+      disable_session_recording: true, enable_recording_console_log: false,
+      disable_surveys: true, disable_product_tours: true,
+      advanced_disable_flags: true, disable_external_dependency_loading: true,
+      persistence: "memory", disable_persistence: true, person_profiles: "never", ip: false,
+      before_send: sanitizeAnalyticsEvent,
+      loaded: instance => {
+        client = instance;
+        send("$pageview");
+        for (const event of pending.splice(0)) send(event);
+      },
+    });
+  } catch {
+    pending.length = 0;
+    client = undefined;
+    started = false;
+  }
 }
 
 // Count a transition after the server confirms a complete original plan day.
@@ -53,7 +77,7 @@ export function trackSavedReading(before: Group, after: Group, memberId: string)
     if (oldDay && day.segments.length > 0 &&
       day.segments.every(segment => current[segment.id]) &&
       !oldDay.segments.every(segment => previous[segment.id])) {
-      send({ path: "reading_day_completed", title: "Ukończony dzień planu", referrer: "", event: true, no_session: true });
+      send("reading_day_completed");
     }
   }
 }

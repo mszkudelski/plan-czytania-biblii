@@ -42,6 +42,12 @@ test('only an explicit documentation allowlist skips E2E', () => {
   assert.equal(select(['docs/config.json']).mode, 'all');
   assert.equal(select([]).mode, 'all');
 });
+test('analytics startup and shared reading integration retain full E2E coverage', () => {
+  for (const file of ['src/main.tsx', 'src/lib/analytics.ts', 'src/lib/analytics.test.ts', 'src/SimpleApp.tsx']) {
+    assert.equal(select([file]).mode, 'all', file);
+    assert.deepEqual(select([file]).files, available, file);
+  }
+});
 test('new or edited test runs itself; removed test and stale mappings run all', () => {
   assert.deepEqual(selectTests(['e2e/new.e2e.mjs'], [...available, 'new.e2e.mjs']).files, ['new.e2e.mjs']);
   assert.equal(select(['e2e/deleted.e2e.mjs']).mode, 'all');
