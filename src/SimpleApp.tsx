@@ -1,5 +1,5 @@
 import PlanReplacement from "./PlanReplacement";
-import { trackSavedReading } from "./lib/analytics";
+import { trackPlanOpened, trackSavedReading } from "./lib/analytics";
 import { downloadPlanCsv } from "./lib/plan-export";
 import Onboarding, { useOnboarding, usePromptOffer } from "./Onboarding";
 import ReminderPrompt from "./ReminderPrompt";
@@ -1615,14 +1615,15 @@ function Dashboard({
   const [visibleGroup, setVisibleGroup] = useState(group);
   const [progressError, setProgressError] = useState("");
   const analyticsBaseline = useRef(group);
+  useEffect(() => { trackPlanOpened(group); }, [group]);
   useEffect(() => { analyticsBaseline.current = group; }, [group]);
   const [progressQueue] = useState(() => createOptimisticProgressQueue({
     group,
     memberId: credentials.memberId,
     save: (segmentId, completed) => updateProgress(credentials, segmentId, completed),
     onChange: setVisibleGroup,
-    onSave: next => {
-      trackSavedReading(analyticsBaseline.current, next, credentials.memberId);
+    onSave: (next, operation) => {
+      trackSavedReading(analyticsBaseline.current, next, credentials.memberId, operation);
       analyticsBaseline.current = next;
       setGroup(next);
     },

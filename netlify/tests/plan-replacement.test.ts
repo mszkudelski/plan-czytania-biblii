@@ -50,6 +50,8 @@ it("authorizes replacement, validates input and rejects stale previews without m
   expect((await call(base + "/plan", input)).status).toBe(409);
   const group = await (await call(base)).json() as Group;
   expect(group.planVersion).toBe(1);
+  expect(group.analyticsPlanId).toBe(session.group.analyticsPlanId);
+  expect(group.planTemplate).toBe("custom_csv");
   expect(group.members).toHaveLength(2);
   expect(group.members[0]).not.toHaveProperty("tokenHashes");
 });

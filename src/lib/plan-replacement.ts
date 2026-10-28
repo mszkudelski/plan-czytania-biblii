@@ -1,4 +1,5 @@
 import type { Frequency, Group, PlanDay, PlanSegment } from "../types";
+import { planTemplate } from "./plan-template";
 
 export type PlanReplacementInput = {
   planDays: PlanDay[];
@@ -83,6 +84,7 @@ export function replaceGroupPlan<T extends Group>(group: T, input: PlanReplaceme
   const activeIds = new Set(planDays.flatMap(day => day.segments.map(segment => segment.id)));
   return {
     ...group, planDays, startDate: input.startDate, frequency: input.frequency,
+    planTemplate: planTemplate(input.planDays),
     planRevision: revision, planVersion: (group.planVersion ?? 0) + 1, progressSegmentIds,
     progress: Object.fromEntries(group.members.map(member => [member.id,
       Object.fromEntries(Object.entries(group.progress[member.id] ?? {}).filter(([id]) => activeIds.has(id))),

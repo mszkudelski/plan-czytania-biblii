@@ -12,16 +12,39 @@ produkcyjnych buildów. Lokalnie można użyć ignorowanego `.env.local`.
 Usunięcie tokenu wyłącza integrację przy kolejnym buildzie.
 Develop, podglądy wdrożeń i przeglądarki automatycznych testów nie wysyłają danych.
 
-Zbierane są wejścia (`$pageview`) i zdarzenie `reading_day_completed` po potwierdzonym
-zapisie wszystkich fragmentów oryginalnego dnia planu. Częściowa porcja nadrabiania
-nie musi odpowiadać całemu oryginalnemu dniowi. Ponowne ukończenie odznaczonego dnia
-jest kolejnym zdarzeniem. To licznik działań, nie unikalnych ukończonych dni.
-Nie wysyłamy nazw grup, osób, identyfikatorów aplikacji, tokenów dostępu do grup,
-parametrów URL ani referrerów. PostHog używa anonimowych identyfikatorów tylko
-w pamięci strony; nie ustawiamy cookies ani trwałej tożsamości użytkownika.
-Liczba odwiedzających nie oznacza unikalnych osób powracających po przeładowaniu.
-Autocapture, nagrywanie sesji, profile osób, flagi i automatyczne błędy są wyłączone.
-Blokada skryptu lub brak sieci nie blokują aplikacji; brakujących zdarzeń nie odtwarzamy.
+Zbierane są wejścia (`$pageview`), otwarcia planu (`plan_opened`), potwierdzone zmiany
+postępu (`reading_progress_saved`, `completed: true/false`) i ukończenia oryginalnego
+dnia (`reading_day_completed`). Otwarcie liczymy raz na plan i wersję w pamięci
+załadowanej strony, również przy podwójnych efektach React StrictMode. Przeładowanie
+strony jest kolejnym otwarciem. Postęp liczymy dopiero po udanym zapisie konkretnej
+operacji tego urządzenia; nie przy zmianie optymistycznej, błędzie, odświeżeniu ani
+ponownym zapisie tej samej wartości.
+
+Zdarzenia planu mają wyłącznie: osobne losowe `plan_id`, `plan_version` (początkowo 0),
+`plan_template` (`mcheyne_365`, `custom_csv`, `unknown`) i `analytics_schema: 2`.
+Zapis/ukończenie dodaje `day_number`, a zapis również `completed`. Typ podstawowy
+rozpoznajemy po całym harmonogramie czytań, bez dat, nazw plików i deklaracji klienta.
+Starsze plany bez metadanych mają typ `unknown`; ich losowe ID zapisujemy jednorazowo
+w `analytics-plan-v1/<groupId>` w magazynie grup, bez nadpisywania danych planu.
+Podmiana zachowuje ID, zmienia wersję i aktualizuje typ planu.
+Brak dostępu do starszych metadanych analitycznych nie blokuje odczytu ani zapisu.
+Syntetyczne grupy testów mają dodatkowo `analyticsDisabled: true` w odpowiedzi API.
+
+**Aktywny plan 7/30 dni** to unikalne `plan_id` z co najmniej jednym
+`reading_progress_saved` z `completed: true` w tym okresie. Otwarcia i cofnięcia nie
+aktywują planu. To aktywność planów, nie unikalne osoby ani procent ukończenia.
+Częściowa porcja nadrabiania nie musi odpowiadać całemu oryginalnemu dniowi.
+Ponowne ukończenie odznaczonego dnia jest kolejnym zdarzeniem. Liczymy działania,
+nie unikalne ukończone dni. Starszych zdarzeń bez `plan_id` nie przypisujemy wstecz.
+
+Nie wysyłamy nazw grup i osób, identyfikatorów dostępu aplikacji ani uczestników,
+treści czytań, nazw plików, tokenów dostępu do grup, parametrów URL ani referrerów.
+Losowe `plan_id` jest trwałym pseudonimem planu, nie poświadczeniem dostępu.
+PostHog używa identyfikatorów użytkownika tylko w pamięci strony; nie ustawiamy
+cookies ani trwałej tożsamości użytkownika. Liczba odwiedzających nie oznacza
+unikalnych osób powracających po przeładowaniu. Autocapture, nagrywanie sesji,
+profile osób, flagi i automatyczne błędy są wyłączone. Blokada skryptu lub brak
+sieci nie blokują aplikacji; brakujących zdarzeń nie odtwarzamy.
 
 Instrukcja SDK: https://posthog.com/docs/libraries/react
 

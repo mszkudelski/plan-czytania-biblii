@@ -28,6 +28,10 @@ export type Member = {
 
 export type Group = {
   id: string;
+  // Analytics identity is independent of group access and participant identity.
+  analyticsPlanId?: string;
+  planTemplate?: "mcheyne_365" | "custom_csv" | "unknown";
+  analyticsDisabled?: boolean;
   name: string;
   createdAt: string;
   startDate: string;

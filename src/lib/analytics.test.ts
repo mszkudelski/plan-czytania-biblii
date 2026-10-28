@@ -28,7 +28,7 @@ async function tracker(load = true) {
 }
 
 function group(progress: Record<string, string> = {}): Group {
-  return { id: "private-group", name: "Private group name", createdAt: "", startDate: "2026-10-01",
+  return { analyticsPlanId: "11111111-1111-4111-8111-111111111111", planTemplate: "custom_csv", id: "private-group", name: "Private group name", createdAt: "", startDate: "2026-10-01",
     frequency: { kind: "daily", days: [] }, members: [], progress: { member: progress },
     planDays: [
       { id: "d0", index: 0, date: "2026-10-01", title: "Private title", segments: [
@@ -53,7 +53,7 @@ it.each([
   vi.stubGlobal("navigator", { webdriver });
   const analytics = await import("./analytics");
   await analytics.startAnalytics();
-  analytics.trackSavedReading(group(), group({ a: "read", b: "read" }), "member");
+  analytics.trackSavedReading(group(), group({ a: "read", b: "read" }), "member", { segmentId: "b", completed: true });
   expect(sdk.init).not.toHaveBeenCalled();
 });
 
@@ -85,23 +85,87 @@ it("removes private URLs, application identities and person properties before tr
   expect(sanitizeAnalyticsEvent({ event: "$autocapture", properties: {} } as CaptureResult)).toBeNull();
 });
 
-it("counts only a newly completed original day after confirmed progress", async () => {
-  const { trackSavedReading, count } = await tracker();
+const context = { plan_id: "11111111-1111-4111-8111-111111111111", plan_version: 0,
+  plan_template: "custom_csv", analytics_schema: 2 };
+
+it("opens each plan version once per page, including StrictMode effects and refreshes", async () => {
+  const { trackPlanOpened, count } = await tracker();
   count.mockClear();
-  const empty = group(), partial = group({ a: "read" }), full = group({ a: "read", b: "read" });
-  trackSavedReading(empty, partial, "member");
-  expect(count).not.toHaveBeenCalled();
-  trackSavedReading(partial, full, "member");
-  expect(count.mock.calls).toEqual([["reading_day_completed"]]);
-  trackSavedReading(full, full, "member");
-  trackSavedReading(full, partial, "member");
-  trackSavedReading(empty, { ...full, id: "another-group" }, "member");
-  trackSavedReading(empty, { ...full, planVersion: 2 }, "member");
-  trackSavedReading(empty, full, "another-member");
-  expect(count).toHaveBeenCalledTimes(1);
+  trackPlanOpened(group()); trackPlanOpened(group());
+  trackPlanOpened({ ...group(), planVersion: 1 });
+  trackPlanOpened({ ...group(), analyticsPlanId: "22222222-2222-4222-8222-222222222222" });
+  trackPlanOpened({ ...group(), analyticsDisabled: true });
+  trackPlanOpened({ ...group(), analyticsPlanId: undefined });
+  expect(count.mock.calls).toEqual([
+    ["plan_opened", context], ["plan_opened", { ...context, plan_version: 1 }],
+    ["plan_opened", { ...context, plan_id: "22222222-2222-4222-8222-222222222222" }],
+  ]);
 });
 
-it("waits for an actual successful save, including rollback and retry", async () => {
+it("preserves only typed per-plan properties and rejects malformed events", async () => {
+  const { sanitizeAnalyticsEvent: sanitize } = await tracker();
+  const event = (name: string, extra = {}) => ({ event: name, properties: { ...context, day_number: 1,
+    completed: true, member_id: "private", filename: "private.csv", group_name: "private", ...extra } } as unknown as CaptureResult);
+  expect(sanitize(event("reading_progress_saved"))!.properties).toMatchObject({ ...context, day_number: 1, completed: true });
+  const day = sanitize(event("reading_day_completed"))!.properties;
+  expect(day).not.toHaveProperty("completed");
+  for (const key of ["member_id", "filename", "group_name"]) expect(day).not.toHaveProperty(key);
+  expect(sanitize(event("plan_opened"))!.properties).not.toHaveProperty("day_number");
+  for (const bad of [{ plan_id: "private-group" }, { plan_version: -1 }, { plan_version: 1.5 },
+    { plan_template: "private name" }, { analytics_schema: 1 }, { completed: "true" },
+    { day_number: 0 }, { day_number: 5001 }]) {
+    expect(sanitize(event("reading_progress_saved", bad))).toBeNull();
+  }
+});
+
+it("counts confirmed partial, full and unchecked progress only for the saved operation", async () => {
+  const { trackSavedReading: track, count } = await tracker();
+  count.mockClear();
+  const empty = group(), partial = group({ a: "read" }), full = group({ a: "read", b: "read" });
+  track(empty, partial, "member", { segmentId: "a", completed: true });
+  track(partial, full, "member", { segmentId: "b", completed: true });
+  track(full, full, "member", { segmentId: "b", completed: true });
+  track(full, partial, "member", { segmentId: "b", completed: false });
+  expect(count.mock.calls).toEqual([
+    ["reading_progress_saved", { ...context, day_number: 1, completed: true }],
+    ["reading_progress_saved", { ...context, day_number: 1, completed: true }],
+    ["reading_day_completed", { ...context, day_number: 1 }],
+    ["reading_progress_saved", { ...context, day_number: 1, completed: false }],
+  ]);
+  // Re-completing an unchecked day is another action, not a unique completion.
+  track(partial, full, "member", { segmentId: "b", completed: true });
+  expect(count).toHaveBeenCalledTimes(6);
+});
+
+it("ignores mismatched plans, unconfirmed operations, missing metadata and synthetic plans", async () => {
+  const { trackSavedReading: track, count } = await tracker();
+  count.mockClear();
+  const empty = group(), full = group({ a: "read", b: "read" });
+  for (const next of [{ ...full, id: "another" }, { ...full, planVersion: 2 },
+    { ...full, analyticsPlanId: undefined }, { ...full, analyticsDisabled: true }]) {
+    track(empty, next, "member", { segmentId: "b", completed: true });
+  }
+  track(empty, full, "another-member", { segmentId: "b", completed: true });
+  track(empty, full, "member", { segmentId: "absent", completed: true });
+  track(empty, full, "member", { segmentId: "b", completed: false });
+  track(empty, group({ a: "read" }), "member", { segmentId: "b", completed: true });
+  expect(count).not.toHaveBeenCalled();
+});
+
+it("does not attribute another device's completed day to the local saved segment", async () => {
+  const { trackSavedReading: track, count } = await tracker();
+  const before = group(), after = group({ a: "read", b: "read", c: "read" });
+  const otherDay = { id: "other", index: 2, date: "2026-10-03", title: "Other", segments: [{ id: "c", label: "Other", section: "" }] };
+  before.planDays.push(otherDay); after.planDays.push(otherDay);
+  count.mockClear();
+  track(before, after, "member", { segmentId: "c", completed: true });
+  expect(count.mock.calls).toEqual([
+    ["reading_progress_saved", { ...context, day_number: 3, completed: true }],
+    ["reading_day_completed", { ...context, day_number: 3 }],
+  ]);
+});
+
+it("waits for a successful save including rollback and retry, passing the exact operation", async () => {
   const { trackSavedReading, count } = await tracker();
   const { createOptimisticProgressQueue } = await import("./optimistic-progress");
   const initial = group({ a: "read" });
@@ -111,7 +175,7 @@ it("waits for an actual successful save, including rollback and retry", async ()
   const queue = createOptimisticProgressQueue({ group: initial, memberId: "member",
     save: () => new Promise<Group>((yes, no) => { resolve = yes; reject = no; }),
     onChange: () => {}, onError: () => {},
-    onSave: next => { trackSavedReading(confirmed, next, "member"); confirmed = next; },
+    onSave: (next, operation) => { trackSavedReading(confirmed, next, "member", operation); confirmed = next; },
   });
   count.mockClear();
   const failed = queue.toggle("b", true);
@@ -124,24 +188,32 @@ it("waits for an actual successful save, including rollback and retry", async ()
   expect(count).not.toHaveBeenCalled();
   resolve(group({ a: "read", b: "read" }));
   await saved;
-  expect(count).toHaveBeenCalledTimes(1);
+  expect(count.mock.calls).toEqual([
+    ["reading_progress_saved", { ...context, day_number: 1, completed: true }],
+    ["reading_day_completed", { ...context, day_number: 1 }],
+  ]);
 });
 
-it("flushes early events on load and tolerates blocked or throwing analytics", async () => {
-  const { trackSavedReading, options, count } = await tracker(false);
-  trackSavedReading(group(), group({ a: "read", b: "read" }), "member");
+it("flushes early events with their original plan context and tolerates analytics failures", async () => {
+  const { trackPlanOpened, trackSavedReading, options, count } = await tracker(false);
+  const plan = group();
+  trackPlanOpened(plan);
+  trackSavedReading(plan, group({ a: "read", b: "read" }), "member", { segmentId: "b", completed: true });
+  plan.planVersion = 99;
   expect(count).not.toHaveBeenCalled();
   options.loaded?.(sdk as unknown as PostHog);
-  expect(count).toHaveBeenCalledTimes(2);
+  expect(count.mock.calls).toEqual([["$pageview"], ["plan_opened", context],
+    ["reading_progress_saved", { ...context, day_number: 1, completed: true }],
+    ["reading_day_completed", { ...context, day_number: 1 }]]);
   count.mockImplementation(() => { throw new Error("Tracker unavailable"); });
-  expect(() => trackSavedReading(group(), group({ a: "read", b: "read" }), "member")).not.toThrow();
+  expect(() => trackSavedReading(group(), group({ a: "read", b: "read" }), "member", { segmentId: "b", completed: true })).not.toThrow();
 });
 
 it("tolerates an SDK initialization failure without interrupting the app", async () => {
   sdk.init.mockImplementation(() => { throw new Error("SDK blocked"); });
   const analytics = await import("./analytics");
   const start = analytics.startAnalytics();
-  analytics.trackSavedReading(group(), group({ a: "read", b: "read" }), "member");
+  analytics.trackSavedReading(group(), group({ a: "read", b: "read" }), "member", { segmentId: "b", completed: true });
   await expect(start).resolves.toBeUndefined();
   expect(sdk.capture).not.toHaveBeenCalled();
 });

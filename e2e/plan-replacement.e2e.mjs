@@ -29,6 +29,9 @@ test('replacement keeps all members, occurrence timestamps and log identity thro
   expect(response.status()).toBe(200);
   const first = await response.json();
   expect(first.members).toEqual(before.members);
+  expect(first.analyticsPlanId).toBe(before.analyticsPlanId);
+  expect(first.planTemplate).toBe("custom_csv");
+  expect(first.planVersion).toBe(1);
   expect(first.progress).toEqual(before.progress);
   expect(first.planDays.map(day => day.segments[0].id)).toEqual(['s1', expect.any(String), 's0']);
   const added = first.planDays[1].segments[0].id;
@@ -40,6 +43,7 @@ test('replacement keeps all members, occurrence timestamps and log identity thro
   expect(secondResponse.status()).toBe(200);
   const second = await secondResponse.json();
   expect(second.planVersion).toBe(2);
+  expect(second.analyticsPlanId).toBe(before.analyticsPlanId);
   expect(second.planDays[1].segments[0].id).toBe(added);
   await expectSaved(request, member, [added]);
   await expectSaved(request, owner, []);

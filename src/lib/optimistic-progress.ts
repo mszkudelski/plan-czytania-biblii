@@ -14,7 +14,7 @@ type ProgressQueueOptions = {
   memberId: string;
   save: (segmentId: string, completed: boolean) => Promise<Group>;
   onChange: (group: Group) => void;
-  onSave: (group: Group) => void;
+  onSave: (group: Group, operation: { segmentId: string; completed: boolean }) => void;
   onError: (error: unknown) => void;
 };
 
@@ -64,7 +64,7 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
         if ((savedGroup.planVersion ?? 0) >= (confirmedGroup.planVersion ?? 0)) confirmedGroup = savedGroup;
         pending.shift();
         revision += 1;
-        if (active) options.onSave(confirmedGroup);
+        if (active) options.onSave(confirmedGroup, { segmentId: operation.segmentId, completed: operation.completed });
         notify();
         operation.resolve();
       }
