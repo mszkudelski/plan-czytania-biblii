@@ -3,6 +3,20 @@
 Grupowy, długoterminowy plan czytania Biblii. Każda osoba śledzi własny
 postęp, zaznacza fragmenty oddzielnie i widzi zaległość lub wyprzedzenie.
 
+## Statystyki użycia
+
+GoatCounter jest włączony wyłącznie na `plan-czytania.netlify.app`, w kontekście
+wdrożenia `production`. Nazwę konta ustawia `VITE_GOATCOUNTER_CODE` w
+`netlify.toml`. Usunięcie tej wartości wyłącza integrację przy kolejnym buildzie.
+Develop, podglądy wdrożeń i przeglądarki automatycznych testów nie wysyłają danych.
+
+Zbierane są wejścia (`/`) i zdarzenie `reading_day_completed` po potwierdzonym
+zapisie wszystkich fragmentów oryginalnego dnia planu. Częściowa porcja nadrabiania
+nie musi odpowiadać całemu oryginalnemu dniowi. Ponowne ukończenie odznaczonego dnia
+jest kolejnym zdarzeniem. To licznik działań, nie unikalnych ukończonych dni.
+Nie wysyłamy nazw grup, osób, identyfikatorów, tokenów, parametrów URL ani referrerów.
+Blokada skryptu lub brak sieci nie blokują aplikacji; brakujących zdarzeń nie odtwarzamy.
+
 ## Funkcje
 
 - import własnego planu z CSV;

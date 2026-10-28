@@ -2,6 +2,9 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import SimpleApp from "./SimpleApp";
 import "./simple.css";
+import { startAnalytics } from "./lib/analytics";
+
+startAnalytics();
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
