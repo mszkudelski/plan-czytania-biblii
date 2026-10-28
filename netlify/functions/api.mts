@@ -1,6 +1,7 @@
 import { replaceGroupPlan, restoreGroupPlan, planRestoreAvailable, replacementPlanError, type SavedPlan, type PlanReplacementInput } from "../../src/lib/plan-replacement";
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference } from "../../src/lib/recovery-prompt";
 import { getStore } from "@netlify/blobs";
+import { planTemplate } from "../../src/lib/plan-template";
 import { cleanupE2e, e2eRunHash, e2eRunToken, registerE2eGroup, trackE2eResource } from "./_shared/e2e-cleanup";
 import { changeGroupState, readGroupState, type GroupStateStore } from "../../src/lib/group-state";
 import { applyProgressLog, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
@@ -146,6 +147,7 @@ function publicGroup(group: StoredGroup): Group {
   } = group;
   return {
     ...publicFields,
+    analyticsDisabled: Boolean(group.e2eRunHash),
     planRestore: planRestoreAvailable(group.planRestore) ? group.planRestore : undefined,
     members: members.map(
       ({
@@ -268,6 +270,21 @@ export async function storedGroup(groupId: string) {
   const store = groupStore();
   const state = await readGroupState(groupStateStore(groupId));
   if (!state) return null;
+  // Older groups get a separate, write-once analytics identity. Do not rewrite
+  // their baseline/progress or compete with group-state revisions on a read.
+  if (!state.group.analyticsPlanId) {
+    const key = `analytics-plan-v1/${groupId}`;
+    try {
+      let identity = await store.get(key, { type: "json" }) as { id: string } | null;
+      if (!identity) {
+        const candidate = { id: crypto.randomUUID() };
+        await trackE2eResource(groupId, "plan-czytania-biblii-groups", key);
+        const result = await store.set(key, JSON.stringify(candidate), { onlyIfNew: true });
+        identity = result.modified ? candidate : await store.get(key, { type: "json" }) as { id: string } | null;
+      }
+      state.group.analyticsPlanId = identity?.id;
+    } catch { /* Missing analytics metadata must not prevent reading or saves. */ }
+  }
   const { blobs } = await store.list({ prefix: progressLogPrefix(groupId) });
   return applyProgressLog(state.group, blobs.map(blob => blob.key));
 }
@@ -311,6 +328,8 @@ async function createGroup(request: Request) {
   const inviteToken = randomToken();
   const group: StoredGroup = {
     id: groupId,
+    analyticsPlanId: crypto.randomUUID(),
+    planTemplate: planTemplate(planDays),
     ...(testRunHash ? { e2eRunHash: testRunHash } : {}),
     name,
     createdAt: new Date().toISOString(),

@@ -11,6 +11,11 @@ test('rejects invalid plans and missing groups', async ({ request }) => {
 test('real persistence, idempotence, invalid credentials and invalid segment', async ({ request }) => {
   const session = await createPlan(request, 'persistence');
   const publicGroup = await readGroup(request, session);
+  expect(publicGroup.analyticsPlanId).toMatch(/^[a-f0-9-]{36}$/);
+  expect(publicGroup.analyticsPlanId).toBe(session.group.analyticsPlanId);
+  expect(publicGroup.analyticsPlanId).not.toBe(session.group.id);
+  expect(publicGroup.planTemplate).toBe('custom_csv');
+  expect(publicGroup.analyticsDisabled).toBe(true);
   const serialized = JSON.stringify(publicGroup);
   for (const field of ['tokenHash', 'tokenHashes', 'inviteTokenHash']) expect(serialized.includes(field)).toBe(false);
   expect(serialized.includes(session.credentials.token)).toBe(false);
@@ -28,6 +33,7 @@ test('real persistence, idempotence, invalid credentials and invalid segment', a
   await saveProgress(request, session, 's0');
   await saveProgress(request, session, 's0');
   await expectSaved(request, session, ['s0']);
+  expect((await readGroup(request, session)).analyticsPlanId).toBe(publicGroup.analyticsPlanId);
   await saveProgress(request, session, 's0', false);
   await saveProgress(request, session, 's0', false);
   await expectSaved(request, session, []);

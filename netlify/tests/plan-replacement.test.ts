@@ -57,6 +57,8 @@ it("authorizes replacement, validates input and rejects stale previews without m
   expect((await call(base + "/plan", input)).status).toBe(409);
   const group = await (await call(base)).json() as Group;
   expect(group.planVersion).toBe(1);
+  expect(group.analyticsPlanId).toBe(session.group.analyticsPlanId);
+  expect(group.planTemplate).toBe("custom_csv");
   expect(group.members).toHaveLength(2);
   expect(group.members[0]).not.toHaveProperty("tokenHashes");
 });
@@ -117,6 +119,8 @@ it("restores the hydrated pre-replacement snapshot, protects it and rejects stal
   expect(restored.members).toEqual(before.members);
   expect(restored.planDays.map(day => day.segments[0].label)).toEqual(["Rdz 1", "Mt 1", "Ps 1"]);
   expect(restored.planVersion).toBe(2);
+  expect(restored.analyticsPlanId).toBe(before.analyticsPlanId);
+  expect(restored.planTemplate).toBe(before.planTemplate);
   expect(restored.planRevision).not.toBe(replaced.planRevision);
   expect(restored.planRestore).toBeUndefined();
   expect(restored).not.toHaveProperty("previousPlan");
