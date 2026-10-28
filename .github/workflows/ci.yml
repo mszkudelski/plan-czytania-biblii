@@ -52,7 +52,8 @@ jobs:
     concurrency:
       group: backend-e2e-${{ github.event.pull_request.head.sha || github.sha }}
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    # Keep browser dependencies compatible with the locked Playwright version.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
