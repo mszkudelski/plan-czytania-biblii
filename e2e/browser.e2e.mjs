@@ -5,6 +5,8 @@ import {
 } from './helpers.mjs';
 
 test('standard reading is optimistic, saves to backend and survives reload', async ({ page, request }) => {
+  const analyticsRequests = [];
+  page.on('request', req => { if (new URL(req.url()).hostname.endsWith('posthog.com')) analyticsRequests.push(req.url()); });
   const session = await createPlan(request, 'standard');
   await openPlan(page, session);
   const held = await holdNextProgress(page, session);
@@ -22,6 +24,8 @@ test('standard reading is optimistic, saves to backend and survives reload', asy
   await expectSaved(request, session, []);
   await page.reload();
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'false');
+  // Synthetic test activity on immutable deploys must never reach analytics.
+  expect(analyticsRequests).toEqual([]);
 });
 
 test('rapid toggles and an independent click persist the final intent', async ({ page, request }) => {

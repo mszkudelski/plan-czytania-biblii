@@ -3,6 +3,28 @@
 Grupowy, długoterminowy plan czytania Biblii. Każda osoba śledzi własny
 postęp, zaznacza fragmenty oddzielnie i widzi zaległość lub wyprzedzenie.
 
+## Statystyki użycia
+
+PostHog jest włączony wyłącznie na `plan-czytania.netlify.app`, w kontekście
+wdrożenia `production`. Publiczny token projektu `VITE_POSTHOG_PROJECT_TOKEN`
+i host `VITE_POSTHOG_HOST` są zmiennymi środowiskowymi Netlify, tylko dla
+produkcyjnych buildów. Lokalnie można użyć ignorowanego `.env.local`.
+Usunięcie tokenu wyłącza integrację przy kolejnym buildzie.
+Develop, podglądy wdrożeń i przeglądarki automatycznych testów nie wysyłają danych.
+
+Zbierane są wejścia (`$pageview`) i zdarzenie `reading_day_completed` po potwierdzonym
+zapisie wszystkich fragmentów oryginalnego dnia planu. Częściowa porcja nadrabiania
+nie musi odpowiadać całemu oryginalnemu dniowi. Ponowne ukończenie odznaczonego dnia
+jest kolejnym zdarzeniem. To licznik działań, nie unikalnych ukończonych dni.
+Nie wysyłamy nazw grup, osób, identyfikatorów aplikacji, tokenów dostępu do grup,
+parametrów URL ani referrerów. PostHog używa anonimowych identyfikatorów tylko
+w pamięci strony; nie ustawiamy cookies ani trwałej tożsamości użytkownika.
+Liczba odwiedzających nie oznacza unikalnych osób powracających po przeładowaniu.
+Autocapture, nagrywanie sesji, profile osób, flagi i automatyczne błędy są wyłączone.
+Blokada skryptu lub brak sieci nie blokują aplikacji; brakujących zdarzeń nie odtwarzamy.
+
+Instrukcja SDK: https://posthog.com/docs/libraries/react
+
 ## Funkcje
 
 - import własnego planu z CSV;

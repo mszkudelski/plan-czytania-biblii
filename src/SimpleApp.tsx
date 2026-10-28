@@ -1,4 +1,5 @@
 import PlanReplacement from "./PlanReplacement";
+import { trackSavedReading } from "./lib/analytics";
 import { downloadPlanCsv } from "./lib/plan-export";
 import Onboarding, { useOnboarding, usePromptOffer } from "./Onboarding";
 import ReminderPrompt from "./ReminderPrompt";
@@ -1613,12 +1614,18 @@ function Dashboard({
   const [inviteOpen, setInviteOpen] = useState(false);
   const [visibleGroup, setVisibleGroup] = useState(group);
   const [progressError, setProgressError] = useState("");
+  const analyticsBaseline = useRef(group);
+  useEffect(() => { analyticsBaseline.current = group; }, [group]);
   const [progressQueue] = useState(() => createOptimisticProgressQueue({
     group,
     memberId: credentials.memberId,
     save: (segmentId, completed) => updateProgress(credentials, segmentId, completed),
     onChange: setVisibleGroup,
-    onSave: setGroup,
+    onSave: next => {
+      trackSavedReading(analyticsBaseline.current, next, credentials.memberId);
+      analyticsBaseline.current = next;
+      setGroup(next);
+    },
     onError: () => setProgressError("Nie udało się zapisać zmiany. Spróbuj ponownie."),
   }));
   const renderedRevision = progressQueue.revision;
