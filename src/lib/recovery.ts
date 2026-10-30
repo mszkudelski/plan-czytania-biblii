@@ -314,3 +314,17 @@ export function isReadingDateComplete(day: PlanDay, progress: Record<string, str
   return baseComplete && (!extra || Boolean(progress[extra.segmentId]) || dailyExtraCompleted ||
     isRecoveryChapterRead(chapters, marks, extra.segmentId, extra.chapterIndex));
 }
+
+export function getStandardReadingPortion(day: PlanDay, progress: Record<string, string>,
+  chapters: Record<string, number>, marks: ReadChapterMarks): RecoveryPortion {
+  const chapterIndices: Record<string, number[]> = {};
+  const segments = day.segments.map(segment => {
+    const labels = splitReadingChapters(segment.label);
+    const all = labels.map((_, index) => index);
+    const remaining = progress[segment.id] ? all : all.filter(index => !isRecoveryChapterRead(chapters, marks, segment.id, index));
+    const indices = remaining.length ? remaining : all;
+    chapterIndices[segment.id] = indices;
+    return { ...segment, label: indices.length === all.length ? segment.label : indices.map(index => labels[index]).join(" · ") };
+  });
+  return { day: { ...day, segments }, chapterIndices };
+}

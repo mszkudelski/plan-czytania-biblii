@@ -43,6 +43,7 @@ export type Group = {
   progressSegmentIds?: string[];
   members: Member[];
   progress: Record<string, Record<string, string>>;
+  chapterProgress?: Record<string, Record<string, number[]>>;
 };
 
 export type Credentials = {

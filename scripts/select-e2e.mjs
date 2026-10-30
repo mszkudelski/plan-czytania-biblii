@@ -5,10 +5,11 @@ import { pathToFileURL } from 'node:url';
 
 const visual = 'develop-visual-review.e2e.mjs';
 const notifications = ['notifications.e2e.mjs', 'onboarding.e2e.mjs', visual];
-const reading = ['browser.e2e.mjs', 'reading-home.e2e.mjs', 'recovery-prompt.e2e.mjs', 'member-access.e2e.mjs', 'onboarding.e2e.mjs', visual];
+const reading = ['browser.e2e.mjs', 'chapter-sync.e2e.mjs', 'reading-home.e2e.mjs', 'recovery-prompt.e2e.mjs', 'member-access.e2e.mjs', 'onboarding.e2e.mjs', visual];
 const access = ['backend.e2e.mjs', 'browser.e2e.mjs', 'identity.e2e.mjs', 'member-access.e2e.mjs', 'group-access-hint.e2e.mjs', 'onboarding.e2e.mjs', visual];
 // Explicit allowlist: shared app/API/storage/configuration and unknown files run all.
 // Keep cross-feature consumers here, even when they import a module indirectly.
+// chapter-progress, progress-log and optimistic-progress are shared: full-suite fallback.
 const rules = [
   { paths: ["src/PlanReplacement.tsx", "src/lib/plan-replacement.ts", "src/lib/plan-export.ts"], tests: [...reading, ...access, ...notifications, "plan-replacement.e2e.mjs"] },
   { paths: ['src/NotificationSettings.tsx', 'src/NotificationTestControls.tsx', 'src/ReminderPrompt.tsx', 'src/lib/notifications.ts', 'src/lib/push-client.ts', 'src/lib/install.ts', 'src/lib/reminder-time-save.ts', 'netlify/functions/_shared/notifications.ts', 'netlify/functions/reading-reminders.mts'], tests: notifications },

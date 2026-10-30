@@ -1,3 +1,4 @@
+import { applyChapterProgress } from "./chapter-progress";
 import { replaceGroupPlan, type PlanReplacementInput } from "./plan-replacement";
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference, type RecoveryPromptAction } from "./recovery-prompt";
 import type {
@@ -99,6 +100,8 @@ export function localUpdateProgress(
   credentials: Credentials,
   segmentId: string,
   completed: boolean,
+  indices?: number[],
+  migrate = false,
 ): Group {
   const all = loadAll();
   const group = all[credentials.groupId];
@@ -111,10 +114,8 @@ export function localUpdateProgress(
   if (!group.planDays.some(day => day.segments.some(segment => segment.id === segmentId))) {
     throw new Error("Nieprawidłowy fragment. Odśwież plan.");
   }
-  const memberProgress = group.progress[credentials.memberId] ?? {};
-  if (completed) memberProgress[segmentId] = new Date().toISOString();
-  else delete memberProgress[segmentId];
-  group.progress[credentials.memberId] = memberProgress;
+  if (migrate && (group.chapterProgress?.[credentials.memberId]?.[segmentId] !== undefined || group.progress[credentials.memberId]?.[segmentId])) return publicGroup(group);
+  Object.assign(group, applyChapterProgress(group, credentials.memberId, segmentId, completed, indices));
   saveAll(all);
   return publicGroup(group);
 }

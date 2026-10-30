@@ -5,7 +5,8 @@ import { createOptimisticProgressQueue } from "./optimistic-progress";
 function groupWith(progress: Record<string, string> = {}): Group {
   return {
     id: "g", name: "Grupa", createdAt: "", startDate: "2026-10-01",
-    frequency: { kind: "daily", days: [] }, planDays: [], members: [],
+    frequency: { kind: "daily", days: [] }, planDays: [{ id: "d", index: 0, date: "2026-10-01", title: "",
+      segments: ["s1", "s2", "s3"].map(id => ({ id, label: "Rdz 1", section: "" })) }], members: [],
     progress: { a: progress, b: { other: "already-read" } },
   };
 }
@@ -250,4 +251,24 @@ it("ignores late old-plan responses and reads after a replacement, without overl
   expect(f.visible).toEqual(next);
   expect(f.saved.at(-1)).toEqual(next);
   expect(f.queue.replaceGroup(groupWith(), 0)).toEqual(next);
+});
+
+it("overlays partial chapter intents, rolls back a failed write and preserves a later independent chapter", async () => {
+  let visible = groupWith(); visible.planDays[0].segments[0].label = "Rdz 1-3";
+  const initial = structuredClone(visible);
+  const tasks: ReturnType<typeof deferredGroup>[] = [];
+  const queue = createOptimisticProgressQueue({ group: initial, memberId: "a",
+    save: () => { const task = deferredGroup(); tasks.push(task); return task.promise; },
+    onChange: next => { visible = next; }, onSave: () => undefined, onError: () => undefined });
+  const first = queue.toggle("s1", true, true, [0]).catch(() => undefined);
+  const second = queue.toggle("s1", true, true, [2]);
+  expect(visible.chapterProgress?.a.s1).toEqual([0, 2]);
+  expect(visible.progress.a.s1).toBeUndefined();
+  queue.replaceGroup(initial);
+  expect(visible.chapterProgress?.a.s1).toEqual([0, 2]);
+  tasks[0].reject(new Error("offline")); await first;
+  expect(visible.chapterProgress?.a.s1).toEqual([2]);
+  tasks[1].resolve({ ...initial, chapterProgress: { a: { s1: [2] } } }); await second;
+  expect(visible.chapterProgress?.a.s1).toEqual([2]);
+  expect(initial.chapterProgress).toBeUndefined();
 });
