@@ -61,6 +61,7 @@ for (const late of [false, true]) {
     }
     const session = await join(page, owner);
     await expect(recovery(page)).toBeHidden(); await expect(install(page)).toBeHidden(); await expect(reminder(page)).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true }))[late ? 'toBeVisible' : 'toBeHidden']();
     await screenshot(page, 'onboarding-first-reading-' + (late ? 'late' : 'together'));
     if (late) {
       await page.clock.setSystemTime(new Date(NOW.getTime() + 31 * 60000));
@@ -87,7 +88,8 @@ for (const late of [false, true]) {
     await page.reload(); await expect(recovery(page)).toBeHidden(); await expect(install(page)).toBeHidden();
     if (late) {
       await page.clock.setSystemTime(new Date(NOW.getTime() + 62 * 60000));
-      await page.reload(); await expect(recovery(page)).toBeVisible(); await expect(install(page)).toBeHidden();
+      await page.reload(); await expect(recovery(page)).toBeHidden(); await expect(install(page)).toBeHidden();
+      await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
       await screenshot(page, 'onboarding-catchup-next-visit');
     }
     expect(await page.evaluate(() => window.permissionRequests)).toBe(0);
@@ -114,7 +116,7 @@ test('manual installation is available before reading and opens from settings af
 
 });
 
-test('a desktop participant who returns before reading still finishes a reading before any catch-up proposal', async ({ page, request }) => {
+test('a late desktop participant keeps automatic catch-up across visits and after the first reading', async ({ page, request }) => {
   const owner = await createPlan(request, 'onboarding-unfinished-return');
   const session = await join(page, owner);
   await expect(recovery(page)).toBeHidden();
@@ -126,7 +128,8 @@ test('a desktop participant who returns before reading still finishes a reading 
   await expect(recovery(page)).toBeHidden();
   await page.reload(); await expect(recovery(page)).toBeHidden();
   await page.clock.setSystemTime(new Date(NOW.getTime() + 62 * 60000)); await page.reload();
-  await expect(recovery(page)).toBeVisible();
+  await expect(recovery(page)).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
 });
 
 test('first launch from the app icon offers reminders without a time picker and never requests permission automatically', async ({ page, request }) => {

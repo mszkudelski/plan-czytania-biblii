@@ -1,3 +1,4 @@
+import { createReadingStart } from "../../src/lib/personal-schedule";
 import { replaceGroupPlan, restoreGroupPlan, planRestoreAvailable, replacementPlanError, type SavedPlan, type PlanReplacementInput } from "../../src/lib/plan-replacement";
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference } from "../../src/lib/recovery-prompt";
 import { getStore } from "@netlify/blobs";
@@ -726,7 +727,9 @@ async function joinGroup(request: Request, groupId: string) {
   const body = (await request.json()) as {
     name?: unknown;
     inviteToken?: unknown;
+    readingStart?: unknown;
   };
+  if (body.readingStart !== undefined && body.readingStart !== "beginning" && body.readingStart !== "group") return error("Nieprawidłowe miejsce startu.");
   const name = cleanPersonName(cleanText(body.name));
   const inviteToken = cleanText(body.inviteToken, 200);
   if (!name) return error("Podaj imię.");
@@ -740,6 +743,9 @@ async function joinGroup(request: Request, groupId: string) {
     ) {
       return error("Link zaproszenia jest nieprawidłowy.", 401);
     }
+    let readingStart: Member["readingStart"];
+    try { readingStart = createReadingStart(group, body.readingStart === "group" ? "group" : "beginning"); }
+    catch (caught) { return error((caught as Error).message, 409); }
     const memberId = crypto.randomUUID();
     const token = randomToken();
     if (group.members.length >= 100) {
@@ -748,6 +754,7 @@ async function joinGroup(request: Request, groupId: string) {
     group.members.push({
       id: memberId,
       name,
+      readingStart,
       color: COLORS[group.members.length % COLORS.length],
       isAdmin: false,
       tokenHashes: [await hashToken(token)],
@@ -787,6 +794,16 @@ async function removeMember(
       (candidate) => candidate.id !== memberId,
     );
     delete group.progress[memberId];
+  });
+}
+
+async function includeSkippedReadings(request: Request, groupId: string) {
+  const credentials = cleanCredentials(await request.json());
+  if (!credentials || credentials.groupId !== groupId) return error("Nieprawidłowy dostęp.", 401);
+  return updateStoredGroup(groupId, async group => {
+    const member = await authenticate(group, credentials);
+    if (!member) return error("Nieprawidłowy dostęp.", 401);
+    member.readingStart = { skippedSegmentIds: [] };
   });
 }
 
@@ -1043,6 +1060,9 @@ export default async (request: Request, context: Context) => {
       route[2] === "join"
     ) {
       return joinGroup(request, route[1]);
+    }
+    if (request.method === "POST" && route.length === 3 && route[0] === "groups" && route[2] === "include-skipped") {
+      return includeSkippedReadings(request, route[1]);
     }
     if (
       request.method === "DELETE" &&

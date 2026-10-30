@@ -17,6 +17,7 @@ import {
   localEnsureInvite,
   localGetGroup,
   localJoinGroup,
+  localIncludeSkippedReadings,
   localRemoveMember,
   localRecoveryCodeStatus,
   localRedeemRecoveryCode,
@@ -262,19 +263,19 @@ export async function ensureInvite(credentials: Credentials) {
   }
 }
 
-export async function joinGroup(invite: JoinInvite, name: string) {
-  if (useLocalOnly()) return localJoinGroup(invite, name);
+export async function joinGroup(invite: JoinInvite, name: string, readingStart: "beginning" | "group" = "beginning") {
+  if (useLocalOnly()) return localJoinGroup(invite, name, readingStart);
   try {
     return await request<{ group: Group; credentials: Credentials }>(
       `/groups/${invite.groupId}/join`,
       {
         method: "POST",
-        body: JSON.stringify({ inviteToken: invite.inviteToken, name }),
+        body: JSON.stringify({ inviteToken: invite.inviteToken, name, readingStart }),
       },
     );
   } catch (error) {
     if (!canFallback()) throw error;
-    return localJoinGroup(invite, name);
+    return localJoinGroup(invite, name, readingStart);
   }
 }
 
@@ -316,5 +317,12 @@ export async function restorePlan(credentials: Credentials, expectedRevision: st
   if (useLocalOnly()) return localRestorePlan(credentials, expectedRevision);
   return request<Group>(`/groups/${credentials.groupId}/plan/restore`, {
     method: "POST", body: JSON.stringify({ ...credentials, expectedRevision }),
+  });
+}
+
+export async function includeSkippedReadings(credentials: Credentials) {
+  if (useLocalOnly()) return localIncludeSkippedReadings(credentials);
+  return request<Group>(`/groups/${credentials.groupId}/include-skipped`, {
+    method: "POST", body: JSON.stringify(credentials),
   });
 }

@@ -2014,3 +2014,11 @@ body:has(.notification-card) .install-app-card { display: none; }
   .plan-replacement .replacement-actions { flex-direction: column; align-items: stretch; gap: 4px; }
   .replacement-actions .main-button, .replacement-actions .link-button { width: 100%; }
 }
+
+.reading-start-options { margin: 20px 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; }
+.reading-start-options legend { font-weight: 600; }
+.reading-start-options label { display: flex; gap: 10px; align-items: center; min-height: 44px; font-weight: 600; }
+.reading-start-options input[type="radio"] { width: 20px; height: 20px; margin: 0; }
+.reading-start-options p, .personal-start-notice { font-size: .9rem; line-height: 1.6; }
+.personal-start-notice { margin: 16px 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; }
+.personal-start-notice button { margin: 4px 10px 4px 0; }

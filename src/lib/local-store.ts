@@ -1,3 +1,4 @@
+import { createReadingStart } from "./personal-schedule";
 import { applyChapterProgress } from "./chapter-progress";
 import { replaceGroupPlan, restoreGroupPlan, planRestoreAvailable, type SavedPlan, type PlanReplacementInput } from "./plan-replacement";
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference, type RecoveryPromptAction } from "./recovery-prompt";
@@ -146,6 +147,7 @@ export function localEnsureInvite(
 export function localJoinGroup(
   invite: JoinInvite,
   name: string,
+  readingStart: "beginning" | "group" = "beginning",
 ): { group: Group; credentials: Credentials } {
   const cleanName = cleanPersonName(name);
   const all = loadAll();
@@ -161,6 +163,7 @@ export function localJoinGroup(
   group.members.push({
     id: memberId,
     name: cleanName,
+    readingStart: createReadingStart(group, readingStart),
     color: COLORS[group.members.length % COLORS.length],
     isAdmin: false,
   });
@@ -357,4 +360,13 @@ export function localRestorePlan(credentials: Credentials, expectedRevision: str
   all[group.id] = restoreGroupPlan(group, expectedRevision);
   saveAll(all);
   return publicGroup(all[group.id]);
+}
+
+export function localIncludeSkippedReadings(credentials: Credentials): Group {
+  requireLocalMember(credentials);
+  const all = loadAll();
+  const group = all[credentials.groupId];
+  group.members.find(member => member.id === credentials.memberId)!.readingStart = { skippedSegmentIds: [] };
+  saveAll(all);
+  return publicGroup(group);
 }
