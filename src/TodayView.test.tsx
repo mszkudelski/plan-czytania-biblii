@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { TodayView } from "./SimpleApp";
 import { createOptimisticProgressQueue } from "./lib/optimistic-progress";
+import { applyChapterProgress } from "./lib/chapter-progress";
 import { projectRecoveryPortions } from "./lib/recovery";
 import type { Group } from "./types";
 
@@ -33,11 +34,10 @@ function mount(initial: Group, enabled = true, ready = true) {
   const errors: string[] = [];
   let server = structuredClone(initial);
   const queue = createOptimisticProgressQueue({ group, memberId: "m",
-    save: (id, completed) => new Promise<Group>((resolve, reject) => {
+    save: (id, completed, indices) => new Promise<Group>((resolve, reject) => {
       writes.push({ id, completed, resolve: () => {
         server = structuredClone(server);
-        if (completed) server.progress.m[id] = `${TODAY}T12:00:00Z`;
-        else delete server.progress.m[id];
+        server = applyChapterProgress(server, "m", id, completed, indices, `${TODAY}T12:00:00Z`);
         resolve(server);
       }, reject: () => reject(new Error("offline")) });
     }),
@@ -47,7 +47,7 @@ function mount(initial: Group, enabled = true, ready = true) {
   function render() {
     root.render(<TodayView group={group} credentials={{ groupId: "g", memberId: "m", token: "test" }}
       member={group.members[0]} active promptReady={verified} savingProgress={queue.hasPending}
-      onToggle={(id, completed, optimistic) => queue.toggle(id, completed, optimistic)}
+      onToggle={(id, completed, optimistic, indices, migrate) => queue.toggle(id, completed, optimistic, indices, migrate)}
       onWaitForSegments={queue.waitForSegments} onError={message => { if (message) errors.push(message); }} />);
   }
   return { writes, errors, render,
@@ -321,13 +321,15 @@ it("normal reading shows only chapters not already consumed by a recovery extra"
   const g = plan(); g.planDays[1].segments[0].label = "Rdz 2-4";
   const f = mount(g); await act(async () => f.render());
   await click("Rdz 1"); await act(async () => f.writes[0].resolve());
-  await click("Rdz 2"); // A partial range is local until every chapter is read.
-  expect(f.writes).toHaveLength(1);
+  await click("Rdz 2"); // Partial chapters now save independently.
+  expect(f.writes).toHaveLength(2);
+  await act(async () => f.writes[1].resolve());
+  expect(f.group.progress.m.s1).toBeUndefined();
   await click("Wyłącz nadrabianie"); await click("Następne");
   expect(button("Rdz 3 · Rdz 4").getAttribute("aria-pressed")).toBe("false");
   await click("Rdz 3 · Rdz 4");
-  expect(f.writes[1]).toMatchObject({ id: "s1", completed: true });
-  await act(async () => f.writes[1].resolve());
+  expect(f.writes[2]).toMatchObject({ id: "s1", completed: true });
+  await act(async () => f.writes[2].resolve());
   expect(f.group.progress.m.s1).toBeDefined();
 });
 
@@ -359,16 +361,16 @@ it("keeps an unchecked historical day and every navigation entry in place during
 
 it("keeps the labels and chapter selection stable while toggling a normal partial range", async () => {
   const g = plan(); g.planDays[0].segments[0].label = "Rdz 1-3";
-  localStorage.setItem(`${KEY}:chapters`, JSON.stringify({ s0: 1 }));
+  g.chapterProgress = { m: { s0: [0] } };
   const f = mount(g, false); await act(async () => f.render());
   await click("Rdz 2 · Rdz 3");
-  expect(button("Rdz 2 · Rdz 3").getAttribute("aria-pressed")).toBe("false");
+  expect(button("Rdz 2 · Rdz 3").getAttribute("aria-pressed")).toBe("true");
   expect(button("Rdz 2 · Rdz 3").getAttribute("aria-busy")).toBe("true");
   await act(async () => f.writes[0].resolve());
   await click("Rdz 2 · Rdz 3");
   await act(async () => f.writes[1].resolve());
   expect(button("Rdz 2 · Rdz 3").getAttribute("aria-pressed")).toBe("false");
-  expect(JSON.parse(localStorage.getItem(`${KEY}:chapters`) ?? "{}").s0).toBe(1);
+  expect(f.group.chapterProgress?.m.s0).toEqual([0]);
   await click("Rdz 2 · Rdz 3"); await act(async () => f.writes[2].reject());
   expect(button("Rdz 2 · Rdz 3").getAttribute("aria-pressed")).toBe("false");
 });
@@ -388,7 +390,7 @@ it("rapid check and uncheck preserve the final intent when the first request fai
   expect(f.writes[1]).toMatchObject({ id: "s0", completed: false });
   await act(async () => f.writes[1].resolve());
   expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("false");
-  expect(JSON.parse(localStorage.getItem(`${KEY}:chapters`) ?? "{}").s0).toBe(0);
+  expect(f.group.chapterProgress?.m.s0).toEqual([]);
 });
 
 it("does not mistake a stale daily completion flag for a read extra chapter", async () => {
@@ -420,11 +422,13 @@ it("keeps the normal daily chapter quota after a partial range without assuming 
   const f = mount(g); await act(async () => f.render());
   await click("Następne");
   expect([...container.querySelectorAll(".simple-readings strong")].map(node => node.textContent)).toEqual(["Rdz 3", "Rdz 4", "Rdz 5"]);
-  await click("Rdz 3"); expect(f.writes).toHaveLength(0);
+  await click("Rdz 3"); expect(f.writes).toHaveLength(1);
+  await act(async () => f.writes[0].resolve());
+  expect(f.group.chapterProgress?.m.s1).toEqual([1]);
   expect(button("Rdz 5").disabled).toBe(true);
-  await click("Rdz 4"); await act(async () => f.writes[0].resolve());
+  await click("Rdz 4"); await act(async () => f.writes[1].resolve());
   expect(button("Rdz 5").disabled).toBe(false);
-  await click("Rdz 5"); await act(async () => f.writes[1].resolve());
+  await click("Rdz 5"); await act(async () => f.writes[2].resolve());
   expect(f.group.progress.m.s1).toBeUndefined();
   expect(f.group.progress.m.s2).toBeDefined();
   expect(f.group.progress.m.s3).toBeDefined();
@@ -434,8 +438,35 @@ it("does not resurrect a confirmed segment that was unchecked on another device"
   localStorage.setItem(`${KEY}:chapters`, JSON.stringify({ s0: 1 }));
   localStorage.setItem(`${KEY}:confirmed-segments`, JSON.stringify({ s0: 1 }));
   const f = mount(plan(), false, false); await act(async () => f.render());
-  expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("true");
+  expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("false");
   await act(async () => f.refresh(plan()));
   expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("false");
   expect(f.writes).toHaveLength(0);
+});
+
+it("imports legacy prefix and sparse marks only after verification and updates the visible remaining range", async () => {
+  const g = plan(); g.planDays[0].segments[0].label = "Rdz 1-4";
+  localStorage.setItem(`${KEY}:chapters`, JSON.stringify({ s0: 1 }));
+  localStorage.setItem(`${KEY}:chapter-marks`, JSON.stringify({ s0: [2] }));
+  const f = mount(g, false, false); await act(async () => f.render());
+  expect(f.writes).toHaveLength(0);
+  await act(async () => f.refresh(structuredClone(g)));
+  expect(f.writes).toHaveLength(1);
+  expect(localStorage.getItem(`${KEY}:chapters-synced-v1`)).toBeNull();
+  await act(async () => f.writes[0].resolve());
+  expect(f.group.chapterProgress?.m.s0).toEqual([0, 2]);
+  expect(f.group.progress.m.s0).toBeUndefined();
+  expect(button("Rdz 2 · Rdz 4")).toBeDefined();
+  expect(localStorage.getItem(`${KEY}:chapters-synced-v1`)).toBe("1");
+});
+
+it("retains legacy partial marks and reports a failed import without recording migration success", async () => {
+  const g = plan(); g.planDays[0].segments[0].label = "Rdz 1-3";
+  localStorage.setItem(`${KEY}:chapters`, JSON.stringify({ s0: 1 }));
+  const f = mount(g, false); await act(async () => f.render());
+  await act(async () => f.writes[0].reject());
+  expect(localStorage.getItem(`${KEY}:chapters-synced-v1`)).toBeNull();
+  expect(localStorage.getItem(`${KEY}:chapters`)).toBe(JSON.stringify({ s0: 1 }));
+  expect(f.errors.some(error => error.includes("zsynchronizować"))).toBe(true);
+  expect(f.group.progress.m.s0).toBeUndefined();
 });

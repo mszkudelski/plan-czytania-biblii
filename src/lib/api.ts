@@ -232,18 +232,20 @@ export async function updateProgress(
   credentials: Credentials,
   segmentId: string,
   completed: boolean,
+  indices?: number[],
+  migrate?: boolean,
 ) {
   if (useLocalOnly()) {
-    return localUpdateProgress(credentials, segmentId, completed);
+    return localUpdateProgress(credentials, segmentId, completed, indices, migrate);
   }
   try {
     return await request<Group>(`/groups/${credentials.groupId}/progress`, {
       method: "POST",
-      body: JSON.stringify({ ...credentials, segmentId, completed }),
+      body: JSON.stringify({ ...credentials, segmentId, completed, indices, migrate: migrate || undefined }),
     });
   } catch (error) {
     if (!canFallback()) throw error;
-    return localUpdateProgress(credentials, segmentId, completed);
+    return localUpdateProgress(credentials, segmentId, completed, indices, migrate);
   }
 }
 

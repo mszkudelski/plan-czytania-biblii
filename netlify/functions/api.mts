@@ -4,7 +4,8 @@ import { getStore } from "@netlify/blobs";
 import { planTemplate } from "../../src/lib/plan-template";
 import { cleanupE2e, e2eRunHash, e2eRunToken, registerE2eGroup, trackE2eResource } from "./_shared/e2e-cleanup";
 import { changeGroupState, readGroupState, type GroupStateStore } from "../../src/lib/group-state";
-import { applyProgressLog, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
+import { splitReadingChapters } from "../../src/lib/recovery";
+import { applyProgressLog, chapterProgressLogKey, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
 import type { Config, Context } from "@netlify/functions";
 import { validReminderSettings, validPushSubscription, testReminder } from "../../src/lib/notifications";
 import { reminderStore, reminderKey, pushConfigured, missingPushConfiguration, sendReminder, type StoredReminder } from "./_shared/notifications";
@@ -266,6 +267,8 @@ async function authenticate(
   return tokenHashes(member).includes(candidateHash) ? member : null;
 }
 
+const progressClocks = new WeakMap<Group, number>();
+
 export async function storedGroup(groupId: string) {
   const store = groupStore();
   const state = await readGroupState(groupStateStore(groupId));
@@ -286,7 +289,13 @@ export async function storedGroup(groupId: string) {
     } catch { /* Missing analytics metadata must not prevent reading or saves. */ }
   }
   const { blobs } = await store.list({ prefix: progressLogPrefix(groupId) });
-  return applyProgressLog(state.group, blobs.map(blob => blob.key));
+  const keys = blobs.map(blob => blob.key);
+  const group = applyProgressLog(state.group, keys);
+  // Sequential requests must order after every observed operation even if the
+  // function clocks share a millisecond or differ slightly across instances.
+  progressClocks.set(group, keys.reduce((latest, key) => Math.max(latest,
+    Number(key.split("/")[4]?.slice(0, 13)) || 0), 0));
+  return group;
 }
 
 async function createGroup(request: Request) {
@@ -591,6 +600,8 @@ async function updateProgress(request: Request, groupId: string) {
   const body = (await request.json()) as Partial<Credentials> & {
     segmentId?: unknown;
     completed?: unknown;
+    indices?: unknown;
+    migrate?: unknown;
   };
   const segmentId = cleanText(body.segmentId, 120);
   const group = await storedGroup(groupId);
@@ -603,10 +614,21 @@ async function updateProgress(request: Request, groupId: string) {
     return error("Nieprawidłowy fragment.");
   }
 
+  if (body.groupId !== groupId) return error("Nieprawidłowy link dostępu.", 401);
+  const count = splitReadingChapters(segments.find(segment => segment.id === segmentId)!.label).length;
+  if (body.indices !== undefined && (!Array.isArray(body.indices) || !body.indices.length ||
+    body.indices.length > count || body.indices.some(index => !Number.isInteger(index) || index < 0 || index >= count))) {
+    return error("Nieprawidłowe rozdziały.");
+  }
+  if (body.migrate !== undefined && (body.migrate !== true || body.completed !== true || !Array.isArray(body.indices))) {
+    return error("Nieprawidłowa migracja.");
+  }
   // Each operation has its own key. Parallel writes never replace another
   // person's progress or another reading's update, unlike whole-group writes.
+  const timestamp = Math.max(Date.now(), (progressClocks.get(group) ?? 0) + 1);
   await groupStore().set(
-    progressLogKey(groupId, member.id, segmentIndex, body.completed),
+    body.indices === undefined ? progressLogKey(groupId, member.id, segmentIndex, body.completed, timestamp)
+      : chapterProgressLogKey(groupId, member.id, segmentIndex, body.completed, body.indices as number[], body.migrate === true, timestamp),
     "{}",
   );
   const current = await storedGroup(groupId);

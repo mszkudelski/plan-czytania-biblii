@@ -197,7 +197,7 @@ test('extra rollback remains correct when leaving and returning to Today during 
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('partial extra chapter persists locally; tomorrow resumes remaining chapters', async ({ page, request }) => {
+test('partial extra chapter persists on the server; tomorrow resumes remaining chapters', async ({ page, request }) => {
   const session = await createPlan(request, 'partial-chapter', true);
   await openPlan(page, session);
   await enableRecovery(page);
@@ -208,6 +208,7 @@ test('partial extra chapter persists locally; tomorrow resumes remaining chapter
   await expect(extraReading(page)).toContainText('Rdz 2');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
   await expectSaved(request, session, ['s0', 's1']); // No whole segment completed yet.
+  await expect.poll(async () => (await readGroup(request, session)).chapterProgress?.[session.credentials.memberId]?.s2).toEqual([0]);
   await page.reload();
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
   await page.clock.setSystemTime(new Date(NOW.getTime() + 86400000));
@@ -252,609 +253,497 @@ test('normal partial reading keeps its label and date when checked and unchecked
   await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', selectedDate);
   await reading(page, 'Rdz 3').click();
   await expectSaved(request, session, ['s0', 's1']);
-  await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-…33667 tokens truncated…n" meta={`${group.planDays.length} dni · plan grupy`} />
-      <section className="plan-dates">
-        <div>
-          <span>Start</span>
-          <strong>{formatPolishDate(startDate, "shortYear")}</strong>
-        </div>
-        <div>
-          <span>Koniec</span>
-          <strong>{formatPolishDate(endDate, "shortYear")}</strong>
-        </div>
-      </section>
-      <div className="plan-overview">
-        <div className="plan-overview-label">
-          <span>Cały plan</span>
-          <strong>{formatProgressPercent(percent)}%</strong>
-        </div>
-        <div className="wide-progress" role="progressbar" aria-label="Postęp całego planu" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
-          <span style={{ width: `${percent}%` }} />
-        </div>
-      </div>
-      <section className="reading-week" aria-label="Postęp tygodnia">
-        <div><span>{week.weeklyTotal > 0 && week.weeklyCompleted === week.weeklyTotal ? "Tydzień ukończony" : "W tym tygodniu"}</span>
-          <strong data-testid="weekly-readings">{week.weeklyCompleted} z {week.weeklyTotal} czytań</strong></div>
-        {week.weeklyTotal > 0 && <div className="reading-week-track" role="progressbar" aria-label="Ukończone czytania w tym tygodniu"
-          aria-valuenow={week.weeklyCompleted} aria-valuemin={0} aria-valuemax={week.weeklyTotal}>
-          {Array.from({ length: week.weeklyTotal }, (_, index) => <span key={index} className={index < week.weeklyCompleted ? "done" : ""} />)}
-        </div>}
-      </section>
-      <section className="plan-days">
-        {group.planDays.map((day) => {
-          const completed = day.segments.filter(
-            (segment) => progress[segment.id],
-          ).length;
-          return (
-            <div
-              className={`plan-day-row ${
-                completed === day.segments.length ? "complete" : ""
-              }`}
-              key={day.id}
-            >
-              <strong>{formatPolishDate(day.date, "short")}</strong>
-              <span>
-                {day.segments.map((segment) => segment.label).join(" · ")}
-              </span>
-              <b>
-                {completed}/{day.segments.length}
-              </b>
-            </div>
-          );
-        })}
-      </section>
-    </>
-  );
-}
+  await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', selectedDate);
+});
 
-function GroupView({
-  credentials,
-  group,
-  member,
-  onInvite,
-  onRemove,
-  onRoleChange,
-  busyMember,
-}: {
-  credentials: Credentials;
-  group: Group;
-  member: Member;
-  onInvite: () => void;
-  onRemove: (member: Member) => void;
-  onRoleChange: (memberId: string, isAdmin: boolean) => Promise<void>;
-  busyMember: string;
-}) {
-  const [managedId, setManagedId] = useState<string | null>(null);
-  const managedPerson = group.members.find((person) => person.id === managedId);
-  const ranking = group.members
-    .map((person) => ({
-      ...person,
-      metrics: getMemberMetrics(group, person.id),
-    }))
-    .sort(
-      (a, b) =>
-        b.metrics.paceDays - a.metrics.paceDays ||
-        b.metrics.progressPercent - a.metrics.progressPercent,
-    );
+test('invalid and null recovery cache do not break reading', async ({ page, request }) => {
+  const session = await createPlan(request, 'bad-cache');
+  const key = recoveryKey(session);
+  await openPlan(page, session, {
+    [key]: TODAY,
+    [key + ':chapters']: 'null',
+    [key + ':ordered:' + TODAY]: '{broken json',
+  });
+  await expect(reading(page, 'Rdz 1')).toBeVisible();
+  await expect(extraReading(page)).toContainText('Rdz 2');
+});
 
-  return (
-    <>
-      <PageTitle
-        title="Grupa"
-        meta={`${group.members.length} ${
-          group.members.length === 1 ? "osoba" : "osoby"
-        }`}
-        action={
-          member.isAdmin ? (
-            <button className="small-button" onClick={onInvite}>
-              <Icon name="plus" size={17} /> Zaproś
-            </button>
-          ) : undefined
-        }
-      />
-      <GroupAccessHint key={`${group.id}:${member.id}`} group={group} member={member} />
-      <section className="simple-list">
-        {ranking.map((person, index) => (
-          <div className="member-row" key={person.id}>
-            <span className="rank-number">{index + 1}</span>
-            <span className="simple-avatar" style={{ background: person.color }}>
-              {initials(person.name)}
-            </span>
-            <div>
-              <strong>
-                {person.name}
-                {person.id === member.id && <small> Ty</small>}
-              </strong>
-              {person.isAdmin && <span className="admin-badge">Administrator</span>}
-              <span>
-                {formatProgressPercent(person.metrics.progressPercent)}% planu
-              </span>
-              <span className="member-progress" aria-hidden="true">
-                <i style={{ width: `${person.metrics.progressPercent}%` }} />
-              </span>
-            </div>
-            <div className="member-actions">
-              <b
-                className={`pace-${getPaceTone(person.metrics.paceDays)}`}
-              >
-                {person.metrics.paceDays > 0 ? "+" : ""}
-                {person.metrics.paceDays} d.
-              </b>
-              {member.isAdmin && person.id !== member.id && <button
-                className="small-button manage-member-button"
-                aria-label={`Zarządzaj profilem ${person.name}`}
-                onClick={() => setManagedId(person.id)}>Zarządzaj</button>}
-              {member.isAdmin && !person.isAdmin && person.id !== member.id && (
-                <button
-                  className="remove-member-button"
-                  disabled={busyMember === person.id}
-                  onClick={() => onRemove(person)}
-                  aria-label={`Usuń ${person.name}`}
-                >
-                  <Icon name="trash" size={16} />
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-      </section>
-      {member.isAdmin && managedPerson && <MemberAccessModal
-        key={managedPerson.id}
-        credentials={credentials}
-        person={managedPerson}
-        progressPercent={formatProgressPercent(getMemberMetrics(group, managedPerson.id).progressPercent)}
-        onRoleChange={onRoleChange}
-        onClose={() => setManagedId(null)}
-        copyText={copyText}
-        renderQr={(value) => <QrCode value={value} label="Kod QR do przywrócenia dostępu" />}
-      />}
-    </>
-  );
-}
+test('saved forecast rows keep their assigned date after reload and ordinary unchecks do not reappear', async ({ page, request }) => {
+  const session = await createPlan(request, 'forecast-reload-uncheck');
+  await openPlan(page, session); await enableRecovery(page);
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  const assignedDate = await page.locator('.reading-card-head time').getAttribute('dateTime');
+  await reading(page, 'Rdz 4').click(); await expectSaved(request, session, ['s3']);
+  await page.reload();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', assignedDate);
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true }).click();
+  await reading(page, 'Rdz 4').click(); await expectSaved(request, session, []);
+  await page.reload(); await browseReading(page, 2);
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  await expectSaved(request, session, []);
+});
 
-function SettingsView({
-  credentials,
-  group,
-  member,
-  onLeave,
-  savingProgress,
-  onReplace,
-}: {
-  credentials: Credentials;
-  group: Group;
-  member: Member;
-  onLeave: () => void;
-  savingProgress: boolean;
-  onReplace: (group: Group) => void;
-}) {
-  const startDate = group.planDays[0]?.date ?? group.startDate;
-  const endDate = group.planDays.at(-1)?.date ?? group.startDate;
-  const frequency = formatFrequency(group.frequency);
-  const onboarding = useOnboarding();
-  const [transfer, setTransfer] = useState<{
-    code: string;
-    expiresAt: string;
-  } | null>(null);
-  const [transferBusy, setTransferBusy] = useState(false);
-  const [transferError, setTransferError] = useState("");
-  const [copied, setCopied] = useState(false);
-  const [logoutConfirm, setLogoutConfirm] = useState(false);
-
-  async function prepareTransfer() {
-    setTransferBusy(true);
-    setTransferError("");
-    setCopied(false);
-    try {
-      setTransfer(await createSessionTransfer(credentials));
-    } catch {
-      setTransferError("Nie udało się utworzyć kodu połączenia.");
-    } finally {
-      setTransferBusy(false);
-    }
-  }
-
-  return (
-    <>
-      <PageTitle title="Ustawienia" />
-      <h2 className="settings-heading">Grupa</h2>
-      <section className="settings-card">
-        <Setting label="Grupa" value={group.name} />
-        <Setting label="Użytkownik" value={member.name} />
-      </section>
-      <h2 className="settings-heading">Plan</h2>
-      <section className="settings-card">
-        <Setting
-          label="Start"
-          value={formatPolishDate(startDate, "shortYear")}
-        />
-        <Setting
-          label="Koniec"
-          value={formatPolishDate(endDate, "shortYear")}
-        />
-        <Setting label="Dni czytania" value={frequency} />
-        <div className="plan-download">
-          <button type="button" className="small-button" onClick={() => downloadPlanCsv(group)}>Pobierz plan CSV</button>
-        </div>
-      </section>
-      <PlanReplacement group={group} credentials={credentials} disabled={savingProgress} onReplace={onReplace} />
-      {onboarding.installAvailable &&
-        <section className="settings-card"><button type="button" className="small-button" onClick={() => window.dispatchEvent(new Event("reading-install-request"))}>
-          Dodaj aplikację do ekranu głównego
-        </button></section>}
-      <NotificationSettings credentials={credentials} />
-      <GroupAccessSettings group={group} member={member} />
-      <h2 className="settings-heading">Połącz inne urządzenie</h2>
-      <section className="settings-card transfer-card">
-        <p>
-          Utwórz jednorazowy kod, a następnie zeskanuj go na drugim urządzeniu.
-          Kod jest ważny przez 10 minut. Oba urządzenia zachowają dostęp do tego samego profilu.
-        </p>
-        {transferError && <div className="simple-alert">{transferError}</div>}
-        {transfer ? (
-          <div className="transfer-result">
-            <QrCode
-              value={createSessionTransferLink(transfer.code)}
-              label="Kod QR do połączenia urządzenia"
-            />
-            <strong>{transfer.code}</strong>
-            <span>
-              Ważny do{" "}
-              {new Intl.DateTimeFormat("pl-PL", {
-                hour: "2-digit",
-                minute: "2-digit",
-              }).format(new Date(transfer.expiresAt))}
-            </span>
-            <div className="transfer-actions">
-              <button
-                className="small-button"
-                onClick={async () => {
-                  await copyText(transfer.code);
-                  setCopied(true);
-                }}
-              >
-                <Icon name="copy" size={16} />
-                {copied ? "Skopiowano" : "Kopiuj kod"}
-              </button>
-              <button
-                className="small-button transfer-refresh"
-                disabled={transferBusy}
-                onClick={prepareTransfer}
-              >
-                {transferBusy ? "Tworzenie…" : "Utwórz nowy kod"}
-              </button>
-            </div>
-            <p className="transfer-help">
-              Zeskanuj kod QR drugim urządzeniem. Kod tekstowy pozostaje
-              awaryjną opcją.
-            </p>
-          </div>
-        ) : (
-          <button
-            className="main-button"
-            disabled={transferBusy}
-            onClick={prepareTransfer}
-          >
-            {transferBusy ? "Tworzenie…" : "Utwórz kod połączenia"}
-          </button>
-        )}
-      </section>
-      <h2 className="settings-heading">Konto</h2>
-      <section className="settings-card">
-        {logoutConfirm ? <div className="logout-confirm" role="alert">
-          <p>Po wylogowaniu możesz wrócić przez link od administratora grupy lub połączenie z innym urządzeniem. Samo imię nie przywróci dostępu.</p>
-          {member.isAdmin && !group.members.some((person) => person.isAdmin && person.id !== member.id) &&
-            <p>Jesteś jedynym administratorem. Zanim się wylogujesz, wyznacz drugiego administratora lub połącz inne urządzenie.</p>}
-          <div className="access-actions">
-            <button className="logout-button" onClick={onLeave}>Wyloguj z tego urządzenia</button>
-            <button className="link-button" onClick={() => setLogoutConfirm(false)}>Anuluj</button>
-          </div>
-        </div> : <button className="logout-button" onClick={() => setLogoutConfirm(true)}>
-          <Icon name="logout" size={18} /> Wyloguj
-        </button>}
-      </section>
-    </>
-  );
-}
-
-export function DayCard({
-  day,
-  progress,
-  onToggle,
-  extraReading,
-  header,
-  restDay = false,
-  pendingReading = "",
-  disabled = false,
-}: {
-  header?: ReactNode;
-  restDay?: boolean;
-  pendingReading?: string;
-  disabled?: boolean;
-  day: PlanDay;
-  progress: Record<string, string>;
-  onToggle: (segmentId: string) => Promise<void>;
-  extraReading?: {
-    reading: RecoveryReading;
-    completed: boolean;
-    disabled: boolean;
-    onToggle: () => Promise<void>;
-  };
-}) {
-  return (
-    <section className="simple-day">
-      {header}
-      {restDay && <p className="reading-rest-hint" role="note">
-        Dziś dzień wolny w planie. Możesz czytać dalej we własnym tempie.
-      </p>}
-      <div className="simple-readings">
-        {day.segments.map((segment) => (
-          <ReadingRow
-            key={segment.id}
-            label={segment.label}
-            section={segment.section}
-            completed={Boolean(progress[segment.id])}
-            disabled={disabled}
-            pending={pendingReading === segment.id}
-            onToggle={() => onToggle(segment.id)}
-          />
-        ))}
-        {extraReading && (
-          <ReadingRow
-            label={extraReading.reading.label}
-            section="Nadrabianie"
-            completed={extraReading.completed}
-            disabled={disabled || extraReading.disabled}
-            pending={pendingReading === "extra"}
-            onToggle={extraReading.onToggle}
-            isExtra
-          />
-        )}
-      </div>
-    </section>
-  );
-}
-
-function ReadingRow({
-  label,
-  section,
-  completed,
-  disabled,
-  onToggle,
-  isExtra = false,
-  pending = false,
-}: {
-  label: string;
-  section: string;
-  completed: boolean;
-  disabled: boolean;
-  onToggle: () => Promise<void>;
-  isExtra?: boolean;
-  pending?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      className={`${completed ? "checked" : ""} ${isExtra ? "reading-extra" : ""}`}
-      disabled={disabled}
-      onClick={() => { void onToggle().catch(() => undefined); }}
-      aria-pressed={completed}
-      aria-busy={pending || undefined}
-      title={pending ? "Zapisywanie dnia…" : isExtra && disabled && !completed
-        ? "Najpierw dokończ fragmenty powyżej."
-        : undefined}
-    >
-      <span className="simple-checkbox">
-        {pending ? <span className="reading-row-spinner" role="status" aria-label="Zapisywanie dnia" />
-          : completed && <Icon name="check" size={16} />}
-      </span>
-      <span>
-        {isExtra && <small><span className="reading-extra-label">
-          <Icon name="plus" size={12} />{section} · 1 rozdział
-        </span></small>}
-        <strong>{label}</strong>
-      </span>
-    </button>
-  );
-}
-
-function InviteModal({
-  credentials,
-  onClose,
-  onCredentialsChange,
-}: {
-  credentials: Credentials;
-  onClose: () => void;
-  onCredentialsChange: (credentials: Credentials) => void;
-}) {
-  const [link, setLink] = useState("");
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    ensureInvite(credentials)
-      .then((nextCredentials) => {
-        if (cancelled) return;
-        onCredentialsChange(nextCredentials);
-        setLink(createJoinLink(nextCredentials));
-      })
-      .catch(() => {
-        if (!cancelled) setError("Nie udało się utworzyć linku.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    credentials.groupId,
-    credentials.memberId,
-    credentials.token,
-    onCredentialsChange,
-  ]);
-
-  return (
-    <div className="simple-modal-bg" onMouseDown={onClose}>
-      <section
-        className="simple-modal"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <button className="icon-button" onClick={onClose} aria-label="Zamknij">
-          <Icon name="close" />
-        </button>
-        <h2>Link zaproszenia</h2>
-        {error ? (
-          <div className="simple-alert">{error}</div>
-        ) : link ? (
-          <div className="invite-link">
-            <QrCode value={link} label="Kod QR zaproszenia do planu" />
-            <p className="invite-help">
-              Zeskanuj kod QR aparatem telefonu, aby otworzyć zaproszenie.
-            </p>
-            <input value={link} readOnly aria-label="Link zaproszenia" />
-            <button
-              className="main-button"
-              onClick={async () => {
-                await copyText(link);
-                setCopied(true);
-              }}
-            >
-              <Icon name="copy" size={17} />
-              {copied ? "Skopiowano" : "Kopiuj link"}
-            </button>
-          </div>
-        ) : (
-          <div className="simple-loader inline-loader">Tworzenie linku…</div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-async function copyText(value: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-  const input = document.createElement("textarea");
-  input.value = value;
-  input.style.position = "fixed";
-  input.style.opacity = "0";
-  document.body.appendChild(input);
-  input.select();
+test('recovery waits for real session progress before freezing a stale cached portion', async ({ page, request }) => {
+  const session = await createPlan(request, 'recovery-stale-portion');
+  for (const id of ['s0', 's1', 's2']) await saveProgress(request, session, id);
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const captured = new Promise(resolve => { started = resolve; });
+  await page.route('**/api/session', async route => { started(); await gate; await route.continue(); }, { times: 1 });
   try {
-    if (!document.execCommand("copy")) throw new Error("Nie udało się skopiować tekstu.");
-  } finally {
-    input.remove();
+    await openPlan(page, session, {
+      [recoveryKey(session)]: TODAY,
+      ['plan-czytania-biblii-group-' + session.group.id]: JSON.stringify({ group: session.group, savedAt: NOW.toISOString() }),
+    });
+    await captured;
+    expect(await page.evaluate(key => localStorage.getItem(key), recoveryKey(session) + ':ordered:' + TODAY + ':portion-v3')).toBeNull();
+  } finally { release(); }
+  await expect(reading(page, 'Rdz 4')).toBeVisible();
+  await expect(extraReading(page)).toContainText('Rdz 5');
+  await expectSaved(request, session, ['s0', 's1', 's2']);
+});
+
+test('completed plan has no future recovery extra', async ({ page, request }) => {
+  const session = await createPlan(request, 'complete');
+  for (const segment of session.group.planDays.flatMap(day => day.segments)) {
+    await saveProgress(request, session, segment.id);
   }
-}
+  await openPlan(page, session, { [recoveryKey(session)]: TODAY });
+  await expect(page.getByRole('heading', { name: 'Plan ukończony' })).toBeVisible();
+  await expect(extraReading(page)).toHaveCount(0);
+  await expect(page.locator('.reading-navigation')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Poprzednie', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Następne', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
+  await expect(reading(page, 'Rdz 5')).toHaveAttribute('aria-pressed', 'true');
+  await browseReading(page, 'last');
+  await expect(reading(page, 'Rdz 6')).toHaveAttribute('aria-pressed', 'true');
+  await expect(extraReading(page)).toHaveCount(0);
+});
 
-function TabButton({
-  item,
-  active,
-  setTab,
-}: {
-  item: { id: Tab; label: string; icon: IconName };
-  active: Tab;
-  setTab: (tab: Tab) => void;
-}) {
-  return (
-    <button
-      className={active === item.id ? "active" : ""}
-      onClick={() => setTab(item.id)}
-    >
-      <Icon name={item.icon} size={18} />
-      {item.label}
-    </button>
-  );
-}
+test('recovery advances at midnight without reloading the page', async ({ page, request }) => {
+  const session = await createPlan(request, 'midnight', true);
+  await openPlan(page, session);
+  await enableRecovery(page);
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await expectSaved(request, session, ['s0', 's1']);
+  await extraReading(page).click();
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  await page.clock.fastForward('12:00:01');
+  await expect(reading(page, 'Rdz 3')).toBeVisible();
+  await expect(extraReading(page)).toContainText('Rdz 4');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+});
 
-function Brand() {
-  return (
-    <div className="simple-brand">
-      <span><Icon name="book" size={20} /></span>
-      <b>Plan czytania Biblii</b>
-    </div>
-  );
-}
+test('future recovery days assume prior extras without saving assumed progress', async ({ page, request }) => {
+  const session = await createPlan(request, 'recovery-forecast');
+  await openPlan(page, session);
+  const switcher = page.locator('.reading-navigation');
+  await browseReading(page, 'last');
+  await expect(reading(page, 'Rdz 6')).toBeVisible();
+  await enableRecovery(page);
+  const dates = switcher;
+  await expect(dates).toHaveAttribute('data-reading-count', '3');
+  await expect(dates).toHaveAttribute('data-selected-index', '0');
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(page.getByRole('button', { name: 'Poprzednie', exact: true })).toBeDisabled();
 
-function PageTitle({
-  title,
-  meta,
-  action,
-}: {
-  title: string;
-  meta?: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="page-title">
-      <div>
-        <h1>{title}</h1>
-        {meta && <span>{meta}</span>}
-      </div>
-      {action}
-    </div>
-  );
-}
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  await expect(extraReading(page)).toContainText('Rdz 5');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+  await expect(extraReading(page)).toBeDisabled();
+  await expect(reading(page, 'Rdz 2')).toHaveCount(0);
+  await browseReading(page, 'last');
+  await expect(reading(page, 'Rdz 6')).toBeVisible();
+  await expect(extraReading(page)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Następne', exact: true })).toBeDisabled();
+  await expectSaved(request, session, []);
+  expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
 
-function ThemeToggle({
-  theme,
-  onChange,
-}: {
-  theme: Theme;
-  onChange: (theme: Theme) => void;
-}) {
-  const dark = theme === "dark";
-  return (
-    <button
-      className="theme-toggle"
-      aria-label={dark ? "Włącz tryb jasny" : "Włącz tryb ciemny"}
-      onClick={() => onChange(dark ? "light" : "dark")}
-    >
-      <Icon name={dark ? "sun" : "moon"} size={18} />
-    </button>
-  );
-}
+  // Reading ahead is immediately available; browsing must not mark preceding days.
+  await browseReading(page, 1);
+  await expect(reading(page, 'Rdz 4')).toBeEnabled();
+  await reading(page, 'Rdz 4').click();
+  await expectSaved(request, session, ['s3']);
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
+  await extraReading(page).click();
+  await expectSaved(request, session, ['s3', 's4']);
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  await browseReading(page, 0);
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'false');
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'false');
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+  expect(await page.evaluate(key => localStorage.getItem(key), recoveryKey(session) + ':ordered:' + TODAY + ':day')).toBe('d0');
 
-function Setting({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="setting-row">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
+  await browseReading(page, 'last');
+  await page.getByRole('button', { name: 'Wyłącz nadrabianie' }).click();
+  await expect(reading(page, 'Rdz 6')).toBeVisible();
+  await expect(switcher).toHaveAttribute('data-reading-count', '5');
+  await expectSaved(request, session, ['s3', 's4']);
+  await page.reload();
+  await expectSaved(request, session, ['s3', 's4']);
+});
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="simple-field">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
+test('failed rapid future toggles do not restore an earlier optimistic chapter', async ({ page, request }) => {
+  const session = await createPlan(request, 'future-rapid-rejection');
+  await openPlan(page, session);
+  await enableRecovery(page);
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  let rejected = 0;
+  page.on("response", response => {
+    if (new URL(response.url()).pathname === progressPath(session) && response.status() === 401) rejected++;
+  });
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**' + progressPath(session), async route => {
+    await gate;
+    await route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), token: 'invalid' }) });
+  }, { times: 2 });
+  try {
+    await reading(page, 'Rdz 4').click();
+    await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
+    await reading(page, 'Rdz 4').click();
+    await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  } finally { release(); }
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect.poll(() => rejected).toBe(2);
+  await expect.poll(async () => (await readGroup(request, session)).chapterProgress?.[session.credentials.memberId]?.s3 ?? []).toEqual([]);
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  await expectSaved(request, session, []);
+  await reading(page, 'Rdz 4').click();
+  await expectSaved(request, session, ['s3']);
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
+  await browseReading(page, 0);
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'false');
+  await expectSaved(request, session, ['s3']);
+});
 
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-}
+test('future partial ranges can be checked without completing assumed earlier chapters', async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const session = await createPlan(request, 'recovery-forecast-partial', true);
+  await openPlan(page, session);
+  await enableRecovery(page);
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  await expect(extraReading(page)).toContainText('Rdz 5');
+  await expect(reading(page, 'Rdz 3')).toBeEnabled();
+  await reading(page, 'Rdz 3').click();
+  await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'true');
+  await expectSaved(request, session, []); // Rdz 2 was assumed, never actually checked.
+  await expect(extraReading(page)).toBeDisabled();
+  await reading(page, 'Rdz 4').click();
+  await expectSaved(request, session, ['s3']);
+  await expect(extraReading(page)).toBeEnabled();
+  await extraReading(page).click();
+  await expectSaved(request, session, ['s3', 's4']);
 
-function formatFrequency(frequency: Frequency) {
-  if (frequency.kind === "daily") return "Codziennie";
-  if (frequency.kind === "weekdays") return "Pon–pt";
-  const names = ["Nd", "Pn", "Wt", "Śr", "Cz", "Pt", "So"];
-  return frequency.days
-    .slice()
-    .sort((a, b) => a - b)
-    .map((day) => names[day])
-    .join(", ");
-}
+  await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+  await page.reload();
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await extraReading(page).click();
+  await expectSaved(request, session, ['s0', 's1', 's2', 's3', 's4']);
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  await page.reload();
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  await expectSaved(request, session, ['s0', 's1', 's2', 's3', 's4']);
+});
+
+test('projected navigation respects partial chapters and reload returns to today', async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const session = await createPlan(request, 'recovery-navigation-partial', true);
+  await openPlan(page, session);
+  await enableRecovery(page);
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await expectSaved(request, session, ['s0', 's1']);
+  await extraReading(page).click();
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(reading(page, 'Rdz 3')).toBeVisible();
+  await expect(reading(page, 'Rdz 4')).toBeVisible();
+  await expect(extraReading(page)).toContainText('Rdz 5');
+  await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+
+  await browseReading(page, 'last');
+  await expect(reading(page, 'Rdz 6')).toBeVisible();
+  await page.reload();
+  await expect(page.locator('.reading-navigation')).toBeVisible();
+  await expect(reading(page, 'Rdz 1')).toBeVisible();
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  await expectSaved(request, session, ['s0', 's1']);
+});
+
+test('standard completed day stays visible until the next day is selected', async ({ page, request }) => {
+  const session = await createPlan(request, 'standard-completed-day');
+  await openPlan(page, session);
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await expectSaved(request, session, ['s0', 's1']);
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.reading-finished')).toHaveText('Przeczytane');
+  await expect(page.locator('.reading-navigation')).toHaveAttribute('data-selected-index', '0');
+
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
+  await reading(page, 'Rdz 2').click();
+  await expectSaved(request, session, ['s0', 's1', 's2']);
+  await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.reading-navigation')).toHaveAttribute('data-selected-index', '1');
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+
+  await browseReading(page, 0);
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('completed recovery portion keeps its one extra and advances only through day navigation', async ({ page, request }) => {
+  const session = await createPlan(request, 'recovery-completed-day');
+  const monday = new Date(NOW);
+  monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7);
+  const scheduledThisWeek = session.group.planDays.filter(day => day.date >= monday.toISOString().slice(0, 10)).length;
+  const weeklyGoal = scheduledThisWeek || session.group.planDays.length;
+  await openPlan(page, session);
+  await enableRecovery(page);
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await expectWeek(page, `${Math.min(1, weeklyGoal)} z ${weeklyGoal} czytań`);
+  await expect(extraReading(page)).toBeEnabled();
+  await extraReading(page).click();
+  await expectSaved(request, session, ['s0', 's1', 's2']);
+  await expectWeek(page, `${Math.min(2, weeklyGoal)} z ${weeklyGoal} czytań`);
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.reading-finished')).toHaveText('Przeczytane');
+  await expect(page.locator('.reading-navigation')).toHaveAttribute('data-selected-index', '0');
+
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  await expect(extraReading(page)).toContainText('Rdz 5');
+  await reading(page, 'Rdz 4').click();
+  await expectSaved(request, session, ['s0', 's1', 's2', 's3']);
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.reading-navigation')).toHaveAttribute('data-selected-index', '1');
+
+  await browseReading(page, 0);
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(key => localStorage.getItem(key), recoveryKey(session) + ':ordered:' + TODAY + ':day')).toBe('d0');
+});
+
+test('ten days behind with three streams catches up after thirty extras, without preview writes', async ({ page, request }) => {
+  const session = await createParallelPlan(request);
+  await openPlan(page, session);
+  await enableRecovery(page);
+  await expect(page.locator('.simple-readings button')).toHaveCount(4);
+  await expect(extraReading(page)).toContainText('Rdz 2');
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(extraReading(page)).toContainText('Mt 3');
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(extraReading(page)).toContainText('Ps 4');
+  for (let index = 2; index < 29; index++) {
+    await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  }
+  await expect(extraReading(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(extraReading(page)).toHaveCount(0);
+  await expect(page.locator('.simple-readings button')).toHaveCount(3);
+  for (const book of ['Rdz', 'Mt', 'Ps']) {
+    await expect(reading(page, book + ' 41')).toHaveAttribute('aria-pressed', 'false');
+  }
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(extraReading(page)).toHaveCount(0);
+  await expectSaved(request, session, []);
+  expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
+});
+
+test('real daily writes rotate recovery across all streams and keep the full normal quota', async ({ page, request }) => {
+  const session = await createParallelPlan(request, 'parallel-real-days');
+  await openPlan(page, session);
+  await enableRecovery(page);
+  const expected = [];
+  for (let day = 0; day < 3; day++) {
+    const base = day === 0
+      ? [['Rdz 1', 'p0s0'], ['Mt 1', 'p0s1'], ['Ps 1', 'p0s2']]
+      : day === 1
+      ? [['Rdz 3', 'p2s0'], ['Mt 2', 'p1s1'], ['Ps 2', 'p1s2']]
+      : [['Rdz 4', 'p3s0'], ['Mt 4', 'p3s1'], ['Ps 3', 'p2s2']];
+    const extra = [['Rdz 2', 'p1s0'], ['Mt 3', 'p2s1'], ['Ps 4', 'p3s2']][day];
+    await expect(page.locator('.simple-readings button')).toHaveCount(4);
+    await expect(extraReading(page)).toContainText(extra[0]);
+    await expect(extraReading(page)).toBeDisabled();
+    for (const [label, id] of base) {
+      await reading(page, label).click(); expected.push(id);
+    }
+    await expect(extraReading(page)).toBeEnabled();
+    await extraReading(page).click(); expected.push(extra[1]);
+    await expectSaved(request, session, expected);
+    await page.reload();
+    await expect(page.locator('.simple-readings button')).toHaveCount(4);
+    for (const [label] of base) await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'true');
+    await expect(extraReading(page)).toContainText(extra[0]);
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+    await page.clock.setSystemTime(new Date(NOW.getTime() + (day + 1) * 86400000));
+    await page.reload();
+  }
+  await expect(extraReading(page)).toContainText('Rdz 6');
+  await expect(reading(page, 'Rdz 5')).toHaveAttribute('aria-pressed', 'false');
+  await expect(reading(page, 'Mt 5')).toHaveAttribute('aria-pressed', 'false');
+  await expect(reading(page, 'Ps 5')).toHaveAttribute('aria-pressed', 'false');
+  await expectSaved(request, session, expected);
+});
+
+test('manual refresh cannot erase a progress write confirmed after its request started', async ({ page, request }) => {
+  const session = await createPlan(request, 'manual-refresh-race');
+  await openPlan(page, session);
+  await reading(page, 'Rdz 1').click();
+  await expectSaved(request, session, ['s0']);
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const captured = new Promise(resolve => { started = resolve; });
+  await page.route('**/api/session', async route => {
+    const response = await route.fetch();
+    started(response.status());
+    await gate;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  try {
+    await page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true }).click();
+    expect(await captured).toBe(200);
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['s0', 's1']);
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  } finally { release(); }
+  await expect(page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true })).toBeEnabled();
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await page.reload();
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.reading-finished')).toContainText('Przeczytane');
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await expectSaved(request, session, ['s0', 's1']);
+});
+
+test('cached startup stays visible and protects newer progress from its initial stale response', async ({ page, request }) => {
+  const session = await createPlan(request, 'cached-startup-race');
+  await openPlan(page, session);
+  await reading(page, 'Rdz 1').click();
+  await expectSaved(request, session, ['s0']);
+  // An independent backend GET can see the write before its response reaches
+  // this browser. This scenario needs a confirmed cache before the reload;
+  // reload while a committed write response is pending is covered separately.
+  await expect.poll(() => page.evaluate(({ groupId, memberId }) => {
+    const cached = JSON.parse(localStorage.getItem('plan-czytania-biblii-group-' + groupId) ?? 'null');
+    return Boolean(cached?.group?.progress?.[memberId]?.s0);
+  }, { groupId: session.group.id, memberId: session.credentials.memberId })).toBe(true);
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const captured = new Promise(resolve => { started = resolve; });
+  await page.route('**/api/session', async route => {
+    const response = await route.fetch();
+    started(response.status());
+    await gate;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  try {
+    await page.reload();
+    expect(await captured).toBe(200);
+    await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['s0', 's1']);
+  } finally { release(); }
+  await expect(page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true })).toBeEnabled();
+  await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+  await expectSaved(request, session, ['s0', 's1']);
+});
+
+test('failed refresh shows the last real cached plan and can reconnect', async ({ page, request }) => {
+  const session = await createPlan(request, 'cache-reconnect');
+  await openPlan(page, session);
+  await reading(page, 'Rdz 1').click();
+  await expectSaved(request, session, ['s0']);
+  // The scenario starts from a confirmed cached response, not an in-flight save.
+  await expect.poll(() => page.evaluate(({ groupId, memberId }) => {
+    const cached = JSON.parse(localStorage.getItem('plan-czytania-biblii-group-' + groupId) ?? 'null');
+    return Boolean(cached?.group?.progress?.[memberId]?.s0);
+  }, { groupId: session.group.id, memberId: session.credentials.memberId })).toBe(true);
+  // Simulate a network failure, never a successful API response.
+  await page.route('**/api/session', route => route.abort(), { times: 1 });
+  await page.reload();
+  await expect(page.getByRole('status', { name: 'Stan połączenia', exact: true })).toContainText('Brak połączenia');
+  await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true })).toBeEnabled();
+  await expect(page.getByRole('status', { name: 'Stan połączenia', exact: true })).toHaveCount(0);
+  await expectSaved(request, session, ['s0']);
+});
+
+test('unchecking a cached extra before session refresh persists the explicit uncheck', async ({ page, request }) => {
+  const session = await createPlan(request, 'cached-extra-uncheck');
+  await openPlan(page, session);
+  await enableRecovery(page);
+  await reading(page, 'Rdz 1').click();
+  await reading(page, 'Mt 1').click();
+  await extraReading(page).click();
+  await expectSaved(request, session, ['s0', 's1', 's2']);
+  await expect.poll(() => page.evaluate(({ key, memberId }) =>
+    Boolean(JSON.parse(localStorage.getItem(key) ?? 'null')?.group.progress[memberId]?.s2),
+    { key: 'plan-czytania-biblii-group-' + session.group.id, memberId: session.credentials.memberId },
+  )).toBe(true);
+  await page.evaluate(({ key, memberId }) => {
+    const cached = JSON.parse(localStorage.getItem(key));
+    // Recreate an older real cache snapshot; backend still has the saved extra.
+    delete cached.group.progress[memberId].s2;
+    localStorage.setItem(key, JSON.stringify(cached));
+  }, { key: 'plan-czytania-biblii-group-' + session.group.id, memberId: session.credentials.memberId });
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const captured = new Promise(resolve => { started = resolve; });
+  await page.route('**/api/session', async route => {
+    const response = await route.fetch();
+    started(response.status());
+    await gate;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  try {
+    await page.reload();
+    expect(await captured).toBe(200);
+    expect(await page.evaluate(({ key, memberId }) =>
+      Boolean(JSON.parse(localStorage.getItem(key)).group.progress[memberId].s2),
+      { key: 'plan-czytania-biblii-group-' + session.group.id, memberId: session.credentials.memberId },
+    )).toBe(false);
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+    await extraReading(page).click();
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+    await expectSaved(request, session, ['s0', 's1']);
+  } finally { release(); }
+  await expect(page.getByRole('button', { name: 'Odśwież plan i dane użytkownika', exact: true })).toBeEnabled();
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+  await page.reload();
+  await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+  await expectSaved(request, session, ['s0', 's1']);
+});

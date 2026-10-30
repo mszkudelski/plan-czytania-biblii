@@ -1,10 +1,14 @@
 import type { Group } from "../types";
+import { applyChapterProgress } from "./chapter-progress";
 
 type ProgressOperation = {
   segmentId: string;
+  indices?: number[];
+  migrate?: boolean;
   completed: boolean;
   optimistic: boolean;
   previousValue?: string;
+  previousChapters?: number[];
   timestamp: string;
   promise: Promise<void>;
   resolve: () => void;
@@ -14,7 +18,7 @@ type ProgressOperation = {
 type ProgressQueueOptions = {
   group: Group;
   memberId: string;
-  save: (segmentId: string, completed: boolean) => Promise<Group>;
+  save: (segmentId: string, completed: boolean, indices?: number[], migrate?: boolean) => Promise<Group>;
   onChange: (group: Group) => void;
   onSave: (group: Group, operation: { segmentId: string; completed: boolean }) => void;
   onError: (error: unknown) => void;
@@ -29,22 +33,25 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
 
   function snapshot() {
     if (!pending.length) return confirmedGroup;
-    const progress = { ...confirmedGroup.progress[options.memberId] };
-    const activeIds = new Set(confirmedGroup.planDays.flatMap(day => day.segments.map(segment => segment.id)));
+    let group = confirmedGroup;
+    const activeIds = new Set(group.planDays.flatMap(day => day.segments.map(segment => segment.id)));
     for (const operation of pending) {
-      if (confirmedGroup.planVersion && !activeIds.has(operation.segmentId)) continue;
+      if (group.planVersion && !activeIds.has(operation.segmentId)) continue;
       if (!operation.optimistic) {
+        const progress = { ...group.progress[options.memberId] };
         if (operation.previousValue) progress[operation.segmentId] = operation.previousValue;
         else delete progress[operation.segmentId];
+        const chapters = { ...group.chapterProgress?.[options.memberId] };
+        if (operation.previousChapters) chapters[operation.segmentId] = operation.previousChapters;
+        else delete chapters[operation.segmentId];
+        group = { ...group, progress: { ...group.progress, [options.memberId]: progress },
+          chapterProgress: { ...group.chapterProgress, [options.memberId]: chapters } };
         continue;
       }
-      if (operation.completed) progress[operation.segmentId] = operation.timestamp;
-      else delete progress[operation.segmentId];
+      group = applyChapterProgress(group, options.memberId, operation.segmentId,
+        operation.completed, operation.indices, operation.timestamp);
     }
-    return {
-      ...confirmedGroup,
-      progress: { ...confirmedGroup.progress, [options.memberId]: progress },
-    };
+    return group;
   }
 
   function notify() {
@@ -59,7 +66,7 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
         const operation = pending[0];
         let savedGroup: Group;
         try {
-          savedGroup = await options.save(operation.segmentId, operation.completed);
+          savedGroup = await options.save(operation.segmentId, operation.completed, operation.indices, operation.migrate);
         } catch (error) {
           pending.shift();
           revision += 1;
@@ -97,6 +104,7 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
       // A read started before a click/save must not erase the confirmed changes.
       const nextGroup = requestRevision === revision || (group.planVersion ?? 0) > (confirmedGroup.planVersion ?? 0) ? group : {
         ...group,
+        chapterProgress: { ...group.chapterProgress, [options.memberId]: confirmedGroup.chapterProgress?.[options.memberId] ?? {} },
         progress: {
           ...group.progress,
           [options.memberId]: confirmedGroup.progress[options.memberId] ?? {},
@@ -108,7 +116,7 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
       }
       return confirmedGroup;
     },
-    toggle(segmentId: string, desiredCompleted?: boolean, optimistic = true) {
+    toggle(segmentId: string, desiredCompleted?: boolean, optimistic = true, indices?: number[], migrate?: boolean) {
       const completed = desiredCompleted ?? !snapshot().progress[options.memberId]?.[segmentId];
       let resolve!: () => void;
       let reject!: (error: unknown) => void;
@@ -118,9 +126,12 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
       });
       pending.push({
         segmentId,
+        indices,
+        migrate,
         completed,
         optimistic,
         previousValue: snapshot().progress[options.memberId]?.[segmentId],
+        previousChapters: snapshot().chapterProgress?.[options.memberId]?.[segmentId],
         timestamp: new Date().toISOString(),
         promise,
         resolve,
