@@ -195,7 +195,7 @@ test('extra rollback remains correct when leaving and returning to Today during 
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('partial extra chapter persists locally; tomorrow resumes remaining chapters', async ({ page, request }) => {
+test('partial extra chapter persists on the server; tomorrow resumes remaining chapters', async ({ page, request }) => {
   const session = await createPlan(request, 'partial-chapter', true);
   await openPlan(page, session);
   await enableRecovery(page);

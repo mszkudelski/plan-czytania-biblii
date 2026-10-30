@@ -8,7 +8,7 @@ import GroupAccessHint from "./GroupAccessHint";
 import { devicePromptAllowed, INSTALL_KEY, parseDevicePreference, postponeDevicePrompt, SETUP_KEY, startOnboarding } from "./lib/onboarding";
 import RecoveryPrompt from "./RecoveryPrompt";
 import { canStartRecovery } from "./lib/recovery-prompt";
-import { isReadingDateComplete, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, setRecoveryChapters, type ReadChapterMarks, parseRecoveryPortion, type RecoveryPortion } from "./lib/recovery";
+import { isReadingDateComplete, getStandardReadingPortion, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, parseRecoveryPortion, type RecoveryPortion } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -367,7 +367,7 @@ export default function SimpleApp() {
         setCredentials(session.credentials);
         const current = latestGroup.current;
         const freshGroup = groupWriteVersion.current !== readWriteVersion && current?.id === session.group.id
-          ? { ...session.group, progress: { ...session.group.progress, [credentials.memberId]: current.progress[credentials.memberId] ?? {} } }
+          ? { ...session.group, chapterProgress: { ...session.group.chapterProgress, [credentials.memberId]: current.chapterProgress?.[credentials.memberId] ?? {} }, progress: { ...session.group.progress, [credentials.memberId]: current.progress[credentials.memberId] ?? {} } }
           : session.group;
         setGroupAndCache(freshGroup);
         setGroupVerified(true);
@@ -1640,7 +1640,7 @@ export function Dashboard({
   const [progressQueue] = useState(() => createOptimisticProgressQueue({
     group,
     memberId: credentials.memberId,
-    save: (segmentId, completed) => updateProgress(credentials, segmentId, completed),
+    save: (segmentId, completed, indices, migrate) => updateProgress(credentials, segmentId, completed, indices, migrate),
     onChange: setVisibleGroup,
     onSave: (next, operation) => {
       trackSavedReading(analyticsBaseline.current, next, credentials.memberId, operation);
@@ -1704,9 +1704,9 @@ export function Dashboard({
 
   const member = visibleGroup.members.find((item) => item.id === credentials.memberId);
   if (!member) return null;
-  function toggle(segmentId: string, completed?: boolean) {
+  function toggle(segmentId: string, completed?: boolean, optimistic = true, indices?: number[], migrate?: boolean) {
     setProgressError("");
-    return progressQueue.toggle(segmentId, completed);
+    return progressQueue.toggle(segmentId, completed, optimistic, indices, migrate);
   }
 
   async function remove(person: Member) {
@@ -1831,7 +1831,7 @@ export function Dashboard({
   );
 }
 
-function TodayView({
+export function TodayView({
   requestedReading,
   group,
   credentials,
@@ -1848,7 +1848,7 @@ function TodayView({
   active: boolean;
   member: Member;
   requestedReading?: { dayId: string };
-  onToggle: (segmentId: string, completed?: boolean) => Promise<void>;
+  onToggle: (segmentId: string, completed?: boolean, optimistic?: boolean, indices?: number[], migrate?: boolean) => Promise<void>;
   onError: (message: string) => void;
   onWaitForSegments: (segmentIds: string[]) => Promise<void>;
 }) {
@@ -1895,25 +1895,35 @@ function TodayView({
     localStorage.setItem(`${dailyKey}:day`, recoveryDayId);
     if (recoveryDayAnchor !== recoveryDayId) setRecoveryDayAnchor(recoveryDayId);
   }, [dailyKey, recoveryStart, recoveryDayId, recoveryDayAnchor]);
-  const [readChapters, setReadChapters] = useState<Record<string, number>>(() =>
-    parseReadChapters(localStorage.getItem(chapterKey)),
-  );
-  const markKey = `${recoveryKey}:chapter-marks`;
-  const [chapterMarks, setChapterMarks] = useState<ReadChapterMarks>(() =>
-    parseChapterMarks(localStorage.getItem(markKey)),
-  );
-  const chapterState = useRef({ chapters: readChapters, marks: chapterMarks });
-  const chapterOperations = useRef<Record<string, {
-    baseline: { chapters: Record<string, number>; marks: ReadChapterMarks };
-    pending: Array<{ indices: number[]; completed: boolean; status: "pending" | "saved" | "failed" }>;
-  }>>({});
-  function writeChapters(chapters: Record<string, number>, marks: ReadChapterMarks) {
-    chapterState.current = { chapters, marks };
-    setReadChapters(chapters);
-    setChapterMarks(marks);
-    localStorage.setItem(chapterKey, JSON.stringify(chapters));
-    localStorage.setItem(markKey, JSON.stringify(marks));
-  }
+  const chapterMarks = useMemo(() => group.chapterProgress?.[member.id] ?? {}, [group.chapterProgress, member.id]);
+  const readChapters = useMemo(() => Object.fromEntries(Object.entries(chapterMarks).map(([id, indices]) => {
+    let prefix = 0;
+    while (indices.includes(prefix)) prefix += 1;
+    return [id, prefix];
+  })), [chapterMarks]);
+  const migrationStarted = useRef(false);
+  const [chaptersReady, setChaptersReady] = useState(false);
+  useEffect(() => {
+    if (!promptReady || migrationStarted.current) return;
+    migrationStarted.current = true;
+    const marker = `${recoveryKey}:chapters-synced-v1`;
+    if (localStorage.getItem(marker)) { setChaptersReady(true); return; }
+    const legacyCounts = parseReadChapters(localStorage.getItem(chapterKey));
+    const legacyMarks = parseChapterMarks(localStorage.getItem(`${recoveryKey}:chapter-marks`));
+    const confirmed = parseReadChapters(localStorage.getItem(`${recoveryKey}:confirmed-segments`));
+    const writes = group.planDays.flatMap(day => day.segments).flatMap(segment => {
+      if (confirmed[segment.id] || group.progress[member.id]?.[segment.id]) return [];
+      const indices = splitReadingChapters(segment.label).map((_, index) => index)
+        .filter(index => index < (legacyCounts[segment.id] ?? 0) || legacyMarks[segment.id]?.includes(index));
+      return indices.length ? [onToggle(segment.id, true, false, indices, true)] : [];
+    });
+    void Promise.all(writes).then(() => {
+      localStorage.setItem(marker, "1");
+      setChaptersReady(true);
+    }).catch(() => {
+      onError("Nie udało się zsynchronizować przeczytanych rozdziałów. Odśwież plan, aby spróbować ponownie.");
+    });
+  }, [promptReady, recoveryKey, chapterKey, group, onToggle, onError]);
   const [dailyReading, setDailyReading] = useState<{ reading: RecoveryReading; completed: boolean } | null>(() => {
     try { return JSON.parse(localStorage.getItem(dailyKey) ?? "null"); } catch { return null; }
   });
@@ -1943,7 +1953,7 @@ function TodayView({
   const currentPortion = useMemo(() =>
     projectRecoveryPortions(group, member.id, today, readChapters, recoveryDayId,
       legacyDailyReading?.reading, chapterMarks, dailyPortion)[0],
-    [recoveryStart, recoveryDayId, today, dailyPortion],
+    [recoveryStart, recoveryDayId, today, dailyPortion, promptReady, chaptersReady],
   );
   useEffect(() => {
     if (!recoveryStart || !currentPortion || dailyPortion) return;
@@ -1951,8 +1961,6 @@ function TodayView({
     setDailyPortion(currentPortion);
   }, [recoveryStart, currentPortion, dailyPortion, portionKey]);
   const extra = currentPortion?.extra;
-  const validDailyReading = dailyReading?.reading?.segmentId === extra?.segmentId &&
-    dailyReading?.reading?.chapterIndex === extra?.chapterIndex ? dailyReading : null;
   // Freeze today's assignments while checking them; projections consume the
   // full daily quota in each stream and keep future checkbox rows stable.
   const recoveryPortions = useMemo(() =>
@@ -1969,9 +1977,12 @@ function TodayView({
   const historicalDay = group.planDays.slice(0, Math.max(0, anchorIndex))
     .find(day => day.id === browsedRecoveryDayId)
     ?? (!recoveryPortions.length ? group.planDays.find(day => day.id === browsedRecoveryDayId) : undefined);
+  const normalPortion = useMemo(() => selectedDay
+    ? getStandardReadingPortion(selectedDay, progress, planReading ? {} : readChapters, planReading ? {} : chapterMarks) : undefined,
+    [selectedDay?.id, useRecoveryView, promptReady, planReading, chaptersReady]);
   const displayedDay = useRecoveryView
     ? (browsedPortion?.day ?? historicalDay ?? currentPortion?.day)
-    : selectedDay;
+    : normalPortion?.day;
   const isRecoveryPortion = Boolean(useRecoveryView && displayedDay && displayedDay.id === currentPortion?.day.id);
   const isForecast = Boolean(useRecoveryView && browsedPortion && !isRecoveryPortion);
   const displayedIndex = useRecoveryView
@@ -1983,7 +1994,7 @@ function TodayView({
     if (day) setBrowsedRecoveryDayId(day.id === currentPortion?.day.id ? null : day.id);
   }
   const displayedProgress = { ...progress };
-  const selectedPortion = isRecoveryPortion ? currentPortion : isForecast ? browsedPortion : undefined;
+  const selectedPortion = isRecoveryPortion ? currentPortion : isForecast ? browsedPortion : normalPortion;
   if (selectedPortion) {
     for (const segment of selectedPortion.day.segments) {
       const indices = selectedPortion.chapterIndices[segment.id];
@@ -1995,63 +2006,16 @@ function TodayView({
   const displayedExtra = isRecoveryPortion ? extra : isForecast ? browsedPortion?.extra : undefined;
   const extraComplete = Boolean(displayedExtra && (
     progress[displayedExtra.segmentId] ||
-    isRecoveryChapterRead(readChapters, chapterMarks, displayedExtra.segmentId, displayedExtra.chapterIndex) ||
-    (isRecoveryPortion && validDailyReading?.completed)
+    isRecoveryChapterRead(readChapters, chapterMarks, displayedExtra.segmentId, displayedExtra.chapterIndex)
   ));
   const baseComplete = Boolean(displayedDay && displayedDay.segments.every(segment => displayedProgress[segment.id]));
   async function toggleChapterSelection(
     segmentId: string, indices: number[], completed: boolean, dailyExtra = false,
   ) {
-    const previous = chapterState.current;
     const previousReading = dailyReading;
     const previousDailyStorage = localStorage.getItem(dailyKey);
-    const original = group.planDays.flatMap(day => day.segments).find(segment => segment.id === segmentId);
-    if (!original) return;
-    const count = splitReadingChapters(original.label).length;
-    let queue = chapterOperations.current[segmentId];
-    if (!queue?.pending.length) {
-      queue = {
-        baseline: {
-          chapters: { [segmentId]: progress[segmentId] ? count : previous.chapters[segmentId] ?? 0 },
-          marks: { [segmentId]: previous.marks[segmentId] ?? [] },
-        },
-        pending: [],
-      };
-      chapterOperations.current[segmentId] = queue;
-    }
-    const operation: typeof queue.pending[number] = { indices, completed, status: "pending" };
-    queue.pending.push(operation);
-    function localSnapshot() {
-      let snapshot = queue.baseline;
-      for (const intent of queue.pending) {
-        if (intent.status !== "failed") {
-          snapshot = setRecoveryChapters(snapshot.chapters, snapshot.marks, segmentId, intent.indices, intent.completed);
-        }
-      }
-      return snapshot;
-    }
-    function publishSnapshot() {
-      const snapshot = localSnapshot();
-      const current = chapterState.current;
-      writeChapters(
-        { ...current.chapters, [segmentId]: snapshot.chapters[segmentId] },
-        { ...current.marks, [segmentId]: snapshot.marks[segmentId] },
-      );
-    }
-    function settle(status: "saved" | "failed") {
-      operation.status = status;
-      while (queue.pending.length && queue.pending[0].status !== "pending") {
-        const first = queue.pending.shift()!;
-        if (first.status === "saved") {
-          queue.baseline = setRecoveryChapters(queue.baseline.chapters, queue.baseline.marks, segmentId, first.indices, first.completed);
-        }
-      }
-      if (activeView.current) publishSnapshot();
-    }
-    const segmentCompleted = localSnapshot().chapters[segmentId] >= count;
     onError("");
     try {
-      publishSnapshot();
       if (dailyExtra && extra) {
         const reading = { reading: extra, completed };
         setDailyReading(reading);
@@ -2060,10 +2024,8 @@ function TodayView({
       if (displayedExtra?.segmentId === segmentId && completed && displayedDay) {
         await onWaitForSegments(displayedDay.segments.filter(segment => progress[segment.id]).map(segment => segment.id));
       }
-      if (!completed || Boolean(progress[segmentId]) !== segmentCompleted) await onToggle(segmentId, segmentCompleted);
-      settle("saved");
+      await onToggle(segmentId, completed, true, indices);
     } catch {
-      try { settle("failed"); } catch { /* Visible state is restored even if storage fails. */ }
       if (!activeView.current) return;
       if (dailyExtra) {
         setDailyReading(previousReading);
@@ -2083,7 +2045,6 @@ function TodayView({
     } finally { if (activeView.current) setRecoveryBusy(false); }
   }
   async function toggleDisplayedSegment(segmentId: string) {
-    if (!recoveryStart || (!isRecoveryPortion && !isForecast)) return onToggle(segmentId);
     const original = group.planDays.flatMap(day => day.segments).find(segment => segment.id === segmentId);
     if (!original) return;
     const allIndices = splitReadingChapters(original.label).map((_, index) => index);
@@ -2142,7 +2103,7 @@ function TodayView({
     if (day.id === displayedDay?.id) return portionCompleted;
     const portion = useRecoveryView ? recoveryPortions.find(item => item.day.id === day.id) : undefined;
     return isReadingDateComplete(day, progress, portion, readChapters, chapterMarks,
-      day.id === currentPortion?.day.id && Boolean(validDailyReading?.completed));
+      day.id === currentPortion?.day.id && extraComplete);
   }
   function closeRecoveryDetails() {
     setRecoveryDetailsOpen(false);

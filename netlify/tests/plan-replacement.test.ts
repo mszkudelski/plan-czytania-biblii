@@ -79,3 +79,35 @@ it("retains real log writes through reorder, repeated replacement and later chec
   const fresh = await (await call(base)).json() as Group;
   expect(fresh.progress).toEqual(second.progress);
 });
+
+it("persists chapter intents, validates ownership and survives replacement", async () => {
+  const response = await call("/groups", { name: "Unit chapters", ownerName: "Adam", startDate: "2026-10-19",
+    frequency, planDays: days(["Rdz 1-3", "Mt 1"]) });
+  const session = await response.json() as { group: Group; credentials: Credentials };
+  const base = `/groups/${session.group.id}`;
+  const write = (indices: unknown, completed = true, extra = {}) => call(base + "/progress", {
+    ...session.credentials, segmentId: "s0", completed, indices, ...extra,
+  });
+  expect((await write([0], true, { token: "invalid" })).status).toBe(401);
+  expect((await write([0], true, { groupId: "wrong" })).status).toBe(401);
+  for (const indices of [[], [-1], [3], [0.1], ["1"], "0", null]) expect((await write(indices)).status).toBe(400);
+  expect((await write([0], false, { migrate: true })).status).toBe(400);
+  // Keep the server wall clock fixed: sequential operations must still order.
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-19T12:00:00Z"));
+  const first = await (await write([0])).json() as Group;
+  expect(first.chapterProgress?.[session.credentials.memberId].s0).toEqual([0]);
+  expect(first.progress[session.credentials.memberId].s0).toBeUndefined();
+  await Promise.all([write([1]), write([2])]);
+  expect((await (await call(base)).json() as Group).progress[session.credentials.memberId].s0).toBeDefined();
+  await write([0], false);
+  // A late import from another device cannot resurrect an unchecked chapter.
+  await write([0, 2], true, { migrate: true });
+  let group = await (await call(base)).json() as Group;
+  expect(group.chapterProgress?.[session.credentials.memberId].s0).toEqual([1, 2]);
+  expect(group.progress[session.credentials.memberId].s0).toBeUndefined();
+  const replace = await call(base + "/plan", { ...session.credentials, expectedRevision: "", startDate: "2026-10-19",
+    frequency, planDays: days(["Rdz 1-3", "J 1"]) });
+  expect(replace.status).toBe(200);
+  group = await replace.json() as Group;
+  expect(group.chapterProgress?.[session.credentials.memberId].s0).toEqual([1, 2]);
+});
