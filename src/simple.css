@@ -1054,7 +1054,7 @@ button {
   display: grid;
   min-height: 52px;
   align-items: center;
-  grid-template-columns: 58px minmax(0, 1fr) 34px;
+  grid-template-columns: 58px minmax(0, 1fr) max-content;
   gap: 12px;
   padding: 0 18px;
   border-bottom: 1px solid var(--border);
