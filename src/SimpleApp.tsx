@@ -15,6 +15,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1582,7 +1583,7 @@ Zasady:
   );
 }
 
-function Dashboard({
+export function Dashboard({
   credentials,
   group,
   setGroup,
@@ -1607,7 +1608,26 @@ function Dashboard({
   onRefresh: () => void;
   onLeave: () => void;
 }) {
-  const [tab, setTab] = useState<Tab>("today");
+  const [tab, updateTab] = useState<Tab>("today");
+  const [requestedReading, setRequestedReading] = useState<{ dayId: string }>();
+  const planPosition = useRef({ top: 0, dayId: "" });
+  const content = useRef<HTMLElement>(null);
+  function setTab(next: Tab) {
+    if (next === tab) return;
+    if (tab === "plan") planPosition.current.top = window.scrollY;
+    updateTab(next);
+  }
+  useLayoutEffect(() => {
+    if (tab === "plan") {
+      const row = Array.from(content.current?.querySelectorAll<HTMLButtonElement>(".plan-day-row") ?? [])
+        .find(row => row.dataset.dayId === planPosition.current.dayId);
+      row?.focus({ preventScroll: true });
+      window.scrollTo({ top: planPosition.current.top, behavior: "instant" });
+    } else if (tab === "today" && requestedReading) {
+      content.current?.querySelector<HTMLElement>(".reading-focus")?.focus({ preventScroll: true });
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, [tab, requestedReading]);
   const onboarding = useOnboarding();
   useEffect(() => { onboarding.setReadingActive(tab === "today"); return () => onboarding.setReadingActive(false); }, [tab, onboarding.setReadingActive]);
   const [today, setToday] = useState(todayIso);
@@ -1747,7 +1767,7 @@ function Dashboard({
         </div>
       </header>
 
-      <main className={`simple-content ${tab === "today" ? "reading-home-content" : ""}`}>
+      <main ref={content} className={`simple-content ${tab === "today" ? "reading-home-content" : ""}`}>
         {syncMessage && <div className="sync-status" role="status" aria-label="Stan połączenia">{syncMessage}</div>}
         {progressError && <p className="progress-error" role="alert">{progressError}</p>}
         <div hidden={tab !== "today"}>
@@ -1757,6 +1777,7 @@ function Dashboard({
             credentials={credentials}
             promptReady={promptReady}
             active={tab === "today"}
+            requestedReading={requestedReading}
             member={member}
             onToggle={toggle}
             onError={setProgressError}
@@ -1764,7 +1785,11 @@ function Dashboard({
           />
         </div>
         {tab === "plan" && (
-          <PlanView group={visibleGroup} member={member} />
+          <PlanView group={visibleGroup} member={member} onOpenReading={dayId => {
+            planPosition.current = { top: window.scrollY, dayId };
+            setRequestedReading({ dayId });
+            updateTab("today");
+          }} />
         )}
         {tab === "group" && (
           <GroupView
@@ -1807,6 +1832,7 @@ function Dashboard({
 }
 
 function TodayView({
+  requestedReading,
   group,
   credentials,
   promptReady,
@@ -1821,6 +1847,7 @@ function TodayView({
   promptReady: boolean;
   active: boolean;
   member: Member;
+  requestedReading?: { dayId: string };
   onToggle: (segmentId: string, completed?: boolean) => Promise<void>;
   onError: (message: string) => void;
   onWaitForSegments: (segmentIds: string[]) => Promise<void>;
@@ -1842,6 +1869,14 @@ function TodayView({
   const [selectedIndex, setSelectedIndex] = useState(() => notificationDay
     ? group.planDays.findIndex(day => day.id === notificationDay.id) : Math.max(0, initialIndex));
   const selectedDay = group.planDays[selectedIndex];
+  const [planReading, setPlanReading] = useState(false);
+  useLayoutEffect(() => {
+    if (!requestedReading) return;
+    const index = group.planDays.findIndex(day => day.id === requestedReading.dayId);
+    if (index < 0) return;
+    setSelectedIndex(index);
+    setPlanReading(true);
+  }, [requestedReading]);
   const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
   const recoveryKey = `reading-recovery:${group.id}:${member.id}${group.planRevision ? `:${group.planRevision}` : ""}`;
   const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
@@ -1926,7 +1961,7 @@ function TodayView({
     [recoveryStart, currentPortion],
   );
   const anchorIndex = group.planDays.findIndex(day => day.id === recoveryDayId);
-  const useRecoveryView = Boolean(recoveryStart && !notificationDay);
+  const useRecoveryView = Boolean(recoveryStart && !notificationDay && !planReading);
   const navigationDays = useRecoveryView && recoveryPortions.length
     ? [...group.planDays.slice(0, Math.max(0, anchorIndex)), ...recoveryPortions.map(portion => portion.day)]
     : group.planDays;
@@ -2058,6 +2093,7 @@ function TodayView({
   function changeRecovery(start: string) {
     if (start && !canStartRecovery(week.overdueReadings)) return;
     setNotificationDay(undefined);
+    setPlanReading(false);
     if (start) {
       // Activation uses the latest progress, even if this view was opened earlier.
       setBrowsedRecoveryDayId(null);
@@ -2085,13 +2121,17 @@ function TodayView({
   const returnIndex = useRecoveryView
     ? navigationDays.findIndex(day => day.id === currentPortion?.day.id)
     : nextUnread;
-  const returnToRecovery = Boolean(recoveryStart && notificationDay);
+  const returnToRecovery = Boolean(recoveryStart && (notificationDay || planReading));
   const showReturn = returnToRecovery || (returnIndex >= 0 && displayedIndex !== returnIndex);
   function returnToReading() {
     if (returnToRecovery) {
       setNotificationDay(undefined);
+      setPlanReading(false);
       setBrowsedRecoveryDayId(null);
-    } else selectDay(returnIndex);
+    } else {
+      setPlanReading(false);
+      selectDay(returnIndex);
+    }
   }
 
   const allSegments = group.planDays.flatMap(day => day.segments);
@@ -2142,7 +2182,7 @@ function TodayView({
         <section className="reading-state" role="status"><Icon name="book" size={28} /><div><h2>Plan jeszcze się nie rozpoczął</h2>
           <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate, "shortYear")}.</p></div></section>
       ) : null}
-      {showReading && displayedDay && <section className="reading-focus" aria-label="Wybrane czytanie">
+      {showReading && displayedDay && <section className="reading-focus" aria-label="Wybrane czytanie" tabIndex={-1}>
         <DayCard day={displayedDay} progress={displayedProgress} onToggle={toggleDisplayedSegment}
           header={<header className="reading-card-head">
             <time dateTime={displayedDay.date}>{new Intl.DateTimeFormat("pl-PL", { weekday: "short", day: "numeric", month: "long" }).format(new Date(`${displayedDay.date}T12:00:00`))}</time>
@@ -2181,9 +2221,11 @@ function TodayView({
 function PlanView({
   group,
   member,
+  onOpenReading,
 }: {
   group: Group;
   member: Member;
+  onOpenReading: (dayId: string) => void;
 }) {
   const progress = group.progress[member.id] ?? {};
   const week = getReadingWeekSummary(group, member.id, todayIso());
@@ -2228,7 +2270,11 @@ function PlanView({
             (segment) => progress[segment.id],
           ).length;
           return (
-            <div
+            <button
+              type="button"
+              data-day-id={day.id}
+              onClick={() => onOpenReading(day.id)}
+              aria-label={`Otwórz czytanie: ${formatPolishDate(day.date)}, ${day.segments.map(segment => segment.label).join(" · ")}`}
               className={`plan-day-row ${
                 completed === day.segments.length ? "complete" : ""
               }`}
@@ -2241,7 +2287,7 @@ function PlanView({
               <b>
                 {completed}/{day.segments.length}
               </b>
-            </div>
+            </button>
           );
         })}
       </section>

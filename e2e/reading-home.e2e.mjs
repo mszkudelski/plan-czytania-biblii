@@ -25,6 +25,60 @@ async function fitsViewport(page) {
 }
 
 for (const width of [1280, 390]) {
+  for (const recovery of [false, true]) {
+    test(`Plan rows open exact scheduled readings and restore scroll/focus (${width}, recovery: ${recovery})`, async ({ page, request }) => {
+      await page.setViewportSize({ width, height: 900 });
+      const session = await timeline(request, `plan-navigation-${width}-${recovery}`,
+        Array.from({ length: 28 }, (_, index) => index - 6));
+      await saveProgress(request, session, 't0a'); await saveProgress(request, session, 't0b');
+      await openPlan(page, session);
+      if (recovery) await enableRecovery(page);
+      const home = await page.locator('.reading-focus').innerText();
+      const storage = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage)
+        .filter(([key]) => key.startsWith('reading-home:') || key.startsWith('reading-recovery:'))));
+      let progressWrites = 0;
+      page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/progress')) progressWrites++; });
+      for (const [index, activation] of [[0, 'click'], [3, 'Enter'], [24, 'Space'], [24, 'Enter']]) {
+        await tab(page, 'Plan').click();
+        const row = page.locator(`.plan-day-row[data-day-id="t${index}"]`);
+        await row.scrollIntoViewIfNeeded(); await row.focus();
+        const top = await page.evaluate(() => scrollY);
+        if (index === 24) expect(top).toBeGreaterThan(100);
+        if (activation === 'click') await row.click(); else await row.press(activation);
+        const card = page.getByRole('region', { name: 'Wybrane czytanie', exact: true });
+        await expect(card).toBeFocused();
+        await expect(card.locator('time')).toHaveAttribute('datetime', date(index - 6));
+        await expect(reading(page, `Rdz ${index + 1}`)).toBeVisible();
+        await expect(reading(page, `Mt ${index + 1}`)).toBeVisible();
+        await expect(reading(page, `Rdz ${index + 1}`)).toHaveAttribute('aria-pressed', index === 0 ? 'true' : 'false');
+        await expect(extraReading(page)).toHaveCount(0);
+        expect(await page.evaluate(() => scrollY)).toBe(0);
+        await tab(page, 'Plan').click();
+        await expect(row).toBeFocused();
+        await expect.poll(() => page.evaluate(() => scrollY)).toBe(top);
+        if (index === 24 && activation === 'Space') {
+          await test.info().attach(`plan-row-focus-${width}-${recovery}`, {
+            body: await page.screenshot(), contentType: 'image/png',
+          });
+        }
+      }
+      await tab(page, 'Czytaj').click();
+      await test.info().attach(`plan-selected-reading-${width}-${recovery}`, {
+        body: await page.screenshot(), contentType: 'image/png',
+      });
+      await page.getByRole('button', { name: 'Wróć do swojego miejsca', exact: true }).click();
+      await expect(page.locator('.reading-focus')).toHaveText(home);
+      expect(await page.evaluate(() => Object.fromEntries(Object.entries(localStorage)
+        .filter(([key]) => key.startsWith('reading-home:') || key.startsWith('reading-recovery:'))))).toEqual(storage);
+      expect(progressWrites).toBe(0);
+      await expectSaved(request, session, ['t0a', 't0b']);
+      expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
+      await page.reload();
+      await expect(page.locator('.reading-focus')).toHaveText(home);
+      await fitsViewport(page);
+    });
+  }
+
   test('return arrows point to the personal position and never write progress at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await createPlan(request, 'home-return-' + width);
