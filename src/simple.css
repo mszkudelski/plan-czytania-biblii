@@ -1044,6 +1044,13 @@ button {
 }
 
 .plan-day-row {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
   display: grid;
   min-height: 52px;
   align-items: center;
@@ -1051,6 +1058,15 @@ button {
   gap: 12px;
   padding: 0 18px;
   border-bottom: 1px solid var(--border);
+}
+
+.plan-day-row:hover {
+  background: var(--soft-green);
+}
+
+.plan-day-row:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: -3px;
 }
 
 .plan-day-row:last-child {
