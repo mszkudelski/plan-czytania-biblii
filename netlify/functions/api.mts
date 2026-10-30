@@ -1,4 +1,4 @@
-import { createReadingStart } from "../../src/lib/personal-schedule";
+import { createReadingStart, readingStartDate } from "../../src/lib/personal-schedule";
 import { replaceGroupPlan, restoreGroupPlan, planRestoreAvailable, replacementPlanError, type SavedPlan, type PlanReplacementInput } from "../../src/lib/plan-replacement";
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference } from "../../src/lib/recovery-prompt";
 import { getStore } from "@netlify/blobs";
@@ -728,8 +728,12 @@ async function joinGroup(request: Request, groupId: string) {
     name?: unknown;
     inviteToken?: unknown;
     readingStart?: unknown;
+    timeZone?: unknown;
   };
   if (body.readingStart !== undefined && body.readingStart !== "beginning" && body.readingStart !== "group") return error("Nieprawidłowe miejsce startu.");
+  let today: string;
+  try { today = readingStartDate(body.timeZone); }
+  catch (caught) { return error((caught as Error).message); }
   const name = cleanPersonName(cleanText(body.name));
   const inviteToken = cleanText(body.inviteToken, 200);
   if (!name) return error("Podaj imię.");
@@ -744,7 +748,7 @@ async function joinGroup(request: Request, groupId: string) {
       return error("Link zaproszenia jest nieprawidłowy.", 401);
     }
     let readingStart: Member["readingStart"];
-    try { readingStart = createReadingStart(group, body.readingStart === "group" ? "group" : "beginning"); }
+    try { readingStart = createReadingStart(group, body.readingStart === "group" ? "group" : "beginning", today); }
     catch (caught) { return error((caught as Error).message, 409); }
     const memberId = crypto.randomUUID();
     const token = randomToken();

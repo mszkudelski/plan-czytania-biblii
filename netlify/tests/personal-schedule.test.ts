@@ -46,6 +46,7 @@ it("validates join choice and persists isolated personal start without inventing
     date: new Date(Date.now() + (index - 1) * 86400000).toISOString().slice(0, 10) }));
   expect((await call(base + "/plan", { ...session.credentials, planDays, startDate: planDays[0].date, frequency, expectedRevision: "" })).status).toBe(200);
   expect((await call(base + "/join", { name: "Nowa", inviteToken: session.credentials.inviteToken, readingStart: "bad" })).status).toBe(400);
+  expect((await call(base + "/join", { name: "Nowa", inviteToken: session.credentials.inviteToken, readingStart: "group", timeZone: "bad" })).status).toBe(400);
   const join = async (readingStart: string) => {
     const response = await call(base + "/join", { name: "Nowa", inviteToken: session.credentials.inviteToken, readingStart });
     expect(response.status).toBe(201); return response.json() as Promise<{ group: Group; credentials: Credentials }>;

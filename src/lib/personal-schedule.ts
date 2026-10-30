@@ -3,6 +3,16 @@ import { todayIso } from "./schedule";
 
 export type ReadingStartChoice = "beginning" | "group";
 
+// The UI calendar follows the participant's timezone, which can differ from the server.
+export function readingStartDate(timeZone: unknown = "UTC", now = new Date()) {
+  if (typeof timeZone !== "string" || timeZone.length > 100) throw new Error("Nieprawidłowa strefa czasowa.");
+  try {
+    const parts = new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+    const part = (name: string) => parts.find(part => part.type === name)!.value;
+    return `${part("year")}-${part("month")}-${part("day")}`;
+  } catch { throw new Error("Nieprawidłowa strefa czasowa."); }
+}
+
 export function groupStartDay(group: Group, today = todayIso()) {
   return group.planDays.find(day => day.date >= today && day.segments.length > 0);
 }

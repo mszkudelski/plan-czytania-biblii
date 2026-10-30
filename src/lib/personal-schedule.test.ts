@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Group } from "../types";
-import { createReadingStart, groupStartDay, initialRecoveryStart, personalGroup } from "./personal-schedule";
+import { createReadingStart, readingStartDate, groupStartDay, initialRecoveryStart, personalGroup } from "./personal-schedule";
 import { getMemberMetrics, getNextDay } from "./metrics";
 import { getDailyReadingDay, getReadingHomeSummary, getReadingWeekSummary } from "./reading-home";
 import { getOverdueDays, parseRecoverySchedule, projectRecoveryPortions } from "./recovery";
@@ -16,6 +16,14 @@ function fixture(): Group {
   };
 }
 describe("personal late-join schedule", () => {
+  it("uses the participant's local date around midnight and validates timezone input", () => {
+    const now = new Date("2026-10-30T23:30:00Z");
+    expect(readingStartDate("Europe/Warsaw", now)).toBe("2026-10-31");
+    expect(readingStartDate("America/Los_Angeles", now)).toBe("2026-10-30");
+    expect(readingStartDate(undefined, now)).toBe("2026-10-30");
+    expect(() => readingStartDate("bad-timezone", now)).toThrow(/strefa/);
+    expect(() => readingStartDate(1, now)).toThrow(/strefa/);
+  });
   it("starts at the beginning and automatically enables catch-up only when there is past work", () => {
     const group = fixture();
     expect(createReadingStart(group, "beginning", today)).toEqual({ skippedSegmentIds: [], autoRecoveryAt: today });

@@ -270,7 +270,7 @@ export async function joinGroup(invite: JoinInvite, name: string, readingStart: 
       `/groups/${invite.groupId}/join`,
       {
         method: "POST",
-        body: JSON.stringify({ inviteToken: invite.inviteToken, name, readingStart }),
+        body: JSON.stringify({ inviteToken: invite.inviteToken, name, readingStart, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
       },
     );
   } catch (error) {
