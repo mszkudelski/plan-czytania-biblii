@@ -54,19 +54,20 @@ for (const width of [1280, 390]) for (const choice of ['beginning', 'group']) {
     } finally { await context.close(); }
     if (choice === 'group') {
       await reading(page, 'Rdz 8').click(); await expectSaved(request, session, ['s7']);
-      await tab(page, 'Plan').click(); await expect(page.locator('[data-day-id="d0"]')).toContainText('Pominięte');
-      expect(await page.locator('[data-day-id="d0"] b').evaluate(status => {
+      await tab(page, 'Plan').click(); await expect(page.locator('.plan-day-row[data-day-id="d0"]')).toContainText('Pominięte');
+      expect(await page.locator('.plan-day-row[data-day-id="d0"] b').evaluate(status => {
         const row = status.closest('button').getBoundingClientRect(), label = status.getBoundingClientRect();
         return label.right <= row.right && status.scrollWidth <= status.clientWidth;
       })).toBe(true);
-      await page.locator('[data-day-id="d0"]').click(); await expect(reading(page, 'Rdz 1')).toBeVisible();
+      await page.locator('.plan-day-row[data-day-id="d0"]').click(); await expect(reading(page, 'Rdz 1')).toBeVisible();
       await expectSaved(request, session, ['s7']);
       await page.getByRole('button', { name: 'Wróć do swojego miejsca', exact: true }).click(); await expect(reading(page, 'Rdz 9')).toBeVisible();
       await tab(page, 'Plan').click(); await page.getByRole('button', { name: 'Włącz pominięte czytania', exact: true }).click();
-      await page.getByRole('button', { name: 'Anuluj', exact: true }).click(); await expect(page.locator('[data-day-id="d0"]')).toContainText('Pominięte');
+      await page.getByRole('button', { name: 'Anuluj', exact: true }).click(); await expect(page.locator('.plan-day-row[data-day-id="d0"]')).toContainText('Pominięte');
       await page.getByRole('button', { name: 'Włącz pominięte czytania', exact: true }).click();
       await page.getByRole('button', { name: 'Potwierdź powrót do początku', exact: true }).click();
-      await expect(page.locator('[data-day-id="d0"]')).not.toContainText('Pominięte');
+      await expect(page.locator('.plan-day-row[data-day-id="d0"]')).toHaveCount(1);
+      await expect(page.locator('.plan-day-row[data-day-id="d0"]')).not.toContainText('Pominięte');
       await tab(page, 'Czytaj').click(); await expect(reading(page, 'Rdz 1')).toBeVisible();
       await page.reload(); await expect(reading(page, 'Rdz 1')).toBeVisible(); await expectSaved(request, session, ['s7']);
     } else {
