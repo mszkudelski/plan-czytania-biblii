@@ -172,7 +172,7 @@ test('administrator restores the previous plan and group progress through confir
   expect(restored.planDays.map(day => day.segments.map(segment => segment.label)))
     .toEqual(before.planDays.map(day => day.segments.map(segment => segment.label)));
   const first = restored.planDays[0].segments[0].id;
-  const psalm = restored.planDays[2].segments[0].id;
+  const psalm = restored.planDays.flatMap(day => day.segments)[before.planDays.flatMap(day => day.segments).findIndex(segment => segment.id === "s2")].id;
   expect(restored.progress).toEqual({ [owner.credentials.memberId]: { [first]: before.progress[owner.credentials.memberId].s0 },
     [member.credentials.memberId]: { [psalm]: before.progress[member.credentials.memberId].s2 } });
   expect((await request.post(restorePath, { data: { ...data, expectedRevision: restored.planRevision } })).status()).toBe(404);

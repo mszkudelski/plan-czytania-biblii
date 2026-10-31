@@ -317,6 +317,7 @@ export function projectRecoveryPortions(
   savedExtra?: RecoveryReading,
   chapterMarks: ReadChapterMarks = {},
   savedPortion?: RecoveryPortion,
+  preserveStandardContext = false,
 ): RecoveryPortion[] {
   group = personalGroup(group, memberId);
   const chapters = planChapters(group);
@@ -357,7 +358,7 @@ export function projectRecoveryPortions(
         const checkedAnchor = portions.length === 0 && anchorIndex >= 0
           ? chapters.filter(c => c.dayIndex === anchorIndex &&
               group.progress[memberId]?.[c.segmentId] &&
-              !isRecoveryChapterRead(readChapters, chapterMarks, c.segmentId, c.chapterIndex))
+              (preserveStandardContext || !isRecoveryChapterRead(readChapters, chapterMarks, c.segmentId, c.chapterIndex)))
           : [];
         base = [...checkedAnchor, ...unread.slice(0, Math.max(0, quota - checkedAnchor.length))];
       }

@@ -353,3 +353,15 @@ it("round-trips the built-in yearly plan through recovery without losing or repe
   expect(parseRecoverySchedule(g, "a", "2026-10-15", {}, {}, JSON.stringify(portions))).toEqual(portions);
   expect(JSON.stringify(g)).toBe(before);
 });
+
+
+it("keeps checked rows when server chapter marks accompany a partially completed standard day", () => {
+  const g = parallelFixture(12);
+  const first = g.planDays[0].segments[0];
+  g.progress.a[first.id] = "done";
+  g.chapterProgress = { a: { [first.id]: [0] } };
+  const portion = projectRecoveryPortions(g, "a", "2026-09-11", { [first.id]: 1 }, g.planDays[0].id,
+    undefined, g.chapterProgress.a, undefined, true)[0];
+  expect(portion.day.segments.map(segment => segment.label)).toEqual(["Rdz 1", "Mt 1", "Ps 1"]);
+  expect(portion.extra?.label).toBe("Rdz 2");
+});
