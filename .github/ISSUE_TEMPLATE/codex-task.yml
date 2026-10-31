@@ -1,0 +1,57 @@
+name: "Zadanie dla Codex Cloud"
+description: "Małe, jednoznaczne zadanie z kryteriami akceptacji do delegowania przez @codex."
+title: "[Codex] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Po utworzeniu issue sprawdź zakres, a następnie jako uprawniony użytkownik dodaj komentarz `@codex` z poleceniem realizacji.
+        Samo utworzenie issue nie uruchamia Codexa.
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem i oczekiwane zachowanie"
+      description: "Co nie działa albo co ma się zmienić? Podaj kroki odtworzenia, jeśli dotyczy."
+      placeholder: "Aktualnie... Oczekuję..."
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: "Kryteria akceptacji"
+      description: "Sprawdzalne warunki ukończenia zadania."
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: "Zakres i ograniczenia"
+      description: "Wskaż obszar funkcjonalny, zależności i czego NIE zmieniać."
+      placeholder: "Nie zmieniaj niezwiązanych modułów, wdrożeń ani sekretów."
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: "Ryzyko"
+      options:
+        - "Niskie: tekst / UI / brak danych użytkowników"
+        - "Średnie: logika aplikacji / API"
+        - "Wysokie: dostęp, dane, migracje, produkcja"
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: "Weryfikacja"
+      value: |
+        - [ ] npm test
+        - [ ] npm run build
+        - [ ] Test regresyjny odpowiedni do zmiany
+        - [ ] Sprawdzenie Required CI przed merge
+        - [ ] E2E dopiero po pushu do main zgodnie z AGENTS.md
+    validations:
+      required: true
