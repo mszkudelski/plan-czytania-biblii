@@ -70,7 +70,8 @@ test('backend rejection rolls back only the failed click and allows retry', asyn
     await reading(page, 'Rdz 1').click();
     await reading(page, 'Mt 1').click();
     await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
-    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'false');
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-busy', 'true');
   } finally { release(); }
   await expect(page.getByRole('alert')).toContainText('Nie udało się zapisać');
   await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'false');
@@ -333,9 +334,10 @@ test('recovery advances at midnight without reloading the page', async ({ page, 
   await expectSaved(request, session, ['s0', 's1']);
   await extraReading(page).click();
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => (await readGroup(request, session)).chapterProgress?.[session.credentials.memberId]?.s2).toEqual([0]);
   await page.clock.fastForward('12:00:01');
   await expect(reading(page, 'Rdz 3')).toBeVisible();
-  await expect(extraReading(page)).toContainText('Rdz 4');
+  await expect(extraReading(page)).toContainText('Rdz 5');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
 });
 

@@ -1633,6 +1633,7 @@ export function Dashboard({
   const [today, setToday] = useState(todayIso);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [visibleGroup, setVisibleGroup] = useState(group);
+  const [progressReady, setProgressReady] = useState(false);
   const [progressError, setProgressError] = useState("");
   const analyticsBaseline = useRef(group);
   useEffect(() => { trackPlanOpened(group); }, [group]);
@@ -1658,7 +1659,8 @@ export function Dashboard({
 
   useEffect(() => {
     progressQueue.replaceGroup(group, renderedRevision);
-  }, [group, progressQueue]);
+    setProgressReady(promptReady);
+  }, [group, progressQueue, promptReady]);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     function scheduleMidnight() {
@@ -1775,7 +1777,7 @@ export function Dashboard({
             key={`${group.id}:${member.id}:${today}:${visibleGroup.planRevision ?? ""}`}
             group={visibleGroup}
             credentials={credentials}
-            promptReady={promptReady}
+            promptReady={promptReady && progressReady}
             savingProgress={progressQueue.hasPending}
             active={tab === "today"}
             requestedReading={requestedReading}
@@ -1888,14 +1890,8 @@ export function TodayView({
   const [finalReadingId, setFinalReadingId] = useState("");
   const finalWrite = useRef(false);
   const hadRecoverySession = useRef(Boolean(recoveryStart &&
-    (week.overdueReadings > 0 || localStorage.getItem(recoveryDayKey) === today)));
+    localStorage.getItem(recoveryDayKey) === today));
   const recoveryActive = Boolean(recoveryStart && (week.overdueReadings > 0 || savingProgress || hadRecoverySession.current));
-  useEffect(() => {
-    if (recoveryActive) {
-      hadRecoverySession.current = true;
-      localStorage.setItem(recoveryDayKey, today);
-    }
-  }, [recoveryActive, recoveryDayKey, today]);
   useEffect(() => {
     if (dailyDayId && !recoveryStart) localStorage.setItem(normalPortionKey, dailyDayId);
   }, [dailyDayId, normalPortionKey, recoveryStart]);
@@ -1919,6 +1915,13 @@ export function TodayView({
   })), [chapterMarks]);
   const migrationStarted = useRef(false);
   const [chaptersReady, setChaptersReady] = useState(false);
+  useEffect(() => {
+    if (promptReady && chaptersReady && !savingProgress && recoveryActive && week.overdueReadings > 0) {
+      hadRecoverySession.current = true;
+      localStorage.setItem(recoveryDayKey, today);
+    }
+  }, [recoveryActive, recoveryDayKey, today, promptReady, chaptersReady, savingProgress, week.overdueReadings]);
+
   useEffect(() => {
     if (!promptReady || migrationStarted.current) return;
     migrationStarted.current = true;
@@ -1970,7 +1973,7 @@ export function TodayView({
   const verifiedRecoveryCache = useRef(false);
   useEffect(() => {
     if (!promptReady) { verifiedRecoveryCache.current = false; setFinishedRecoveryView(false); return; }
-    if (savingProgress || verifiedRecoveryCache.current) return;
+    if (!chaptersReady || savingProgress || verifiedRecoveryCache.current) return;
     verifiedRecoveryCache.current = true;
     if (dailySchedule && !parseRecoverySchedule(group, member.id, today, readChapters, chapterMarks, JSON.stringify(dailySchedule))) {
       setDailySchedule(undefined);
@@ -1982,21 +1985,21 @@ export function TodayView({
       setDailyPortion(undefined);
       localStorage.removeItem(portionKey);
     }
-  }, [promptReady, group, member.id, today, readChapters, chapterMarks, dailySchedule, dailyPortion, scheduleKey, portionKey, recoveryDayId, savingProgress]);
+  }, [promptReady, group, member.id, today, readChapters, chapterMarks, dailySchedule, dailyPortion, scheduleKey, portionKey, recoveryDayId, savingProgress, chaptersReady]);
   const legacyDailyReading = validateDailyRecoveryReading(
     group, member.id, today, readChapters, recoveryDayId, dailyReading,
   );
   const currentPortion = useMemo(() =>
     dailySchedule?.[0] ?? dailyPortion ?? projectRecoveryPortions(group, member.id, today, readChapters, recoveryDayId,
-      legacyDailyReading?.reading, chapterMarks, dailyPortion)[0],
+      legacyDailyReading?.reading, chapterMarks, dailyPortion, recoveryStart === today)[0],
     [group, member.id, readChapters, chapterMarks, recoveryStart, recoveryDayId, today, dailyPortion, dailySchedule, legacyDailyReading?.reading],
   );
   useEffect(() => {
-    if (!promptReady || !recoveryActive || !currentPortion || dailyPortion || dailySchedule) return;
+    if (!promptReady || !chaptersReady || savingProgress || !recoveryActive || !currentPortion || dailyPortion || dailySchedule) return;
     try { localStorage.setItem(portionKey, JSON.stringify(currentPortion)); }
     catch { /* Keep the current session usable when the cache is full. */ }
     setDailyPortion(currentPortion);
-  }, [promptReady, recoveryActive, currentPortion, dailyPortion, dailySchedule, portionKey]);
+  }, [promptReady, recoveryActive, currentPortion, dailyPortion, dailySchedule, portionKey, chaptersReady, savingProgress]);
   const extra = currentPortion?.extra;
   // Freeze today's assignments while checking them; projections consume the
   // full daily quota in each stream and keep future checkbox rows stable.
@@ -2006,11 +2009,11 @@ export function TodayView({
     [recoveryStart, currentPortion, dailySchedule],
   );
   useEffect(() => {
-    if (!promptReady || !recoveryActive || dailySchedule || !recoveryPortions.length) return;
+    if (!promptReady || !chaptersReady || savingProgress || !recoveryActive || dailySchedule || !recoveryPortions.length) return;
     try { localStorage.setItem(scheduleKey, JSON.stringify(recoveryPortions)); }
     catch { /* The daily portion and chapter progress remain independently saved. */ }
     setDailySchedule(recoveryPortions);
-  }, [promptReady, recoveryActive, dailySchedule, recoveryPortions, scheduleKey]);
+  }, [promptReady, recoveryActive, dailySchedule, recoveryPortions, scheduleKey, chaptersReady, savingProgress]);
   useEffect(() => {
     // Undoing completion restores the mode without replacing its frozen card.
     if (!finishedRecoveryView || recoveryStart || week.overdueReadings === 0) return;
@@ -2023,7 +2026,7 @@ export function TodayView({
   useEffect(() => {
     // Projected extras can remain after the backlog is cleared. End recovery
     // using actual debt, once fresh session progress is available.
-    if (!promptReady || savingProgress || finalWrite.current || !recoveryStart || week.overdueReadings > 0) return;
+    if (!promptReady || !chaptersReady || savingProgress || finalWrite.current || !recoveryStart || week.overdueReadings > 0) return;
     if (hadRecoverySession.current && !currentDailyComplete) return;
     localStorage.removeItem(recoveryKey);
     localStorage.removeItem(recoveryDayKey);
@@ -2039,7 +2042,7 @@ export function TodayView({
     const resumedIndex = nextIndex >= 0 ? nextIndex : Math.max(0, group.planDays.length - 1);
     setDailyDayId(group.planDays[resumedIndex]?.id ?? "");
     if (!hadRecoverySession.current && !notificationDay && !planReading) setSelectedIndex(resumedIndex);
-  }, [dailyKey, group.planDays, portionKey, progress, promptReady, recoveryKey, recoveryStart, week.overdueReadings, savingProgress, notificationDay, scheduleKey, currentDailyComplete, finalReadingId, recoveryDayKey, planReading]);
+  }, [dailyKey, group.planDays, portionKey, progress, promptReady, recoveryKey, recoveryStart, week.overdueReadings, savingProgress, notificationDay, scheduleKey, currentDailyComplete, finalReadingId, recoveryDayKey, planReading, chaptersReady]);
   const useRecoveryView = Boolean((recoveryActive || finishedRecoveryView) && !notificationDay && !planReading);
   // Checking a row changes progress, not the navigation or the selected date.
   // Rebuild this snapshot only when entering/leaving recovery or its schedule changes.

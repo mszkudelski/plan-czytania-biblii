@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures.mjs';
-import { enableRecovery, expectWeek, createPlan, inputPlan, NOW, openPlan, saveProgress, readGroup, expectSaved, reading, extraReading, browseReading, tab } from './helpers.mjs';
+import { enableRecovery, recoveryKey, TODAY, expectWeek, createPlan, inputPlan, NOW, openPlan, saveProgress, readGroup, expectSaved, reading, extraReading, browseReading, tab } from './helpers.mjs';
 
 const date = offset => new Date(NOW.getTime() + offset * 86400000).toISOString().slice(0, 10);
 const restHint = 'Dziś dzień wolny w planie. Możesz czytać dalej we własnym tempie.';
@@ -68,14 +68,14 @@ for (const width of [1280, 390]) {
         body: await page.screenshot(), contentType: 'image/png',
       });
       await page.getByRole('button', { name: 'Wróć do swojego miejsca', exact: true }).click();
-      await expect(page.locator('.reading-focus')).toHaveText(home);
+      await expect(page.locator('.reading-focus')).toHaveText(home, { useInnerText: true });
       expect(await page.evaluate(() => Object.fromEntries(Object.entries(localStorage)
         .filter(([key]) => key.startsWith('reading-home:') || key.startsWith('reading-recovery:'))))).toEqual(storage);
       expect(progressWrites).toBe(0);
       await expectSaved(request, session, ['t0a', 't0b']);
       expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
       await page.reload();
-      await expect(page.locator('.reading-focus')).toHaveText(home);
+      await expect(page.locator('.reading-focus')).toHaveText(home, { useInnerText: true });
       await fitsViewport(page);
     });
   }
@@ -268,7 +268,7 @@ for (const width of [1280, 390]) {
     await expect(page.getByTestId('ahead-readings')).toHaveText('1');
     await expect(page.getByTestId('reading-balance')).toContainText('1dzień');
     await tab(page, 'Plan').click();
-    await expect(page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true })).toHaveAttribute('aria-valuenow', '66.5');
+    await expect(page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true })).toHaveAttribute('aria-valuenow', '83.5');
     await tab(page, 'Czytaj').click();
     await expectSaved(request, session, ['t0a', 't0b', 't1a', 't2a', 't2b']);
     await fitsViewport(page);
@@ -356,14 +356,11 @@ for (const width of [1280, 390]) {
     const session = await timeline(request, 'home-catchup-reconcile-' + width, [-2, -1, 0, 1, 2, 3, 4, 5, 6]);
     const future = Array.from({ length: 6 }, (_, index) => [`t${index + 3}a`, `t${index + 3}b`]).flat();
     for (const id of ['t0a', 't0b', 't1a', ...future]) await saveProgress(request, session, id);
-    await openPlan(page, session);
-    await expect(page.getByTestId('overdue-readings')).toHaveText('1');
-    await page.evaluate(({ groupId, memberId }) => {
-      const recoveryKey = `reading-recovery:${groupId}:${memberId}`;
-      localStorage.setItem(recoveryKey, 'enabled');
-      localStorage.setItem(`${recoveryKey}:chapters`, JSON.stringify({ t1b: 1 }));
-    }, { groupId: session.group.id, memberId: session.credentials.memberId });
-    await page.reload();
+    // This simulates the first launch after upgrading a legacy browser.
+    await openPlan(page, session, {
+      [recoveryKey(session)]: TODAY,
+      [recoveryKey(session) + ':chapters']: JSON.stringify({ t1b: 1 }),
+    });
     await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b', ...future]);
     await expect(page.getByTestId('overdue-readings')).toHaveCount(0);
     await expect(page.getByTestId('reading-balance')).toContainText('Do przodu');
@@ -378,8 +375,9 @@ for (const width of [1280, 390]) {
   test('catch-up finishes only after the whole daily portion, without replacing the card at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await timeline(request, 'home-catchup-frozen-extra-' + width, [-1, 0, 1, 2]);
-    await openPlan(page, session);
-    await enableRecovery(page);
+    // Resume an existing recovery session below the four-day activation threshold.
+    await openPlan(page, session, { [recoveryKey(session)]: TODAY });
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
     await expect(extraReading(page)).toContainText('Rdz 2');
     const initialCard = await page.locator('.reading-focus').boundingBox();
     await reading(page, 'Rdz 1').click();
@@ -422,9 +420,10 @@ for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const session = await timeline(request, 'home-catchup-forward-' + width, [-4, -3, -2, -1, 0]);
     for (const id of ['t0a', 't0b', 't1a', 't1b']) await saveProgress(request, session, id);
-    await openPlan(page, session);
-    await expect(page.getByTestId('overdue-readings')).toHaveText('2');
-    await enableRecovery(page);
+    // Resume an existing recovery session below the four-day activation threshold.
+    await openPlan(page, session, { [recoveryKey(session)]: TODAY });
+    await expect(page.getByTestId('recovery-remaining-readings')).toHaveText('2');
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
     await expect(page.getByTestId('reading-balance')).toHaveText('Do nadrobienia2dni');
     await expect(page.getByTestId('overdue-readings')).toHaveCount(0);
     await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(0));
@@ -461,8 +460,9 @@ for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const session = await timeline(request, 'home-catchup-last-save-' + width, [-1, 0, 1]);
     await saveProgress(request, session, 't0a');
-    await openPlan(page, session);
-    await enableRecovery(page);
+    // Resume an existing recovery session below the four-day activation threshold.
+    await openPlan(page, session, { [recoveryKey(session)]: TODAY });
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
     await reading(page, 'Mt 1').click();
     await expectSaved(request, session, ['t0a', 't0b']);
     const percent = await page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true }).getAttribute('aria-valuenow');
