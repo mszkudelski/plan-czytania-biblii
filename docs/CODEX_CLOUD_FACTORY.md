@@ -81,3 +81,9 @@ Po potwierdzeniu przez właściciela utworzenia środowiska ponowiono komentarz 
 **Ścieżka pilotażu bez dodatkowego API:** ręcznie uruchom zadanie z poziomu Codex Cloud z wybranym opublikowanym środowiskiem i URL do issue. Test musi udowodnić dostęp do repozytorium i raport z odczytu `AGENTS.md` / `.github/workflows/ci.yml` bez modyfikacji. Następnie, dla osobnego małego zadania, przetestuj branch i draft PR. Nie twierdź, że sam komentarz na GitHub uruchamia zadanie do czasu uzyskania pozytywnego wyniku takiej integracji.
 
 Oficjalne źródło: https://learn.chatgpt.com/docs/environments/cloud-environments
+
+## 7. Wynik testu Codex Cloud oraz następny pilot
+
+Właściciel uruchomił ręcznie zadanie w nowym Codex Cloud, wybrał repo `plan-czytania-biblii`, a agent przeczytał `AGENTS.md` i `.github/workflows/ci.yml`. Zrzut z sesji potwierdza analizę uruchamiania CI, testów produkcyjnych i zasad E2E. **Dostęp nowego Codex Cloud do repo jest potwierdzony.** Nie dowodzi to jednak działania wyzwalacza `@codex` na GitHub (zob. sekcję 6), ani możliwości wystawiania PR.
+
+Następny, bezpieczny pilot: [issue #18](https://github.com/mszkudelski/plan-czytania-biblii/issues/18) — osobny branch i draft PR zawierający wyłącznie nową dokumentację lokalnej walidacji. Uruchomienie ręczne w Codex Cloud, po publikacji PR weryfikacja `Required CI`. Bez automatycznego merge lub wdrożenia.
