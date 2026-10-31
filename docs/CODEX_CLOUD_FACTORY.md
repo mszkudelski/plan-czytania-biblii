@@ -71,3 +71,13 @@ W issue [#17](https://github.com/mszkudelski/plan-czytania-biblii/issues/17) dod
 > To use Codex here, create an environment for this repo.
 
 Wniosek: integracja otrzymała wzmiankę na GitHub, ale repozytorium **nie ma jeszcze środowiska wymaganego do uruchomienia zadania z tego issue**. Następny wymagany krok: utworzyć i opublikować środowisko w https://chatgpt.com/codex/cloud/settings/environments, a następnie ponowić test na issue #17. Do tego czasu nie należy twierdzić, że automatyczne kodowanie z issue działa.
+
+## 6. Test po opublikowaniu nowego środowiska (31 października 2026)
+
+Po potwierdzeniu przez właściciela utworzenia środowiska ponowiono komentarz `@codex` w [issue #17](https://github.com/mszkudelski/plan-czytania-biblii/issues/17). Bot **ponownie zwrócił** `To use Codex here, create an environment for this repo` ([odpowiedź](https://github.com/mszkudelski/plan-czytania-biblii/issues/17#issuecomment-6547713126)).
+
+**Diagnoza:** aktualne środowiska Codex Cloud i dotychczasowe GitHub/Linear integracje są obsługiwane przez różne wersje usług. Dokumentacja OpenAI wskazuje, że GitHub integration nadal korzysta z **Codex Cloud (Legacy)**. Dlatego samo opublikowanie środowiska nowego Codex Cloud nie dowodzi zgodności z wyzwalaniem `@codex` na issue. Nie ponawiaj wzmianki jako testu, dopóki nie jest znana obsługiwana metoda powiązania środowiska z integracją.
+
+**Ścieżka pilotażu bez dodatkowego API:** ręcznie uruchom zadanie z poziomu Codex Cloud z wybranym opublikowanym środowiskiem i URL do issue. Test musi udowodnić dostęp do repozytorium i raport z odczytu `AGENTS.md` / `.github/workflows/ci.yml` bez modyfikacji. Następnie, dla osobnego małego zadania, przetestuj branch i draft PR. Nie twierdź, że sam komentarz na GitHub uruchamia zadanie do czasu uzyskania pozytywnego wyniku takiej integracji.
+
+Oficjalne źródło: https://learn.chatgpt.com/docs/environments/cloud-environments
