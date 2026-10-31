@@ -16,6 +16,18 @@ for (const width of [1280, 390]) for (const choice of ['beginning', 'group']) {
     await page.goto('/#join=' + invite);
     await expect(page.getByRole('radio', { name: 'Od początku', exact: true })).toBeChecked();
     if (choice === 'group') await page.getByRole('radio', { name: 'Od miejsca grupy', exact: true }).check();
+    const help = page.locator('.reading-start-help');
+    await expect(help).not.toHaveAttribute('open');
+    await expect(help.getByText('Procent pokazuje', { exact: false })).toBeHidden();
+    await expect(page.locator('.reading-start-status')).toContainText(choice === 'beginning' ? 'Nadrabianie włączone.' : 'Bez nadrabiania.');
+    await help.getByText('Jak to działa?', { exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await expect(help).toHaveAttribute('open');
+    await expect(help.getByText('Procent pokazuje', { exact: false })).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect(help).not.toHaveAttribute('open');
+    await expect(page.getByRole('radio', { name: choice === 'beginning' ? 'Od początku' : 'Od miejsca grupy', exact: true })).toBeChecked();
+
     await page.getByLabel('Twoje imię', { exact: true }).fill('E2E Nowa Osoba');
     await page.getByRole('button', { name: 'Dołącz jako nowa osoba', exact: true }).click();
     await expect(page.getByRole('heading', { name: owner.group.name, exact: true })).toBeVisible();

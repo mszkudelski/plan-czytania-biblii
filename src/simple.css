@@ -2022,3 +2022,9 @@ body:has(.notification-card) .install-app-card { display: none; }
 .reading-start-options p, .personal-start-notice { font-size: .9rem; line-height: 1.6; }
 .personal-start-notice { margin: 16px 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; }
 .personal-start-notice button { margin: 4px 10px 4px 0; }
+
+.reading-start-options .reading-start-status { margin: 8px 0 0; color: var(--muted); font-size: .82rem; }
+.reading-start-help { margin-top: 4px; }
+.reading-start-help summary { min-height: 44px; padding: 10px 0; box-sizing: border-box; cursor: pointer; color: var(--green); font-size: .82rem; line-height: 24px; }
+.reading-start-help summary:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 4px; }
+.reading-start-help p { margin: 8px 0; font-size: .82rem; }

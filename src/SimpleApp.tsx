@@ -882,13 +882,19 @@ function JoinSetup({
             <legend>Od czego chcesz zacząć?</legend>
             <label><input type="radio" name="readingStart" value="beginning" checked={readingStart === "beginning"}
               onChange={() => setReadingStart("beginning")} /> Od początku</label>
-            <p>Zaczniesz od pierwszego czytania z automatycznie włączonym nadrabianiem: zwykła porcja i dodatkowy rozdział, aż dogonisz harmonogram.</p>
             <label><input type="radio" name="readingStart" value="group" checked={readingStart === "group"}
               disabled={!groupStartDay(invitedGroup)} onChange={() => setReadingStart("group")} /> Od miejsca grupy</label>
-            {groupStartDay(invitedGroup) ? <p>Zaczniesz od czytania na {formatPolishDate(groupStartDay(invitedGroup)!.date)}.
-              Wcześniejsze czytania będą pominięte, bez zaległości i bez włączania nadrabiania. Możesz później wrócić do początku.</p>
-              : <p>Harmonogram grupy już się zakończył. Możesz zacząć od początku.</p>}
-            <p>Procent pokazuje przeczytaną część całego planu. Pominięte fragmenty nie zwiększają postępu.</p>
+            <p className="reading-start-status" role="status">
+              {readingStart === "beginning" ? "Nadrabianie włączone." : "Bez nadrabiania."}
+              {readingStart === "group" && groupStartDay(invitedGroup) && <> Start: {formatPolishDate(groupStartDay(invitedGroup)!.date, "short")}.</>}
+            </p>
+            {!groupStartDay(invitedGroup) && <p className="reading-start-status">Harmonogram grupy już się zakończył. Możesz zacząć od początku.</p>}
+            <details className="reading-start-help">
+              <summary>Jak to działa?</summary>
+              {readingStart === "beginning" ? <p>Zaczniesz od pierwszego czytania. Nadrabianie dodaje jeden rozdział do zwykłej porcji, aż dogonisz harmonogram. Możesz je później wyłączyć.</p>
+                : <p>Wcześniejsze czytania będą pominięte, bez zaległości. Możesz później włączyć je w zakładce Plan.</p>}
+              <p>Procent pokazuje przeczytaną część całego planu. Pominięte fragmenty nie zwiększają postępu.</p>
+            </details>
           </fieldset>}
           {matchingName && <p className="name-match-notice" role="status">
             W grupie jest już osoba o takiej nazwie. Dołączenie utworzy osobny profil.

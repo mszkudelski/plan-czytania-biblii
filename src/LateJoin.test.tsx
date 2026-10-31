@@ -2,12 +2,13 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { Dashboard } from "./SimpleApp";
+import SimpleApp, { Dashboard } from "./SimpleApp";
 import Onboarding from "./Onboarding";
 import type { Group } from "./types";
 import { createReadingStart } from "./lib/personal-schedule";
 const include = vi.hoisted(() => vi.fn());
-vi.mock("./lib/api", async importOriginal => ({ ...await importOriginal<typeof import("./lib/api")>(), includeSkippedReadings: include }));
+const getInvitedGroup = vi.hoisted(() => vi.fn());
+vi.mock("./lib/api", async importOriginal => ({ ...await importOriginal<typeof import("./lib/api")>(), includeSkippedReadings: include, getGroup: getInvitedGroup }));
 vi.mock("./RecoveryPrompt", () => ({ default: () => null }));
 vi.mock("./ReminderPrompt", () => ({ default: () => null }));
 let root: Root, container: HTMLDivElement;
@@ -64,4 +65,28 @@ it("group start has no catch-up or fictional progress and allows safe retry when
   expect(container.querySelector('[data-day-id="d0"]')?.textContent).not.toContain("Pominięte");
   await click(button("Czytaj")); expect(container.querySelector('.reading-focus')?.textContent).toContain("Rdz 1");
   expect(group.progress.m).toEqual({});
+});
+
+it("shows concise join choices and progressively discloses context for the selected option", async () => {
+  localStorage.setItem("plan-czytania-biblii-theme", "light");
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  const invite = btoa(JSON.stringify({ groupId: "g", inviteToken: "synthetic" })).replaceAll("=", "");
+  window.history.replaceState({}, "", `/#join=${invite}`);
+  getInvitedGroup.mockResolvedValue({ id: "g", name: "Plan", startDate: "2026-10-29", members: [],
+    frequency: { kind: "daily", days: [0, 1, 2, 3, 4, 5, 6] },
+    planDays: ["2026-10-29", today].map((date, index) => ({ id: `d${index}`, date, segments: [{ id: `s${index}`, label: "Rdz 1" }] })),
+  });
+  await act(async () => root.render(<SimpleApp />));
+  const help = container.querySelector<HTMLDetailsElement>(".reading-start-help")!;
+  const radios = container.querySelectorAll<HTMLInputElement>('input[name="readingStart"]');
+  expect(help.open).toBe(false); expect(radios[0].checked).toBe(true);
+  expect(container.querySelector('.reading-start-status')?.textContent).toBe("Nadrabianie włączone.");
+  await click(help.querySelector('summary')!); expect(help.open).toBe(true);
+  expect(help.textContent).toContain("jeden rozdział"); expect(help.textContent).toContain("Procent pokazuje");
+  await click(radios[1]); expect(radios[1].checked).toBe(true);
+  expect(container.querySelector('.reading-start-status')?.textContent).toContain("Bez nadrabiania.");
+  expect(help.textContent).toContain("bez zaległości"); expect(help.textContent).not.toContain("jeden rozdział");
+  await click(help.querySelector('summary')!); expect(help.open).toBe(false); expect(radios[1].checked).toBe(true);
+  expect(container.querySelector('input[name="name"]')).toBeTruthy();
+  expect(getInvitedGroup).toHaveBeenCalledWith("g");
 });
