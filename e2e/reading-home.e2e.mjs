@@ -2,6 +2,7 @@ import { test, expect } from './fixtures.mjs';
 import { enableRecovery, expectWeek, createPlan, inputPlan, NOW, openPlan, saveProgress, readGroup, expectSaved, reading, extraReading, browseReading, tab } from './helpers.mjs';
 
 const date = offset => new Date(NOW.getTime() + offset * 86400000).toISOString().slice(0, 10);
+const restHint = 'Dziś dzień wolny w planie. Możesz czytać dalej we własnym tempie.';
 async function timeline(request, suffix, offsets, startOffset = offsets[0], weekly = false) {
   const plan = inputPlan(suffix);
   plan.startDate = date(startOffset);
@@ -111,14 +112,13 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 
-  test('three-reading week, completion and ahead remain separate at width ' + width, async ({ page, request }) => {
+  test('overdue status takes precedence over future completed days at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const monday = -((NOW.getUTCDay() + 6) % 7);
     const session = await timeline(request, 'home-week-' + width,
       [monday - 7, monday - 5, monday - 3, monday, monday + 2, monday + 4, monday + 7, monday + 9], monday - 7, true);
     const saved = [];
     const initialDebt = 3 + [monday, monday + 2, monday + 4].filter(offset => offset < 0).length;
-    const aheadAfterNextWeek = 1 + [monday, monday + 2, monday + 4].filter(offset => offset > 0).length;
     await openPlan(page, session);
     await expect(page.getByTestId('reading-balance')).toContainText('Zaległość');
     await expect(page.getByTestId('overdue-readings')).toHaveText(String(initialDebt));
@@ -144,13 +144,15 @@ for (const width of [1280, 390]) {
     await reading(page, 'Mt 7').click();
     saved.push('t6a', 't6b');
     await expectSaved(request, session, saved);
-    await expect(page.getByTestId('ahead-readings')).toHaveText(`Do przodu: +${aheadAfterNextWeek} ${aheadAfterNextWeek === 1 ? 'czytanie' : 'czytania'}`);
+    await expect(page.getByTestId('ahead-readings')).toHaveCount(0);
     await expect(page.getByTestId('reading-balance')).toContainText('Zaległość');
+    await expect(page.getByTestId('reading-balance')).not.toContainText('Do przodu');
     await expect(page.getByTestId('overdue-readings')).toHaveText('3');
     await expectWeek(page, '3 z 3 czytań');
     await page.reload();
-    await expect(page.getByTestId('ahead-readings')).toHaveText(`Do przodu: +${aheadAfterNextWeek} ${aheadAfterNextWeek === 1 ? 'czytanie' : 'czytania'}`);
+    await expect(page.getByTestId('ahead-readings')).toHaveCount(0);
     await expect(page.getByTestId('reading-balance')).toContainText('Zaległość');
+    await expect(page.getByTestId('reading-balance')).not.toContainText('Do przodu');
     await expect(page.getByTestId('overdue-readings')).toHaveText('3');
     await expectWeek(page, '3 z 3 czytań');
     expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
@@ -179,7 +181,7 @@ for (const width of [1280, 390]) {
     for (const id of ['t4a', 't4b']) await saveProgress(request, session, id);
     await page.reload();
     await expect(page.getByTestId('overdue-readings')).toHaveText('2');
-    await expect(page.getByTestId('ahead-readings')).toHaveText('Do przodu: +1 czytanie');
+    await expect(page.getByTestId('ahead-readings')).toHaveCount(0);
     await tab(page, 'Grupa').click();
     await expect(page.locator('.member-row .member-actions > b')).toHaveText('-2 d.');
     // Undo that completion: Monday's unfinished work is not overdue on Monday.
@@ -255,13 +257,20 @@ for (const width of [1280, 390]) {
     for (const id of ['t0a', 't1a', 't2a', 't2b']) await saveProgress(request, session, id);
     await openPlan(page, session);
     await expect(page.getByTestId('overdue-readings')).toHaveText('1');
-    await expect(page.getByTestId('ahead-readings')).toHaveText('Do przodu: +1 czytanie');
+    await expect(page.getByTestId('reading-balance')).toContainText('1dzień');
+    await expect(page.getByTestId('ahead-readings')).toHaveCount(0);
+    await expect(page.getByTestId('reading-balance')).not.toContainText('Do przodu');
     await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.getByTestId('reading-balance')).toContainText('Do przodu: +1 czytanie');
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't2a', 't2b']);
+    await expect(page.getByTestId('overdue-readings')).toHaveCount(0);
+    await expect(page.getByTestId('reading-balance')).toContainText('Do przodu');
+    await expect(page.getByTestId('ahead-readings')).toHaveText('1');
+    await expect(page.getByTestId('reading-balance')).toContainText('1dzień');
     await tab(page, 'Plan').click();
     await expect(page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true })).toHaveAttribute('aria-valuenow', '66.5');
     await tab(page, 'Czytaj').click();
-    await expectSaved(request, session, ['t0a', 't1a', 't2a', 't2b']);
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't2a', 't2b']);
     await fitsViewport(page);
   });
 
@@ -270,6 +279,7 @@ for (const width of [1280, 390]) {
     const session = await timeline(request, 'home-before-start-' + width, [2, 3]);
     await openPlan(page, session);
     await expect(page.getByRole('heading', { name: 'Plan jeszcze się nie rozpoczął', exact: true })).toBeVisible();
+    await expect(page.getByText(restHint, { exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Zobacz pierwsze czytanie', exact: true })).toHaveCount(0);
     await expect(reading(page, 'Rdz 1')).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Zaznacz czytanie z wyprzedzeniem', exact: true })).toHaveCount(0);
@@ -291,8 +301,34 @@ for (const width of [1280, 390]) {
     await saveProgress(request, session, 't0b');
     await openPlan(page, session);
     await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
+    await expect(page.locator('.simple-day > .reading-rest-hint')).toHaveText(restHint);
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(2));
     await expect(reading(page, 'Rdz 2')).toBeEnabled();
     await expectSaved(request, session, ['t0a', 't0b']);
+    await expect(page.getByRole('button', { name: 'Czytaj naprzód', exact: true })).toHaveCount(0);
+    await reading(page, 'Rdz 2').click();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
+    await page.reload();
+    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.simple-day > .reading-rest-hint')).toHaveText(restHint);
+    expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
+    await fitsViewport(page);
+  });
+
+  test('a rest-day hint keeps the earlier unread day open without a separate backlog screen at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await timeline(request, 'home-rest-unread-' + width, [-2, 2]);
+    await openPlan(page, session);
+    await expect(page.locator('.simple-day > .reading-rest-hint')).toHaveText(restHint);
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-2));
+    await expect(reading(page, 'Rdz 1')).toBeEnabled();
+    await expect(reading(page, 'Rdz 2')).toHaveCount(0);
+    await expectSaved(request, session, []);
+    await reading(page, 'Rdz 1').click();
+    await expectSaved(request, session, ['t0a']);
+    await page.reload();
+    await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.simple-day > .reading-rest-hint')).toHaveText(restHint);
     await fitsViewport(page);
   });
 
@@ -303,6 +339,7 @@ for (const width of [1280, 390]) {
     for (const id of ids) await saveProgress(request, session, id);
     await openPlan(page, session);
     await expect(page.getByRole('heading', { name: 'Plan ukończony', exact: true })).toBeVisible();
+    await expect(page.getByText(restHint, { exact: true })).toHaveCount(0);
     await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
     await tab(page, 'Plan').click();
     await expect(page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true })).toHaveAttribute('aria-valuenow', '100');
@@ -311,6 +348,174 @@ for (const width of [1280, 390]) {
     await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
     await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
     await expectSaved(request, session, ids);
+    await fitsViewport(page);
+  });
+
+  test('catch-up turns itself off after debt is cleared even when the member is far ahead at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await timeline(request, 'home-catchup-reconcile-' + width, [-2, -1, 0, 1, 2, 3, 4, 5, 6]);
+    const future = Array.from({ length: 6 }, (_, index) => [`t${index + 3}a`, `t${index + 3}b`]).flat();
+    for (const id of ['t0a', 't0b', 't1a', ...future]) await saveProgress(request, session, id);
+    await openPlan(page, session);
+    await expect(page.getByTestId('overdue-readings')).toHaveText('1');
+    await page.evaluate(({ groupId, memberId }) => {
+      const recoveryKey = `reading-recovery:${groupId}:${memberId}`;
+      localStorage.setItem(recoveryKey, 'enabled');
+      localStorage.setItem(`${recoveryKey}:chapters`, JSON.stringify({ t1b: 1 }));
+    }, { groupId: session.group.id, memberId: session.credentials.memberId });
+    await page.reload();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b', ...future]);
+    await expect(page.getByTestId('overdue-readings')).toHaveCount(0);
+    await expect(page.getByTestId('reading-balance')).toContainText('Do przodu');
+    await expect(page.getByTestId('ahead-readings')).toHaveText('6');
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toHaveCount(0);
+    expect(await page.evaluate(({ groupId, memberId }) =>
+      localStorage.getItem(`reading-recovery:${groupId}:${memberId}`),
+    { groupId: session.group.id, memberId: session.credentials.memberId })).toBeNull();
+    await fitsViewport(page);
+  });
+
+  test('catch-up finishes only after the whole daily portion, without replacing the card at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await timeline(request, 'home-catchup-frozen-extra-' + width, [-1, 0, 1, 2]);
+    await openPlan(page, session);
+    await enableRecovery(page);
+    await expect(extraReading(page)).toContainText('Rdz 2');
+    const initialCard = await page.locator('.reading-focus').boundingBox();
+    await reading(page, 'Rdz 1').click();
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['t0a', 't0b']);
+    const key = 'reading-recovery:' + session.group.id + ':' + session.credentials.memberId;
+    await expect(page.getByTestId('reading-balance')).toHaveText('Dokończ dzisiejszą porcję');
+    expect(Math.abs((await page.locator('.reading-focus').boundingBox()).y - initialCard.y)).toBeLessThanOrEqual(1);
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
+    await page.reload();
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+    await extraReading(page).click();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
+    await expect.poll(() => page.evaluate(key => localStorage.getItem(key), key)).toBeNull();
+    await expect(page.getByTestId('reading-balance')).toHaveText('Na bieżąco');
+    expect(Math.abs((await page.locator('.reading-focus').boundingBox()).y - initialCard.y)).toBeLessThanOrEqual(1);
+    await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
+    await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(extraReading(page)).toContainText('Rdz 2');
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['t0a', 't1a']);
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+    await page.reload();
+    await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
+    await expect(extraReading(page)).toHaveCount(0);
+    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
+    await expect(reading(page, 'Mt 2')).toHaveAttribute('aria-pressed', 'false');
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
+    expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
+    await fitsViewport(page);
+  });
+
+  test('catch-up re-dates the first unread day to today and only navigates forward at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await timeline(request, 'home-catchup-forward-' + width, [-4, -3, -2, -1, 0]);
+    for (const id of ['t0a', 't0b', 't1a', 't1b']) await saveProgress(request, session, id);
+    await openPlan(page, session);
+    await expect(page.getByTestId('overdue-readings')).toHaveText('2');
+    await enableRecovery(page);
+    await expect(page.getByTestId('reading-balance')).toHaveText('Do nadrobienia2dni');
+    await expect(page.getByTestId('overdue-readings')).toHaveCount(0);
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(0));
+    await expect(reading(page, 'Rdz 3')).toBeVisible();
+    await expect(reading(page, 'Mt 3')).toBeVisible();
+    await expect(extraReading(page)).toContainText('Rdz 4');
+    await expect(page.locator('.reading-date[data-day-id="t0"]')).toBeVisible();
+    await expect(page.locator('.reading-date[data-day-id="t1"]')).toBeVisible();
+    await expect(page.locator('.reading-date[data-day-id="t2"], .reading-date[data-day-id="t3"]')).toHaveCount(0);
+    await expect(page.locator('.reading-date[data-day-id^="recovery:"]')).not.toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Poprzednie', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-3));
+    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
+    const historyCount = await page.locator('.reading-navigation').getAttribute('data-reading-count');
+    await reading(page, 'Mt 2').click();
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-3));
+    await expect(reading(page, 'Mt 2')).toHaveAttribute('aria-pressed', 'false');
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-3));
+    await expect(page.locator('.reading-navigation')).toHaveAttribute('data-reading-count', historyCount);
+    await reading(page, 'Mt 2').click();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b']);
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-3));
+    await page.getByRole('button', { name: 'Wróć do swojego miejsca', exact: true }).click();
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(0));
+    await page.getByRole('button', { name: 'Następne', exact: true }).click();
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(1));
+    await expectSaved(request, session, ['t0a', 't0b', 't1a', 't1b']);
+    await fitsViewport(page);
+  });
+
+  test('the final catch-up check stays in recovery until saved and survives backend rejection at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await timeline(request, 'home-catchup-last-save-' + width, [-1, 0, 1]);
+    await saveProgress(request, session, 't0a');
+    await openPlan(page, session);
+    await enableRecovery(page);
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['t0a', 't0b']);
+    const percent = await page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true }).getAttribute('aria-valuenow');
+    const cardBeforeSave = await page.locator('.reading-focus').boundingBox();
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    await page.route('**/api/groups/' + session.group.id + '/progress', async route => {
+      await gate;
+      await route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), token: 'E2E invalid token' }) });
+    }, { times: 1 });
+    try {
+      await extraReading(page).click();
+      await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
+      await expect(page.getByTestId('reading-balance')).toHaveText('Zapisuję dzień…');
+      await expect(extraReading(page)).toHaveAttribute('aria-busy', 'true');
+      await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+      await expect(extraReading(page).getByRole('status', { name: 'Zapisywanie dnia' })).toBeVisible();
+      expect(Math.abs((await page.locator('.reading-focus').boundingBox()).y - cardBeforeSave.y)).toBeLessThanOrEqual(1);
+      await expect(page.getByRole('button', { name: 'Następne', exact: true })).toBeDisabled();
+      await expect(page.getByRole('progressbar', { name: 'Postęp całego planu', exact: true })).toHaveAttribute('aria-valuenow', percent);
+      await expectSaved(request, session, ['t0a', 't0b']);
+    } finally { release(); }
+    await expect(page.getByRole('alert')).toContainText('Nie udało się zapisać');
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true })).toBeVisible();
+    await extraReading(page).click();
+    await expectSaved(request, session, ['t0a', 't0b', 't1a']);
+    await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator('.reading-recovery-link')).toHaveCount(0);
+  });
+
+  test('completed catch-up rows are not duplicated as adjacent history days at width ' + width, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = await createPlan(request, 'home-catchup-history-duplicate-' + width);
+    await openPlan(page, session);
+    await enableRecovery(page);
+    await expect(page.getByTestId('reading-balance')).toContainText('Do nadrobienia');
+    await reading(page, 'Rdz 1').click();
+    await reading(page, 'Mt 1').click();
+    await expectSaved(request, session, ['s0', 's1']);
+    await expect(page.locator('.reading-date[data-day-id="d0"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Poprzednie', exact: true })).toBeDisabled();
+    await extraReading(page).click();
+    await expectSaved(request, session, ['s0', 's1', 's2']);
+    await expect(page.locator('.reading-date[data-day-id="d0"], .reading-date[data-day-id="d1"]')).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator('.reading-date[data-day-id="d0"], .reading-date[data-day-id="d1"]')).toHaveCount(0);
+    await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Następne', exact: true }).click();
+    await expect(reading(page, 'Rdz 4')).toBeVisible();
+    await expect(reading(page, 'Rdz 1')).toHaveCount(0);
+    await expectSaved(request, session, ['s0', 's1', 's2']);
     await fitsViewport(page);
   });
 

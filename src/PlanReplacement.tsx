@@ -1,10 +1,10 @@
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Credentials, Frequency, Group } from "./types";
 import { parsePlanCsv } from "./lib/csv";
 import { BASIC_PLAN_CSV } from "./lib/basic-plan";
 import { buildSchedule } from "./lib/schedule";
-import { replacementPlanError, replacementSummary } from "./lib/plan-replacement";
-import { replacePlan } from "./lib/api";
+import { planRestoreAvailable, replacementPlanError, replacementSummary } from "./lib/plan-replacement";
+import { replacePlan, restorePlan } from "./lib/api";
 
 export default function PlanReplacement({ group, credentials, disabled, onReplace }: {
   group: Group;
@@ -13,6 +13,17 @@ export default function PlanReplacement({ group, credentials, disabled, onReplac
   onReplace: (group: Group) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(false);
+  const [clock, setClock] = useState(Date.now);
+  useEffect(() => {
+    setClock(Date.now());
+    setConfirmRestore(false);
+    if (!group.planRestore) return;
+    const timeout = setTimeout(() => setClock(Date.now()), Math.min(2147483647,
+      Math.max(0, Date.parse(group.planRestore.expiresAt) - Date.now())));
+    return () => clearTimeout(timeout);
+  }, [group.planRestore?.expiresAt, group.planRevision]);
+  const canRestore = planRestoreAvailable(group.planRestore, clock);
   const [csv, setCsv] = useState("");
   const [fileName, setFileName] = useState("");
   const [startDate, setStartDate] = useState(group.startDate);
@@ -55,14 +66,45 @@ export default function PlanReplacement({ group, credentials, disabled, onReplac
     } finally { setBusy(false); }
   }
 
+  async function restore() {
+    if (locked || !canRestore) return;
+    setBusy(true); setError(""); setSuccess("");
+    try {
+      const next = await restorePlan(credentials, group.planRevision ?? "");
+      onReplace(next);
+      setConfirmRestore(false); setOpen(false); reset();
+      setSuccess("Poprzedni plan i postęp grupy sprzed podmiany zostały przywrócone.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Nie udało się przywrócić planu. Spróbuj ponownie.");
+    } finally { setBusy(false); }
+  }
+
   return <section className="settings-card plan-replacement">
     {success && <p role="status">{success}</p>}
+    {error && !open && <p className="simple-alert" role="alert">{error}</p>}
+    {canRestore && <div className="plan-restore">
+      <h3>Poprzedni plan i postęp</h3>
+      <p>Możesz przywrócić plan i zaznaczenia całej grupy ze stanu sprzed ostatniej podmiany.</p>
+      <p>Dostępne do <strong>{new Date(group.planRestore!.expiresAt).toLocaleString("pl-PL", {
+        dateStyle: "long", timeStyle: "short",
+      })}</strong> — przez 7 dni od podmiany.</p>
+      {confirmRestore ? <div role="group" aria-label="Potwierdź przywrócenie planu">
+        <p className="replacement-warning">Przywrócenie zastąpi aktualny plan i postęp całej grupy stanem sprzed podmiany. Późniejsze zaznaczenia zostaną cofnięte. Skład grupy i uprawnienia pozostaną aktualne. Tej operacji nie można cofnąć.</p>
+        <div className="access-actions replacement-actions">
+          <button type="button" className="main-button" disabled={locked} onClick={restore}>{busy ? "Przywracanie…" : "Przywróć plan i postęp grupy"}</button>
+          <button type="button" className="link-button" disabled={locked} onClick={() => { setConfirmRestore(false); setError(""); }}>Anuluj przywracanie</button>
+        </div>
+      </div> : <button type="button" className="small-button" disabled={locked} onClick={() => {
+        setOpen(false); reset(); setSuccess(""); setConfirmRestore(true);
+      }}>Przywróć poprzedni plan</button>}
+    </div>}
     {!open ? <button type="button" className="small-button" disabled={locked} onClick={() => {
-      reset(); setSuccess(""); setOpen(true);
+      reset(); setConfirmRestore(false); setSuccess(""); setOpen(true);
     }}>Podmień plan</button> : <form onSubmit={submit}>
       <div className="replacement-intro">
         <h3>Podmień plan dla całej grupy</h3>
         <p>Zachowamy postęp wszystkich osób dla fragmentów, które znajdziemy w nowym planie.</p>
+        <p>Przez 7 dni od podmiany administrator będzie mógł przywrócić poprzedni plan wraz z całym postępem sprzed zmiany. Każda kolejna podmiana zastępuje tę kopię.</p>
       </div>
       <fieldset disabled={locked}>
         <label className="simple-field replacement-file-field">

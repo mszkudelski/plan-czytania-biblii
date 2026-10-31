@@ -50,3 +50,50 @@ it("keeps legacy readings and ignores corrupt, foreign or removed-member entries
   ];
   expect(applyProgressLog(group, keys).progress).toEqual(group.progress);
 });
+
+it("merges independent chapter writes and synchronizes partial unchecks without completing the fragment", async () => {
+  const { chapterProgressLogKey: key } = await import("./progress-log");
+  const group = fixture(); group.progress.a = {};
+  group.planDays[0].segments[0].label = "Rdz 1-3";
+  const first = key("g", "a", 0, true, [0], false, timestamp, "a");
+  const second = key("g", "a", 0, true, [2], false, timestamp, "b");
+  const original = JSON.stringify(group);
+  const partial = applyProgressLog(group, [second, first]);
+  expect(partial.chapterProgress?.a.s0).toEqual([0, 2]);
+  expect(partial.progress.a.s0).toBeUndefined();
+  const complete = key("g", "a", 0, true, [1], false, timestamp + 1, "c");
+  expect(applyProgressLog(group, [complete, second, first]).progress.a.s0).toBeDefined();
+  const uncheck = key("g", "a", 0, false, [0], false, timestamp + 2, "d");
+  const result = applyProgressLog(group, [uncheck, complete, second, first]);
+  expect(result.progress.a.s0).toBeUndefined();
+  expect(result.chapterProgress?.a.s0).toEqual([1, 2]);
+  expect(JSON.stringify(group)).toBe(original);
+});
+
+it("imports legacy marks idempotently at lower priority than subsequent edits, including whole-fragment unchecks", async () => {
+  const { chapterProgressLogKey: key } = await import("./progress-log");
+  const group = fixture(); group.progress.a = {};
+  group.planDays[0].segments[0].label = "Rdz 1-3";
+  const imports = [key("g", "a", 0, true, [0], true, timestamp, "a"),
+    key("g", "a", 0, true, [0, 2], true, timestamp, "b")];
+  const uncheck = key("g", "a", 0, false, [0], false, timestamp, "c");
+  expect(applyProgressLog(group, [...imports, uncheck]).chapterProgress?.a.s0).toEqual([2]);
+  const whole = progressLogKey("g", "a", 0, false, timestamp + 1, "d");
+  const result = applyProgressLog(group, [whole, ...imports, uncheck, ...imports]);
+  expect(result.chapterProgress?.a.s0).toEqual([]);
+  expect(result.progress.a.s0).toBeUndefined();
+});
+
+it("orders simultaneous edits to the same chapter deterministically and rejects malformed chapter events", async () => {
+  const { chapterProgressLogKey: key } = await import("./progress-log");
+  const group = fixture(); group.progress.a = {}; group.planDays[0].segments[0].label = "Rdz 1-3";
+  const keys = [key("g", "a", 0, true, [1], false, timestamp, "a"),
+    key("g", "a", 0, false, [1], false, timestamp, "b")];
+  expect(applyProgressLog(group, keys).chapterProgress?.a.s0).toEqual([]);
+  expect(applyProgressLog(group, keys.reverse())).toEqual(applyProgressLog(group, keys));
+  for (const suffix of [":", ":3", ":-1", ":1:2", ":NaN"]) {
+    expect(applyProgressLog(group, [progressLogKey("g", "a", 0, true, timestamp, "a") + suffix]).progress.a).toEqual({});
+  }
+  expect(key(crypto.randomUUID(), crypto.randomUUID(), 99999, true,
+    Array.from({ length: 151 }, (_, index) => index)).length).toBeLessThanOrEqual(600);
+});

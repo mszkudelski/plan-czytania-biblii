@@ -1,10 +1,11 @@
-import { replaceGroupPlan, replacementPlanError, type PlanReplacementInput } from "../../src/lib/plan-replacement";
+import { replaceGroupPlan, restoreGroupPlan, planRestoreAvailable, replacementPlanError, type SavedPlan, type PlanReplacementInput } from "../../src/lib/plan-replacement";
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference } from "../../src/lib/recovery-prompt";
 import { getStore } from "@netlify/blobs";
 import { planTemplate } from "../../src/lib/plan-template";
 import { cleanupE2e, e2eRunHash, e2eRunToken, registerE2eGroup, trackE2eResource } from "./_shared/e2e-cleanup";
 import { changeGroupState, readGroupState, type GroupStateStore } from "../../src/lib/group-state";
-import { applyProgressLog, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
+import { splitReadingChapters } from "../../src/lib/recovery";
+import { applyProgressLog, chapterProgressLogKey, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
 import type { Config, Context } from "@netlify/functions";
 import { validReminderSettings, validPushSubscription, testReminder } from "../../src/lib/notifications";
 import { reminderStore, reminderKey, pushConfigured, missingPushConfiguration, sendReminder, type StoredReminder } from "./_shared/notifications";
@@ -29,6 +30,7 @@ type StoredMember = Member & {
 };
 type StoredGroup = Omit<Group, "members"> & {
   members: StoredMember[];
+  previousPlan?: SavedPlan;
   inviteTokenHash?: string;
   e2eRunHash?: string;
 };
@@ -139,6 +141,7 @@ async function hashToken(token: string) {
 function publicGroup(group: StoredGroup): Group {
   const {
     members,
+    previousPlan: _previousPlan,
     inviteTokenHash: _inviteTokenHash,
     e2eRunHash: _e2eRunHash,
     ...publicFields
@@ -146,6 +149,7 @@ function publicGroup(group: StoredGroup): Group {
   return {
     ...publicFields,
     analyticsDisabled: Boolean(group.e2eRunHash),
+    planRestore: planRestoreAvailable(group.planRestore) ? group.planRestore : undefined,
     members: members.map(
       ({
         recoveryPrompt: _recoveryPrompt,
@@ -263,6 +267,8 @@ async function authenticate(
   return tokenHashes(member).includes(candidateHash) ? member : null;
 }
 
+const progressClocks = new WeakMap<Group, number>();
+
 export async function storedGroup(groupId: string) {
   const store = groupStore();
   const state = await readGroupState(groupStateStore(groupId));
@@ -282,9 +288,14 @@ export async function storedGroup(groupId: string) {
       state.group.analyticsPlanId = identity?.id;
     } catch { /* Missing analytics metadata must not prevent reading or saves. */ }
   }
-
   const { blobs } = await store.list({ prefix: progressLogPrefix(groupId) });
-  return applyProgressLog(state.group, blobs.map(blob => blob.key));
+  const keys = blobs.map(blob => blob.key);
+  const group = applyProgressLog(state.group, keys);
+  // Sequential requests must order after every observed operation even if the
+  // function clocks share a millisecond or differ slightly across instances.
+  progressClocks.set(group, keys.reduce((latest, key) => Math.max(latest,
+    Number(key.split("/")[4]?.slice(0, 13)) || 0), 0));
+  return group;
 }
 
 async function createGroup(request: Request) {
@@ -589,6 +600,8 @@ async function updateProgress(request: Request, groupId: string) {
   const body = (await request.json()) as Partial<Credentials> & {
     segmentId?: unknown;
     completed?: unknown;
+    indices?: unknown;
+    migrate?: unknown;
   };
   const segmentId = cleanText(body.segmentId, 120);
   const group = await storedGroup(groupId);
@@ -601,10 +614,21 @@ async function updateProgress(request: Request, groupId: string) {
     return error("Nieprawidłowy fragment.");
   }
 
+  if (body.groupId !== groupId) return error("Nieprawidłowy link dostępu.", 401);
+  const count = splitReadingChapters(segments.find(segment => segment.id === segmentId)!.label).length;
+  if (body.indices !== undefined && (!Array.isArray(body.indices) || !body.indices.length ||
+    body.indices.length > count || body.indices.some(index => !Number.isInteger(index) || index < 0 || index >= count))) {
+    return error("Nieprawidłowe rozdziały.");
+  }
+  if (body.migrate !== undefined && (body.migrate !== true || body.completed !== true || !Array.isArray(body.indices))) {
+    return error("Nieprawidłowa migracja.");
+  }
   // Each operation has its own key. Parallel writes never replace another
   // person's progress or another reading's update, unlike whole-group writes.
+  const timestamp = Math.max(Date.now(), (progressClocks.get(group) ?? 0) + 1);
   await groupStore().set(
-    progressLogKey(groupId, member.id, segmentIndex, body.completed),
+    body.indices === undefined ? progressLogKey(groupId, member.id, segmentIndex, body.completed, timestamp)
+      : chapterProgressLogKey(groupId, member.id, segmentIndex, body.completed, body.indices as number[], body.migrate === true, timestamp),
     "{}",
   );
   const current = await storedGroup(groupId);
@@ -638,9 +662,26 @@ async function replacePlan(request: Request, groupId: string) {
     }
     // Keep the existing log index forever: requests already in flight still
     // refer to the same reading even when its position changes in the new plan.
-    Object.assign(group, replaceGroupPlan(group, {
+    const { blobs } = await groupStore().list({ prefix: progressLogPrefix(groupId) });
+    const hydrated = applyProgressLog(group, blobs.map(blob => blob.key));
+    Object.assign(group, replaceGroupPlan(hydrated, {
       planDays, startDate: body.startDate!, frequency, expectedRevision: body.expectedRevision!,
     }));
+  });
+}
+
+async function restorePlan(request: Request, groupId: string) {
+  const body = await request.json() as Partial<Credentials & { expectedRevision: string }> | null;
+  if (!body || body.groupId !== groupId) return error("Nieprawidłowy link dostępu.", 401);
+  if (typeof body.expectedRevision !== "string") return error("Brak wersji planu.");
+  return updateStoredGroup(groupId, async group => {
+    const member = await authenticate(group, body);
+    if (!member) return error("Nieprawidłowy link dostępu.", 401);
+    if (!member.isAdmin) return error("Tylko administrator może przywrócić plan.", 403);
+    if ((group.planRevision ?? "") !== body.expectedRevision) return error("Plan został już zmieniony. Odśwież plan i spróbuj ponownie.", 409);
+    if (!group.previousPlan) return error("Brak poprzedniego planu do przywrócenia.", 404);
+    if (!planRestoreAvailable(group.previousPlan)) return error("Minęło 7 dni. Przywrócenie poprzedniego planu nie jest już dostępne.", 410);
+    Object.assign(group, restoreGroupPlan(group, body.expectedRevision));
   });
 }
 
@@ -969,6 +1010,8 @@ export default async (request: Request, context: Context) => {
     ) {
       return getGroup(route[1]);
     }
+    if (request.method === "POST" && route.length === 4 && route[0] === "groups" &&
+      route[2] === "plan" && route[3] === "restore") return restorePlan(request, route[1]);
     if (
       request.method === "POST" &&
       route.length === 3 &&

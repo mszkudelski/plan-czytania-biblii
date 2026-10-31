@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Context } from "@netlify/functions";
 
 const memory = vi.hoisted(() => new Map<string, string>());
@@ -31,7 +31,14 @@ async function fixture() {
   expect(response.status).toBe(201);
   return response.json() as Promise<{ group: Group; credentials: Credentials }>;
 }
-beforeEach(() => memory.clear());
+beforeEach(() => {
+  memory.clear();
+  // In-memory requests can finish in the same millisecond. Give sequential
+  // writes distinct timestamps, the ordering resolution of the progress log.
+  let now = Date.now();
+  vi.spyOn(Date, "now").mockImplementation(() => now++);
+});
+afterEach(() => vi.restoreAllMocks());
 it("authorizes replacement, validates input and rejects stale previews without modifying the group", async () => {
   const session = await fixture();
   const base = `/groups/${session.group.id}`;
@@ -78,4 +85,109 @@ it("retains real log writes through reorder, repeated replacement and later chec
   expect(second.progressSegmentIds?.slice(0, 4)).toEqual(["s0", "s1", "s2", addedId]);
   const fresh = await (await call(base)).json() as Group;
   expect(fresh.progress).toEqual(second.progress);
+});
+
+it("restores the hydrated pre-replacement snapshot, protects it and rejects stale or consumed recovery", async () => {
+  const session = await fixture();
+  const base = `/groups/${session.group.id}`;
+  const joined = await (await call(base + "/join", { name: "Anna", inviteToken: session.credentials.inviteToken })).json() as { credentials: Credentials };
+  const write = async (credentials: Credentials, segmentId: string, completed: boolean) => {
+    expect((await call(base + "/progress", { ...credentials, segmentId, completed })).status).toBe(200);
+  };
+  const restore = (data: unknown) => call(base + "/plan/restore", data);
+  expect((await restore({ ...session.credentials, expectedRevision: "" })).status).toBe(404);
+  await write(session.credentials, "s0", true);
+  await write(joined.credentials, "s2", true);
+  const before = await (await call(base)).json() as Group;
+  const replaced = await (await call(base + "/plan", { ...session.credentials, startDate: "2026-10-20", frequency,
+    planDays: days(["Rdz 1", "J 1"]), expectedRevision: "" })).json() as Group;
+  expect(replaced).not.toHaveProperty("previousPlan");
+  expect(replaced.planRestore).toBeDefined();
+  await write(session.credentials, "s0", false);
+  await write(joined.credentials, replaced.planDays[1].segments[0].id, true);
+  const input = { ...session.credentials, expectedRevision: replaced.planRevision };
+  expect((await restore(null)).status).toBe(401);
+  expect((await restore({ ...input, groupId: "other" })).status).toBe(401);
+  expect((await restore({ ...input, token: "wrong" })).status).toBe(401);
+  expect((await restore({ ...input, ...joined.credentials })).status).toBe(403);
+  expect((await restore({ ...input, expectedRevision: 2 })).status).toBe(400);
+  expect((await restore({ ...input, expectedRevision: "" })).status).toBe(409);
+  const responses = await Promise.all([restore({ ...input, previousPlan: { progress: {} } }), restore(input)]);
+  expect(responses.map(response => response.status).sort()).toEqual([200, 409]);
+  const response = responses.find(response => response.status === 200)!;
+  const restored = await response.json() as Group;
+  expect(restored.members).toEqual(before.members);
+  expect(restored.planDays.map(day => day.segments[0].label)).toEqual(["Rdz 1", "Mt 1", "Ps 1"]);
+  expect(restored.planVersion).toBe(2);
+  expect(restored.analyticsPlanId).toBe(before.analyticsPlanId);
+  expect(restored.planTemplate).toBe(before.planTemplate);
+  expect(restored.planRevision).not.toBe(replaced.planRevision);
+  expect(restored.planRestore).toBeUndefined();
+  expect(restored).not.toHaveProperty("previousPlan");
+  const first = restored.planDays[0].segments[0].id;
+  const psalm = restored.planDays[2].segments[0].id;
+  expect(restored.progress).toEqual({ [session.credentials.memberId]: { [first]: before.progress[session.credentials.memberId].s0 },
+    [joined.credentials.memberId]: { [psalm]: before.progress[joined.credentials.memberId].s2 } });
+  expect((await restore({ ...input, expectedRevision: restored.planRevision })).status).toBe(404);
+  expect((await call(base + "/progress", { ...session.credentials, segmentId: "s0", completed: true })).status).toBe(400);
+  expect((await (await call(base)).json() as Group).progress).toEqual(restored.progress);
+  await write(session.credentials, first, false);
+  expect((await (await call(base)).json() as Group).progress[session.credentials.memberId]).toEqual({});
+  await write(session.credentials, first, true);
+  expect((await (await call(base)).json() as Group).progress[session.credentials.memberId][first]).toBeDefined();
+});
+
+it("enforces seven days on the server and hides expired availability without changing the current plan", async () => {
+  const session = await fixture();
+  const base = `/groups/${session.group.id}`;
+  const response = await call(base + "/plan", { ...session.credentials, startDate: "2026-10-19", frequency,
+    planDays: days(["J 1"]), expectedRevision: "" });
+  const replaced = await response.json() as Group;
+  const now = vi.spyOn(Date, "now").mockReturnValue(Date.parse(replaced.planRestore!.expiresAt));
+  try {
+    expect((await call(base + "/plan/restore", { ...session.credentials, expectedRevision: replaced.planRevision })).status).toBe(410);
+    const current = await (await call(base)).json() as Group;
+    expect(current.planRestore).toBeUndefined();
+    expect(current).not.toHaveProperty("previousPlan");
+    expect(current.planDays).toEqual(replaced.planDays);
+    expect(current.planRevision).toBe(replaced.planRevision);
+  } finally { now.mockRestore(); }
+});
+
+it("persists chapter intents, validates ownership and survives replacement and restoration", async () => {
+  const response = await call("/groups", { name: "Unit chapters", ownerName: "Adam", startDate: "2026-10-19",
+    frequency, planDays: days(["Rdz 1-3", "Mt 1"]) });
+  const session = await response.json() as { group: Group; credentials: Credentials };
+  const base = `/groups/${session.group.id}`;
+  const write = (indices: unknown, completed = true, extra = {}) => call(base + "/progress", {
+    ...session.credentials, segmentId: "s0", completed, indices, ...extra,
+  });
+  expect((await write([0], true, { token: "invalid" })).status).toBe(401);
+  expect((await write([0], true, { groupId: "wrong" })).status).toBe(401);
+  for (const indices of [[], [-1], [3], [0.1], ["1"], "0", null]) expect((await write(indices)).status).toBe(400);
+  expect((await write([0], false, { migrate: true })).status).toBe(400);
+  // Keep the server wall clock fixed: sequential operations must still order.
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-19T12:00:00Z"));
+  const first = await (await write([0])).json() as Group;
+  expect(first.chapterProgress?.[session.credentials.memberId].s0).toEqual([0]);
+  expect(first.progress[session.credentials.memberId].s0).toBeUndefined();
+  await Promise.all([write([1]), write([2])]);
+  expect((await (await call(base)).json() as Group).progress[session.credentials.memberId].s0).toBeDefined();
+  await write([0], false);
+  // A late import from another device cannot resurrect an unchecked chapter.
+  await write([0, 2], true, { migrate: true });
+  let group = await (await call(base)).json() as Group;
+  expect(group.chapterProgress?.[session.credentials.memberId].s0).toEqual([1, 2]);
+  expect(group.progress[session.credentials.memberId].s0).toBeUndefined();
+  const replace = await call(base + "/plan", { ...session.credentials, expectedRevision: "", startDate: "2026-10-19",
+    frequency, planDays: days(["Rdz 1-3", "J 1"]) });
+  expect(replace.status).toBe(200);
+  group = await replace.json() as Group;
+  expect(group.chapterProgress?.[session.credentials.memberId].s0).toEqual([1, 2]);
+  const restored = await call(base + "/plan/restore", { ...session.credentials, expectedRevision: group.planRevision });
+  expect(restored.status).toBe(200);
+  group = await restored.json() as Group;
+  const id = group.planDays[0].segments[0].id;
+  expect(group.chapterProgress?.[session.credentials.memberId][id]).toEqual([1, 2]);
+  expect(group.progress[session.credentials.memberId][id]).toBeUndefined();
 });

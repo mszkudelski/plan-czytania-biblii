@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Group, PlanDay } from "../types";
-import { replaceGroupPlan, replacementSummary } from "./plan-replacement";
+import { PLAN_RESTORE_TTL, restoreGroupPlan, replaceGroupPlan, replacementSummary } from "./plan-replacement";
 import { applyProgressLog, progressLogKey } from "./progress-log";
 
 const time = Date.parse("2026-10-19T12:00:00Z");
@@ -85,5 +85,48 @@ describe("plan replacement", () => {
     expect(result.progress.b).toEqual({ "plan-v1-segment-1": new Date(time).toISOString() });
     expect(() => replaceGroupPlan(second, { planDays: plan(["J 1"]), startDate: second.startDate,
       frequency: second.frequency, expectedRevision: "v1" })).toThrow(/podmieniony/);
+  });
+});
+
+describe("seven-day plan recovery", () => {
+  it("saves a separate snapshot and restores lost marks and timestamps for current members only", () => {
+    const before = fixture();
+    const replaced = replaceGroupPlan(before, { planDays: plan(["Rdz 1", "J 1"]),
+      startDate: "2026-10-20", frequency: { kind: "weekdays", days: [] }, expectedRevision: "" }, "new", time);
+    expect(replaced.planRestore).toEqual({ savedAt: new Date(time).toISOString(), expiresAt: new Date(time + PLAN_RESTORE_TTL).toISOString() });
+    replaced.progress.a.s0 = "later";
+    replaced.members = [ { ...before.members[0], name: "Renamed", isAdmin: true }, { id: "c", name: "New", color: "", isAdmin: false } ];
+    const restored = restoreGroupPlan(replaced, "new", "restore", time + PLAN_RESTORE_TTL - 1);
+    expect(restored.startDate).toBe(before.startDate);
+    expect(restored.frequency).toEqual(before.frequency);
+    expect(restored.planDays.map(day => ({ ...day, id: "", segments: day.segments.map(segment => ({ ...segment, id: "" })) })))
+      .toEqual(before.planDays.map(day => ({ ...day, id: "", segments: day.segments.map(segment => ({ ...segment, id: "" })) })));
+    expect(restored.progress).toEqual({ a: { "plan-restore-segment-1": "legacy", "plan-restore-segment-4": "second psalm" }, c: {} });
+    expect(restored.members).toEqual(replaced.members);
+    expect(restored.planVersion).toBe(2);
+    expect(restored.previousPlan).toBeUndefined();
+    expect(restored.planRestore).toBeUndefined();
+    expect(() => restoreGroupPlan(restored, "restore")).toThrow(/Brak poprzedniego/);
+  });
+  it("rejects stale requests and expires at exactly seven days; a later replacement backs up the immediate previous plan", () => {
+    const first = replaceGroupPlan(fixture(), { planDays: plan(["J 1"]), startDate: "2026-10-20",
+      frequency: { kind: "daily", days: [] }, expectedRevision: "" }, "first", time);
+    expect(() => restoreGroupPlan(first, "stale", "r", time)).toThrow(/Odśwież/);
+    expect(() => restoreGroupPlan(first, "first", "r", time + PLAN_RESTORE_TTL)).toThrow(/Minęło 7 dni/);
+    const second = replaceGroupPlan(first, { planDays: plan(["J 2"]), startDate: "2026-10-21",
+      frequency: first.frequency, expectedRevision: "first" }, "second", time + 1000);
+    expect(second.previousPlan.planDays).toEqual(first.planDays);
+    expect(second.previousPlan.expiresAt).toBe(new Date(time + 1000 + PLAN_RESTORE_TTL).toISOString());
+  });
+  it("ignores all old and late log writes after restoration while accepting new check and uncheck operations", () => {
+    const replaced = replace(fixture(), ["Rdz 1", "J 1"]);
+    const restored = restoreGroupPlan(replaced, "v1", "restored");
+    const logs = [progressLogKey("g", "a", 0, false, time, "a"), progressLogKey("g", "a", 4, true, time + 2, "b")];
+    expect(applyProgressLog(restored, logs).progress).toEqual(restored.progress);
+    const index = restored.progressSegmentIds!.indexOf(restored.planDays[0].segments[0].id);
+    const unchecked = applyProgressLog(restored, [...logs, progressLogKey("g", "a", index, false, time + 3, "c")]);
+    expect(Object.values(unchecked.progress.a)).toEqual(["second psalm"]);
+    const checked = applyProgressLog(restored, [...logs, progressLogKey("g", "a", index, true, time + 4, "d")]);
+    expect(checked.progress.a[restored.planDays[0].segments[0].id]).toBe(new Date(time + 4).toISOString());
   });
 });

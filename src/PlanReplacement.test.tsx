@@ -50,3 +50,27 @@ it("shows the chosen CSV in the styled upload control and resets it when cancell
     vi.unstubAllGlobals();
   }
 });
+
+it("shows recovery only within its seven-day window and requires an explicit confirmation", async () => {
+  const now = Date.now();
+  const withBackup = { ...group, planRestore: { savedAt: new Date(now).toISOString(), expiresAt: new Date(now + 86400000).toISOString() } };
+  const render = (value: Group) => renderToStaticMarkup(<PlanReplacement group={value}
+    credentials={{ groupId: "g", memberId: "a", token: "" }} disabled={false} onReplace={() => {}} />);
+  expect(render(withBackup)).toContain("Przywróć poprzedni plan");
+  expect(render({ ...withBackup, planRestore: { ...withBackup.planRestore, expiresAt: new Date(now - 1).toISOString() } }))
+    .not.toContain("Przywróć poprzedni plan");
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const click = async (text: string) => act(async () => [...container.querySelectorAll("button")].find(button => button.textContent === text)!.click());
+  try {
+    await act(async () => root.render(<PlanReplacement group={withBackup}
+      credentials={{ groupId: "g", memberId: "a", token: "" }} disabled={false} onReplace={() => {}} />));
+    expect(container.querySelector('[aria-label="Potwierdź przywrócenie planu"]')).toBeNull();
+    await click("Przywróć poprzedni plan");
+    expect(container.textContent).toContain("Późniejsze zaznaczenia zostaną cofnięte");
+    expect(container.textContent).toContain("Przywróć plan i postęp grupy");
+    await click("Anuluj przywracanie");
+    expect(container.querySelector('[aria-label="Potwierdź przywrócenie planu"]')).toBeNull();
+  } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
+});
