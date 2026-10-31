@@ -63,3 +63,11 @@ Dokumentacja:
 - https://learn.chatgpt.com/docs/environments/cloud-environments
 - https://learn.chatgpt.com/docs/third-party/github
 - https://learn.chatgpt.com/docs/changelog
+
+## 5. Wynik pierwszego testu (31 października 2026)
+
+W issue [#17](https://github.com/mszkudelski/plan-czytania-biblii/issues/17) dodano komentarz użytkownika z `@codex`, bez żadnego zlecenia modyfikacji kodu. `chatgpt-codex-connector[bot]` odpowiedział:
+
+> To use Codex here, create an environment for this repo.
+
+Wniosek: integracja otrzymała wzmiankę na GitHub, ale repozytorium **nie ma jeszcze środowiska wymaganego do uruchomienia zadania z tego issue**. Następny wymagany krok: utworzyć i opublikować środowisko w https://chatgpt.com/codex/cloud/settings/environments, a następnie ponowić test na issue #17. Do tego czasu nie należy twierdzić, że automatyczne kodowanie z issue działa.
