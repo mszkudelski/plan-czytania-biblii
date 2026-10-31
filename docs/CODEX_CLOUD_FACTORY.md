@@ -87,3 +87,16 @@ Oficjalne źródło: https://learn.chatgpt.com/docs/environments/cloud-environme
 Właściciel uruchomił ręcznie zadanie w nowym Codex Cloud, wybrał repo `plan-czytania-biblii`, a agent przeczytał `AGENTS.md` i `.github/workflows/ci.yml`. Zrzut z sesji potwierdza analizę uruchamiania CI, testów produkcyjnych i zasad E2E. **Dostęp nowego Codex Cloud do repo jest potwierdzony.** Nie dowodzi to jednak działania wyzwalacza `@codex` na GitHub (zob. sekcję 6), ani możliwości wystawiania PR.
 
 Następny, bezpieczny pilot: [issue #18](https://github.com/mszkudelski/plan-czytania-biblii/issues/18) — osobny branch i draft PR zawierający wyłącznie nową dokumentację lokalnej walidacji. Uruchomienie ręczne w Codex Cloud, po publikacji PR weryfikacja `Required CI`. Bez automatycznego merge lub wdrożenia.
+
+## 8. Wynik testu pierwszego PR — 31 października 2026
+
+Codex Cloud uruchomiony ręcznie z opublikowanego środowiska zrealizował [issue #18](https://github.com/mszkudelski/plan-czytania-biblii/issues/18) i wystawił [draft PR #19](https://github.com/mszkudelski/plan-czytania-biblii/pull/19) do `develop`.
+
+- Branch: `docs/18-development-validation`; PR w stanie otwartym/draft.
+- Zakres: wyłącznie `docs/DEVELOPMENT_VALIDATION.md` (+84 linii).
+- Codex zaraportował wykonanie `npm ci`, `npm test` (21 testów Node.js, 331 Vitest), `npm run build` i `git diff --check` bez błędów.
+- GitHub Actions: [workflow CI run #41232056246](https://github.com/mszkudelski/plan-czytania-biblii/actions/runs/41232056246) zakończył się `success`; zadania `Select E2E tests`, `Unit tests and build` i `Required CI` zakończyły się powodzeniem. Kontrole produkcyjne i E2E pominięto zgodnie z istniejącymi zasadami PR.
+- Netlify deploy-preview ma status `success`, ale nie jest to deployment na produkcję.
+- Nie wykonano merge ani wdrożenia produkcyjnego.
+
+**Wniosek:** potwierdzono ręczny pipeline `Codex Cloud → branch → draft PR → CI` bez klucza OpenAI API. Nadal **nie** potwierdzono automatycznego uruchamiania Codex Cloud po zdarzeniu GitHub issue ani samodzielnego wyboru issue przez agenta.
