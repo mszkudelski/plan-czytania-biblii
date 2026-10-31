@@ -1,3 +1,4 @@
+import { groupStartDay, initialRecoveryStart, skippedSegmentIds, type ReadingStartChoice } from "./lib/personal-schedule";
 import PlanReplacement from "./PlanReplacement";
 import { trackPlanOpened, trackSavedReading } from "./lib/analytics";
 import { downloadPlanCsv } from "./lib/plan-export";
@@ -29,6 +30,7 @@ import {
   ensureInvite,
   getGroup,
   joinGroup,
+  includeSkippedReadings,
   loadCredentials,
   redeemSessionTransfer,
   removeMember,
@@ -820,6 +822,7 @@ function JoinSetup({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const [readingStart, setReadingStart] = useState<ReadingStartChoice>("beginning");
   const [invitedGroup, setInvitedGroup] = useState<Group | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -837,7 +840,7 @@ function JoinSetup({
     setBusy(true);
     setError("");
     try {
-      const result = await joinGroup(invite, cleanName);
+      const result = await joinGroup(invite, cleanName, readingStart);
       onJoined(result.group, result.credentials);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Nie udało się dołączyć do planu. Spróbuj ponownie.");
@@ -857,7 +860,7 @@ function JoinSetup({
         {invitedGroup && <section className="join-plan-summary" aria-label="Plan z zaproszenia">
           <strong>{invitedGroup.name}</strong><span>{formatFrequency(invitedGroup.frequency)}</span>
           <p>{invitedGroup.startDate < todayIso() ? "Grupa czyta od" : "Zaczynamy"} {formatPolishDate(invitedGroup.startDate)}.
-            {invitedGroup.startDate < todayIso() && " Zaczniesz od początku."}</p>
+            </p>
         </section>}
         <p className="setup-description">Dołączysz jako nowa osoba z własnym postępem. Imię jest nazwą widoczną dla grupy.</p>
         <form onSubmit={submit}>
@@ -875,6 +878,24 @@ function JoinSetup({
               required
             />
           </Field>
+          {invitedGroup && invitedGroup.planDays.some(day => day.date < todayIso()) && <fieldset className="reading-start-options" disabled={busy}>
+            <legend>Od czego chcesz zacząć?</legend>
+            <label><input type="radio" name="readingStart" value="beginning" checked={readingStart === "beginning"}
+              onChange={() => setReadingStart("beginning")} /> Od początku</label>
+            <label><input type="radio" name="readingStart" value="group" checked={readingStart === "group"}
+              disabled={!groupStartDay(invitedGroup)} onChange={() => setReadingStart("group")} /> Od miejsca grupy</label>
+            <p className="reading-start-status" role="status">
+              {readingStart === "beginning" ? "Nadrabianie włączone." : "Bez nadrabiania."}
+              {readingStart === "group" && groupStartDay(invitedGroup) && <> Start: {formatPolishDate(groupStartDay(invitedGroup)!.date, "short")}.</>}
+            </p>
+            {!groupStartDay(invitedGroup) && <p className="reading-start-status">Harmonogram grupy już się zakończył. Możesz zacząć od początku.</p>}
+            <details className="reading-start-help">
+              <summary>Jak to działa?</summary>
+              {readingStart === "beginning" ? <p>Zaczniesz od pierwszego czytania. Nadrabianie dodaje jeden rozdział do zwykłej porcji, aż dogonisz harmonogram. Możesz je później wyłączyć.</p>
+                : <p>Wcześniejsze czytania będą pominięte, bez zaległości. Możesz później włączyć je w zakładce Plan.</p>}
+              <p>Procent pokazuje przeczytaną część całego planu. Pominięte fragmenty nie zwiększają postępu.</p>
+            </details>
+          </fieldset>}
           {matchingName && <p className="name-match-notice" role="status">
             W grupie jest już osoba o takiej nazwie. Dołączenie utworzy osobny profil.
             Jeśli to Twój wcześniejszy profil, odzyskaj dostęp poniżej.
@@ -1734,6 +1755,14 @@ export function Dashboard({
     setGroup(progressQueue.replaceGroup(nextGroup, requestRevision));
   }
 
+  async function includeSkipped() {
+    await progressQueue.waitForSegments(visibleGroup.planDays.flatMap(day => day.segments.map(segment => segment.id)));
+    const requestRevision = progressQueue.revision;
+    const next = await includeSkippedReadings(credentials);
+    setRequestedReading(undefined);
+    setGroup(progressQueue.replaceGroup(next, requestRevision));
+  }
+
   const tabs: Array<{ id: Tab; label: string; icon: IconName }> = [
     { id: "today", label: "Czytaj", icon: "book" },
     { id: "plan", label: "Plan", icon: "plan" },
@@ -1774,7 +1803,7 @@ export function Dashboard({
         {progressError && <p className="progress-error" role="alert">{progressError}</p>}
         <div hidden={tab !== "today"}>
           <TodayView
-            key={`${group.id}:${member.id}:${today}:${visibleGroup.planRevision ?? ""}`}
+            key={`${group.id}:${member.id}:${today}:${visibleGroup.planRevision ?? ""}:${member.readingStart?.skippedSegmentIds.length ?? 0}`}
             group={visibleGroup}
             credentials={credentials}
             promptReady={promptReady && progressReady}
@@ -1788,7 +1817,7 @@ export function Dashboard({
           />
         </div>
         {tab === "plan" && (
-          <PlanView group={visibleGroup} member={member} onOpenReading={dayId => {
+          <PlanView group={visibleGroup} member={member} onIncludeSkipped={includeSkipped} onOpenReading={dayId => {
             planPosition.current = { top: window.scrollY, dayId };
             setRequestedReading({ dayId });
             updateTab("today");
@@ -1885,7 +1914,7 @@ export function TodayView({
   const [browsedRecoveryDayId, setBrowsedRecoveryDayId] = useState<string | null>(null);
   const recoveryKey = `reading-recovery:${group.id}:${member.id}${group.planRevision ? `:${group.planRevision}` : ""}`;
   const recoveryDayKey = `${recoveryKey}:day-in-progress`;
-  const [recoveryStart, setRecoveryStart] = useState<string>(() => localStorage.getItem(recoveryKey) ?? "");
+  const [recoveryStart, setRecoveryStart] = useState<string>(() => initialRecoveryStart(localStorage, recoveryKey, member, `reading-recovery:${group.id}:${member.id}:auto-initialized`));
   const [finishedRecoveryView, setFinishedRecoveryView] = useState(false);
   const [finalReadingId, setFinalReadingId] = useState("");
   const finalWrite = useRef(false);
@@ -2038,7 +2067,7 @@ export function TodayView({
     // Keep this session's card until explicit navigation or refresh.
     setFinishedRecoveryView(hadRecoverySession.current);
     setRecoveryStart("");
-    const nextIndex = group.planDays.findIndex(day => day.segments.some(segment => !progress[segment.id]));
+    const nextIndex = group.planDays.findIndex(day => day.id === getNextDay(group, member.id)?.id);
     const resumedIndex = nextIndex >= 0 ? nextIndex : Math.max(0, group.planDays.length - 1);
     setDailyDayId(group.planDays[resumedIndex]?.id ?? "");
     if (!hadRecoverySession.current && !notificationDay && !planReading) setSelectedIndex(resumedIndex);
@@ -2069,7 +2098,7 @@ export function TodayView({
   function selectDay(index: number) {
     if (finalWrite.current) return;
     if (finishedRecoveryView && !recoveryActive && !planReading) {
-      const nextUnread = group.planDays.findIndex(day => day.segments.some(segment => !progress[segment.id]));
+      const nextUnread = group.planDays.findIndex(day => day.id === getNextDay(group, member.id)?.id);
       const sourceId = navigationDays[index]?.segments[0]?.id;
       const sourceIndex = group.planDays.findIndex(day => day.segments.some(segment => segment.id === sourceId));
       setSelectedIndex(index > displayedIndex && nextUnread >= 0 ? nextUnread : Math.max(0, sourceIndex));
@@ -2210,7 +2239,7 @@ export function TodayView({
   const completedCount = displayedDay?.segments.filter(segment => displayedProgress[segment.id]).length ?? 0;
   const portionTotal = (displayedDay?.segments.length ?? 0) + (displayedExtra ? 1 : 0);
   const portionDone = completedCount + (extraComplete ? 1 : 0);
-  const nextUnread = group.planDays.findIndex(day => day.segments.some(segment => !progress[segment.id]));
+  const nextUnread = group.planDays.findIndex(day => day.id === getNextDay(group, member.id)?.id);
   const returnIndex = useRecoveryView
     ? navigationDays.findIndex(day => day.id === currentPortion?.day.id)
     : nextUnread;
@@ -2271,8 +2300,9 @@ export function TodayView({
           </button>}
         </div>
       </section>
+      {skippedSegmentIds(group, member.id).size > 0 && <p className="personal-start-notice">Czytasz od miejsca grupy. Wcześniejsze fragmenty są pominięte; możesz je włączyć w zakładce Plan. Procent dotyczy całego planu.</p>}
       {home.planComplete ? (
-        <section className="reading-state is-finished" role="status"><Icon name="check" size={28} /><h2>Plan ukończony</h2></section>
+        <section className="reading-state is-finished" role="status"><Icon name="check" size={28} /><h2>{skippedSegmentIds(group, member.id).size ? "Twój zakres ukończony" : "Plan ukończony"}</h2></section>
       ) : home.notStarted ? (
         <section className="reading-state" role="status"><Icon name="book" size={28} /><div><h2>Plan jeszcze się nie rozpoczął</h2>
           <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate, "shortYear")}.</p></div></section>
@@ -2319,12 +2349,25 @@ export function TodayView({
 function PlanView({
   group,
   member,
+  onIncludeSkipped,
   onOpenReading,
 }: {
   group: Group;
   member: Member;
   onOpenReading: (dayId: string) => void;
+  onIncludeSkipped: () => Promise<void>;
 }) {
+  const [returnBusy, setReturnBusy] = useState(false);
+  const [returnError, setReturnError] = useState("");
+  const [confirmReturn, setConfirmReturn] = useState(false);
+  const skipped = skippedSegmentIds(group, member.id);
+  const skippedDays = group.planDays.filter(day => day.segments.some(segment => skipped.has(segment.id))).length;
+  async function returnToBeginning() {
+    setReturnBusy(true); setReturnError("");
+    try { await onIncludeSkipped(); setConfirmReturn(false); }
+    catch { setReturnError("Nie udało się włączyć pominiętych czytań. Spróbuj ponownie."); }
+    finally { setReturnBusy(false); }
+  }
   const progress = group.progress[member.id] ?? {};
   const week = getReadingWeekSummary(group, member.id, todayIso());
   const total = group.planDays.flatMap((day) => day.segments).length;
@@ -2362,6 +2405,14 @@ function PlanView({
           {Array.from({ length: week.weeklyTotal }, (_, index) => <span key={index} className={index < week.weeklyCompleted ? "done" : ""} />)}
         </div>}
       </section>
+      {skippedDays > 0 && <section className="personal-start-notice" aria-label="Pominięte czytania">
+        <p>Pominięte czytania: {skippedDays}. Nie są zaliczone ani zaległe. Procent dotyczy całego planu.</p>
+        {!confirmReturn ? <button type="button" className="small-button" onClick={() => setConfirmReturn(true)}>Włącz pominięte czytania</button>
+          : <><p>Wcześniejsze nieprzeczytane czytania staną się zaległościami. Własne miejsce wróci do pierwszego nieprzeczytanego fragmentu. Zachowasz zapisany postęp. Nadrabianie możesz włączyć w Czytaj.</p>
+            <button type="button" className="small-button" disabled={returnBusy} onClick={returnToBeginning}>{returnBusy ? "Zapisywanie…" : "Potwierdź powrót do początku"}</button>
+            <button type="button" className="link-button" disabled={returnBusy} onClick={() => setConfirmReturn(false)}>Anuluj</button></>}
+        {returnError && <p role="alert">{returnError}</p>}
+      </section>}
       <section className="plan-days">
         {group.planDays.map((day) => {
           const completed = day.segments.filter(
@@ -2383,7 +2434,7 @@ function PlanView({
                 {day.segments.map((segment) => segment.label).join(" · ")}
               </span>
               <b>
-                {completed}/{day.segments.length}
+                {completed === 0 && day.segments.every(segment => skipped.has(segment.id)) ? "Pominięte" : `${completed}/${day.segments.length}`}
               </b>
             </button>
           );

@@ -1,3 +1,4 @@
+import { personalGroup } from "./personal-schedule";
 import type { Group, PlanDay } from "../types";
 import { getNextDay } from "./metrics";
 
@@ -6,6 +7,7 @@ export function getRecoveryDay(
   memberId: string,
   savedDayId = "",
 ) {
+  group = personalGroup(group, memberId);
   const nextDay = getNextDay(group, memberId);
   const savedIndex = group.planDays.findIndex(day => day.id === savedDayId);
   if (savedIndex < 0) return nextDay;
@@ -18,6 +20,7 @@ export function getRecoveryDay(
 }
 
 export function getOverdueDays(group: Group, memberId: string, today: string) {
+  group = personalGroup(group, memberId);
   const progress = group.progress[memberId] ?? {};
   return group.planDays.filter(day => day.date < today && day.segments.some(segment => !progress[segment.id]));
 }
@@ -33,6 +36,7 @@ export function splitReadingChapters(label: string): string[] {
 
 export type RecoveryReading = { segmentId: string; label: string; originalDate: string; chapterIndex: number; chapterCount: number };
 export function getRecoveryReading(group: Group, memberId: string, today: string, readChapters: Record<string, number>, afterDayId?: string, chapterMarks: ReadChapterMarks = {}): RecoveryReading | undefined {
+  group = personalGroup(group, memberId);
   const progress = group.progress[memberId] ?? {};
   const afterIndex = afterDayId ? group.planDays.findIndex(day => day.id === afterDayId) : -1;
   for (const day of getOverdueDays(group, memberId, today).filter(day => group.planDays.indexOf(day) > afterIndex)) {
@@ -66,6 +70,7 @@ export function validateDailyRecoveryReading(
   afterDayId: string,
   saved: unknown,
 ): DailyRecoveryReading | null {
+  group = personalGroup(group, memberId);
   if (!saved || typeof saved !== "object") return null;
   const candidate = saved as Partial<DailyRecoveryReading>;
   const reading = candidate.reading;
@@ -113,6 +118,7 @@ export function getRecoveryCompletedSegmentIds(
   readChapters: Record<string, number>,
   marks: ReadChapterMarks,
 ) {
+  group = personalGroup(group, memberId);
   const progress = group.progress[memberId] ?? {};
   return group.planDays.flatMap(day => day.segments).filter(segment => {
     if (progress[segment.id]) return false;
@@ -164,6 +170,7 @@ export function getRecoveryNavigationDays(
   today: string,
   portions: RecoveryPortion[],
 ) {
+  group = personalGroup(group, memberId);
   if (!portions.length) return group.planDays;
   const progress = group.progress[memberId] ?? {};
   // Completed rows remain in the frozen daily portion. Do not also insert
@@ -216,6 +223,7 @@ export function parseRecoveryPortion(
   group: Group, memberId: string, today: string,
   readChapters: Record<string, number>, marks: ReadChapterMarks, value: string | null,
 ): RecoveryPortion | undefined {
+  group = personalGroup(group, memberId);
   try {
     const saved = JSON.parse(value ?? "null") as RecoveryPortion | null;
     if (!saved || saved.day?.date !== today || saved.day.id !== `recovery:${today}` ||
@@ -265,6 +273,7 @@ export function parseRecoveryPortion(
 // the real group; never persist this simulated progress to the backend.
 export function parseRecoverySchedule(group: Group, memberId: string, today: string,
   chapters: Record<string, number>, marks: ReadChapterMarks, value: string | null): RecoveryPortion[] | undefined {
+  group = personalGroup(group, memberId);
   try {
     const saved: unknown = JSON.parse(value ?? "null");
     if (!Array.isArray(saved) || !saved.length || saved[0]?.day?.date !== today) return;
@@ -310,6 +319,7 @@ export function projectRecoveryPortions(
   savedPortion?: RecoveryPortion,
   preserveStandardContext = false,
 ): RecoveryPortion[] {
+  group = personalGroup(group, memberId);
   const chapters = planChapters(group);
   const done = new Set(chapters.filter(chapter => group.progress[memberId]?.[chapter.segmentId] ||
     isRecoveryChapterRead(readChapters, chapterMarks, chapter.segmentId, chapter.chapterIndex))

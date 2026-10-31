@@ -1,3 +1,4 @@
+import { personalGroup } from "./personal-schedule";
 import type { Group } from "../types";
 import { getReadingBalance } from "./metrics";
 import type { RecoveryPortion } from "./recovery";
@@ -16,6 +17,7 @@ export function formatReadingCount(count: number) {
 }
 
 export function getReadingWeekSummary(group: Group, memberId: string, today: string) {
+  group = personalGroup(group, memberId);
   const start = new Date(`${today}T12:00:00`);
   start.setDate(start.getDate() - (start.getDay() + 6) % 7);
   const iso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -52,6 +54,7 @@ export function getReadingWeekSummary(group: Group, memberId: string, today: str
 }
 
 export function getReadingHomeSummary(group: Group, memberId: string, today: string) {
+  group = personalGroup(group, memberId);
   const progress = group.progress[memberId] ?? {};
   const allSegments = group.planDays.flatMap(day => day.segments);
   const past = group.planDays.filter(day => day.date < today);
@@ -73,6 +76,7 @@ export function getReadingHomeSummary(group: Group, memberId: string, today: str
 }
 
 export function getDailyReadingDay(group: Group, memberId: string, _today: string, savedDayId = "") {
+  group = personalGroup(group, memberId);
   const progress = group.progress[memberId] ?? {};
   const next = group.planDays.find(day => day.segments.some(segment => !progress[segment.id]));
   const saved = group.planDays.find(day => day.id === savedDayId);

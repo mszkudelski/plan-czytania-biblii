@@ -43,7 +43,7 @@ test('only an explicit documentation allowlist skips E2E', () => {
   assert.equal(select([]).mode, 'all');
 });
 test('analytics startup and shared reading integration retain full E2E coverage', () => {
-  for (const file of ['src/main.tsx', 'src/lib/analytics.ts', 'src/lib/analytics.test.ts', 'src/lib/error-tracking.ts', 'src/lib/error-tracking.test.tsx', 'src/lib/error-tracking-sdk.test.ts', 'src/lib/plan-template.ts', 'src/lib/plan-template.test.ts', 'netlify/tests/analytics.test.ts', 'src/SimpleApp.tsx']) {
+  for (const file of ['src/main.tsx', 'src/lib/analytics.ts', 'src/lib/analytics.test.ts', 'src/lib/error-tracking.ts', 'src/lib/error-tracking.test.tsx', 'src/lib/error-tracking-sdk.test.ts', 'src/lib/plan-template.ts', 'src/lib/plan-template.test.ts', 'netlify/tests/analytics.test.ts', 'src/SimpleApp.tsx', 'src/lib/personal-schedule.ts', 'src/lib/personal-schedule.test.ts']) {
     assert.equal(select([file]).mode, 'all', file);
     assert.deepEqual(select([file]).files, available, file);
   }

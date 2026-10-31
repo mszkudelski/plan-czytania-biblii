@@ -24,6 +24,7 @@ export type Member = {
   name: string;
   color: string;
   isAdmin: boolean;
+  readingStart?: { skippedSegmentIds: string[]; autoRecoveryAt?: string };
 };
 
 export type Group = {
