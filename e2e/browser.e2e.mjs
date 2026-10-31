@@ -160,7 +160,8 @@ test('extra waits for the standard writes and rolls back if the base fails', asy
   try {
     await reading(page, 'Mt 1').click();
     await extraReading(page).click();
-    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+    await expect(extraReading(page)).toHaveAttribute('aria-busy', 'true');
     await expectSaved(request, session, ['s0']);
   } finally { release(); }
   await expect(page.getByRole('alert')).toBeVisible();
@@ -184,7 +185,8 @@ test('extra rollback remains correct when leaving and returning to Today during 
   }, { times: 1 });
   try {
     await extraReading(page).click();
-    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
+    await expect(extraReading(page)).toHaveAttribute('aria-busy', 'true');
     await tab(page, 'Plan').click();
     await tab(page, 'Czytaj').click();
   } finally { release(); }
@@ -195,7 +197,7 @@ test('extra rollback remains correct when leaving and returning to Today during 
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('partial extra chapter persists locally; tomorrow resumes remaining chapters', async ({ page, request }) => {
+test('partial extra chapter persists on the server; tomorrow resumes remaining chapters', async ({ page, request }) => {
   const session = await createPlan(request, 'partial-chapter', true);
   await openPlan(page, session);
   await enableRecovery(page);
@@ -206,15 +208,20 @@ test('partial extra chapter persists locally; tomorrow resumes remaining chapter
   await expect(extraReading(page)).toContainText('Rdz 2');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
   await expectSaved(request, session, ['s0', 's1']); // No whole segment completed yet.
+  await expect.poll(async () => (await readGroup(request, session)).chapterProgress?.[session.credentials.memberId]?.s2).toEqual([0]);
   await page.reload();
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
   await page.clock.setSystemTime(new Date(NOW.getTime() + 86400000));
   await page.reload();
   await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
-  await expect(extraReading(page)).toContainText('Rdz 4');
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  await expect(extraReading(page)).toContainText('Rdz 5');
   await expect(extraReading(page)).toBeDisabled();
   await reading(page, 'Rdz 3').click();
   await expectSaved(request, session, ['s0', 's1', 's2']);
+  await expect(extraReading(page)).toBeDisabled();
+  await reading(page, 'Rdz 4').click();
+  await expectSaved(request, session, ['s0', 's1', 's2', 's3']);
   await expect(extraReading(page)).toBeEnabled();
 });
 
@@ -234,6 +241,22 @@ test('stale recovery anchor and unfinished extra cannot skip earlier progress', 
   await expect(extraReading(page)).toContainText('Rdz 2');
 });
 
+test('normal partial reading keeps its label and date when checked and unchecked', async ({ page, request }) => {
+  const session = await createPlan(request, 'partial-stable-label', true);
+  for (const id of ['s0', 's1']) await saveProgress(request, session, id);
+  await openPlan(page, session, { [recoveryKey(session) + ':chapters']: JSON.stringify({ s2: 1 }) });
+  const selectedDate = await page.locator('.reading-card-head time').getAttribute('dateTime');
+  await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
+  await reading(page, 'Rdz 3').click();
+  await expectSaved(request, session, ['s0', 's1', 's2']);
+  await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', selectedDate);
+  await reading(page, 'Rdz 3').click();
+  await expectSaved(request, session, ['s0', 's1']);
+  await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', selectedDate);
+});
+
 test('invalid and null recovery cache do not break reading', async ({ page, request }) => {
   const session = await createPlan(request, 'bad-cache');
   const key = recoveryKey(session);
@@ -244,6 +267,43 @@ test('invalid and null recovery cache do not break reading', async ({ page, requ
   });
   await expect(reading(page, 'Rdz 1')).toBeVisible();
   await expect(extraReading(page)).toContainText('Rdz 2');
+});
+
+test('saved forecast rows keep their assigned date after reload and ordinary unchecks do not reappear', async ({ page, request }) => {
+  const session = await createPlan(request, 'forecast-reload-uncheck');
+  await openPlan(page, session); await enableRecovery(page);
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  const assignedDate = await page.locator('.reading-card-head time').getAttribute('dateTime');
+  await reading(page, 'Rdz 4').click(); await expectSaved(request, session, ['s3']);
+  await page.reload();
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', assignedDate);
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true }).click();
+  await reading(page, 'Rdz 4').click(); await expectSaved(request, session, []);
+  await page.reload(); await browseReading(page, 2);
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  await expectSaved(request, session, []);
+});
+
+test('recovery waits for real session progress before freezing a stale cached portion', async ({ page, request }) => {
+  const session = await createPlan(request, 'recovery-stale-portion');
+  for (const id of ['s0', 's1', 's2']) await saveProgress(request, session, id);
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const captured = new Promise(resolve => { started = resolve; });
+  await page.route('**/api/session', async route => { started(); await gate; await route.continue(); }, { times: 1 });
+  try {
+    await openPlan(page, session, {
+      [recoveryKey(session)]: TODAY,
+      ['plan-czytania-biblii-group-' + session.group.id]: JSON.stringify({ group: session.group, savedAt: NOW.toISOString() }),
+    });
+    await captured;
+    expect(await page.evaluate(key => localStorage.getItem(key), recoveryKey(session) + ':ordered:' + TODAY + ':portion-v3')).toBeNull();
+  } finally { release(); }
+  await expect(reading(page, 'Rdz 4')).toBeVisible();
+  await expect(extraReading(page)).toContainText('Rdz 5');
+  await expectSaved(request, session, ['s0', 's1', 's2']);
 });
 
 test('completed plan has no future recovery extra', async ({ page, request }) => {
@@ -353,9 +413,7 @@ test('failed rapid future toggles do not restore an earlier optimistic chapter',
   } finally { release(); }
   await expect(page.getByRole('alert')).toBeVisible();
   await expect.poll(() => rejected).toBe(2);
-  await expect.poll(async () => {
-    return page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? '{}').s3 ?? 0, recoveryKey(session) + ':chapters');
-  }).toBe(0);
+  await expect.poll(async () => (await readGroup(request, session)).chapterProgress?.[session.credentials.memberId]?.s3 ?? []).toEqual([]);
   await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
   await expectSaved(request, session, []);
   await reading(page, 'Rdz 4').click();
@@ -374,14 +432,18 @@ test('future partial ranges can be checked without completing assumed earlier ch
   await enableRecovery(page);
   await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
-  await expect(extraReading(page)).toContainText('Rdz 4');
+  await expect(reading(page, 'Rdz 4')).toHaveAttribute('aria-pressed', 'false');
+  await expect(extraReading(page)).toContainText('Rdz 5');
   await expect(reading(page, 'Rdz 3')).toBeEnabled();
   await reading(page, 'Rdz 3').click();
   await expect(reading(page, 'Rdz 3')).toHaveAttribute('aria-pressed', 'true');
   await expectSaved(request, session, []); // Rdz 2 was assumed, never actually checked.
+  await expect(extraReading(page)).toBeDisabled();
+  await reading(page, 'Rdz 4').click();
+  await expectSaved(request, session, ['s3']);
   await expect(extraReading(page)).toBeEnabled();
   await extraReading(page).click();
-  await expectSaved(request, session, ['s3']);
+  await expectSaved(request, session, ['s3', 's4']);
 
   await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
   await expect(extraReading(page)).toContainText('Rdz 2');
@@ -392,12 +454,12 @@ test('future partial ranges can be checked without completing assumed earlier ch
   await reading(page, 'Rdz 1').click();
   await reading(page, 'Mt 1').click();
   await extraReading(page).click();
-  await expectSaved(request, session, ['s0', 's1', 's2', 's3']);
+  await expectSaved(request, session, ['s0', 's1', 's2', 's3', 's4']);
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
   await page.reload();
   await expect(extraReading(page)).toContainText('Rdz 2');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');
-  await expectSaved(request, session, ['s0', 's1', 's2', 's3']);
+  await expectSaved(request, session, ['s0', 's1', 's2', 's3', 's4']);
 });
 
 test('projected navigation respects partial chapters and reload returns to today', async ({ page, request }) => {
@@ -413,7 +475,8 @@ test('projected navigation respects partial chapters and reload returns to today
 
   await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(reading(page, 'Rdz 3')).toBeVisible();
-  await expect(extraReading(page)).toContainText('Rdz 4');
+  await expect(reading(page, 'Rdz 4')).toBeVisible();
+  await expect(extraReading(page)).toContainText('Rdz 5');
   await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
   await expect(extraReading(page)).toContainText('Rdz 2');
   await expect(extraReading(page)).toHaveAttribute('aria-pressed', 'true');

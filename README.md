@@ -26,7 +26,8 @@ Zapis/ukończenie dodaje `day_number`, a zapis również `completed`. Typ podsta
 rozpoznajemy po całym harmonogramie czytań, bez dat, nazw plików i deklaracji klienta.
 Starsze plany bez metadanych mają typ `unknown`; ich losowe ID zapisujemy jednorazowo
 w `analytics-plan-v1/<groupId>` w magazynie grup, bez nadpisywania danych planu.
-Podmiana zachowuje ID, zmienia wersję i aktualizuje typ planu.
+Podmiana/przywrócenie zachowuje ID, zmienia wersję i aktualizuje typ planu.
+Przywrócenie zachowuje typ ze snapshotu, a dla starego snapshotu używa `unknown`.
 Brak dostępu do starszych metadanych analitycznych nie blokuje odczytu ani zapisu.
 Syntetyczne grupy testów mają dodatkowo `analyticsDisabled: true` w odpowiedzi API.
 
@@ -185,6 +186,18 @@ Dni i lokalne ustawienia nadrabiania są wyznaczane od nowa dla nowego planu.
 W zapisie postępu indeks fragmentów jest dopisywany, a nie przestawiany.
 Dzięki temu wcześniejsze i trwające zapisy nie oznaczą innego czytania po zmianie
 kolejności. Kolejne podmiany są wersjonowane; stary podgląd nie nadpisze nowszego planu.
+
+Po podmianie administrator może wybrać **Przywróć poprzedni plan** przez 7 dni.
+Kopia zawiera harmonogram i postęp wszystkich osób sprzed podmiany, także
+zaznaczenia bez dopasowania. Data wygaśnięcia jest widoczna w ustawieniach;
+serwer odrzuca przywrócenie od chwili jej upływu. Potwierdzone przywrócenie
+zastępuje bieżący plan i późniejsze zaznaczenia. Zachowuje aktualne osoby,
+role i dostęp; nowo dołączone osoby zaczynają odzyskany plan bez zaznaczeń.
+Kopia jest jednorazowa, a każda kolejna podmiana zapisuje tylko bezpośrednio
+poprzedni stan na nowe 7 dni. Kopie powstają dla podmian wykonanych po wdrożeniu
+tej funkcji. Pełna kopia jest prywatna i nie jest zwracana przez API grupy.
+Przywracanie nadaje fragmentom nowe identyfikatory, więc stare i spóźnione
+operacje nie zmienią odzyskanego postępu.
 
 ## Uruchomienie
 

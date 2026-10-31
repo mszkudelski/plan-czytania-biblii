@@ -5,7 +5,8 @@ import { createOptimisticProgressQueue } from "./optimistic-progress";
 function groupWith(progress: Record<string, string> = {}): Group {
   return {
     id: "g", name: "Grupa", createdAt: "", startDate: "2026-10-01",
-    frequency: { kind: "daily", days: [] }, planDays: [], members: [],
+    frequency: { kind: "daily", days: [] }, planDays: [{ id: "d", index: 0, date: "2026-10-01", title: "",
+      segments: ["s1", "s2", "s3"].map(id => ({ id, label: "Rdz 1", section: "" })) }], members: [],
     progress: { a: progress, b: { other: "already-read" } },
   };
 }
@@ -47,12 +48,15 @@ function fixture(progress: Record<string, string> = {}) {
 
 it("checks immediately before the server responds without mutating confirmed data", async () => {
   const f = fixture();
+  expect(f.queue.hasPending).toBe(false);
   const save = f.queue.toggle("s1");
+  expect(f.queue.hasPending).toBe(true);
   expect(Boolean(f.visible.progress.a.s1)).toBe(true);
   expect(f.initial.progress.a).toEqual({});
   expect(f.saved).toHaveLength(0);
   f.requests[0].task.resolve(groupWith({ s1: "server-time" }));
   await save;
+  expect(f.queue.hasPending).toBe(false);
   expect(f.visible.progress.a.s1).toBe("server-time");
   expect(f.saved).toHaveLength(1);
 });
@@ -63,6 +67,7 @@ it("unchecks immediately and restores the original completion if saving fails", 
   expect(f.visible.progress.a.s1).toBeUndefined();
   f.requests[0].task.reject(new Error("offline"));
   await save;
+  expect(f.queue.hasPending).toBe(false);
   expect(f.visible.progress.a.s1).toBe("original-time");
   expect(f.errors).toHaveLength(1);
 });
@@ -236,6 +241,30 @@ it("saves an explicit uncheck even when a stale cache does not show server compl
   expect(f.visible.progress.a.s1).toBeUndefined();
 });
 
+it("keeps a final reading unchecked until its write responds, even if a refresh sees the commit first", async () => {
+  const f = fixture();
+  const save = f.queue.toggle("s1", true, false);
+  expect(f.visible.progress.a.s1).toBeUndefined();
+  expect(f.queue.hasPending).toBe(true);
+  f.queue.replaceGroup(groupWith({ s1: "committed-before-response" }));
+  expect(f.visible.progress.a.s1).toBeUndefined();
+  f.requests[0].task.resolve(groupWith({ s1: "confirmed" }));
+  await save;
+  expect(f.visible.progress.a.s1).toBe("confirmed");
+});
+
+it("does not expose a failed final reading as complete and preserves unrelated optimistic checks", async () => {
+  const f = fixture();
+  const final = f.queue.toggle("s1", true, false).catch(() => undefined);
+  const other = f.queue.toggle("s2", true);
+  expect(f.visible.progress.a.s1).toBeUndefined();
+  expect(f.visible.progress.a.s2).toBeDefined();
+  f.requests[0].task.reject(new Error("offline")); await final;
+  expect(f.visible.progress.a.s1).toBeUndefined();
+  f.requests[1].task.resolve(groupWith({ s2: "confirmed" })); await other;
+  expect(f.visible.progress.a).toEqual({ s2: "confirmed" });
+});
+
 it("ignores late old-plan responses and reads after a replacement, without overlaying removed readings", async () => {
   const f = fixture();
   const save = f.queue.toggle("s1");
@@ -250,4 +279,24 @@ it("ignores late old-plan responses and reads after a replacement, without overl
   expect(f.visible).toEqual(next);
   expect(f.saved.at(-1)).toEqual(next);
   expect(f.queue.replaceGroup(groupWith(), 0)).toEqual(next);
+});
+
+it("overlays partial chapter intents, rolls back a failed write and preserves a later independent chapter", async () => {
+  let visible = groupWith(); visible.planDays[0].segments[0].label = "Rdz 1-3";
+  const initial = structuredClone(visible);
+  const tasks: ReturnType<typeof deferredGroup>[] = [];
+  const queue = createOptimisticProgressQueue({ group: initial, memberId: "a",
+    save: () => { const task = deferredGroup(); tasks.push(task); return task.promise; },
+    onChange: next => { visible = next; }, onSave: () => undefined, onError: () => undefined });
+  const first = queue.toggle("s1", true, true, [0]).catch(() => undefined);
+  const second = queue.toggle("s1", true, true, [2]);
+  expect(visible.chapterProgress?.a.s1).toEqual([0, 2]);
+  expect(visible.progress.a.s1).toBeUndefined();
+  queue.replaceGroup(initial);
+  expect(visible.chapterProgress?.a.s1).toEqual([0, 2]);
+  tasks[0].reject(new Error("offline")); await first;
+  expect(visible.chapterProgress?.a.s1).toEqual([2]);
+  tasks[1].resolve({ ...initial, chapterProgress: { a: { s1: [2] } } }); await second;
+  expect(visible.chapterProgress?.a.s1).toEqual([2]);
+  expect(initial.chapterProgress).toBeUndefined();
 });
