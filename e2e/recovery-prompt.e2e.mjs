@@ -167,7 +167,7 @@ test('active recovery can be stopped below the activation threshold and cannot b
   await page.getByRole('complementary', { name: 'Propozycja nadrabiania' }).getByRole('button', { name: 'Włącz', exact: true }).click();
   for (const id of ['s0', 's1', 's2']) await saveProgress(request, session, id);
   await page.reload();
-  await expect(page.getByTestId('overdue-readings')).toHaveText('3');
+  await expect(page.getByTestId('recovery-remaining-readings')).toHaveText('3');
   await page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Nadrabianie', exact: true })).toHaveCount(0);
   await expect(page.getByRole('complementary', { name: 'Propozycja nadrabiania' })).not.toBeVisible();

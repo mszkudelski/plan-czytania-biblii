@@ -470,3 +470,16 @@ it("retains legacy partial marks and reports a failed import without recording m
   expect(f.errors.some(error => error.includes("zsynchronizować"))).toBe(true);
   expect(f.group.progress.m.s0).toBeUndefined();
 });
+
+
+it("imports legacy completion before deciding whether a startup recovery flag is still needed", async () => {
+  const g = plan(); g.planDays.forEach((day, index) => { day.date = date(index - 1); });
+  localStorage.setItem(`${KEY}:chapters`, JSON.stringify({ s0: 1 }));
+  const f = mount(g); await act(async () => f.render());
+  expect(f.writes).toHaveLength(1);
+  expect(localStorage.getItem(`${KEY}:ordered:${TODAY}:portion-v3`)).toBeNull();
+  await act(async () => f.writes[0].resolve());
+  expect(f.group.progress.m.s0).toBeDefined();
+  expect(localStorage.getItem(KEY)).toBeNull();
+  expect(container.querySelector('.reading-extra')).toBeNull();
+});

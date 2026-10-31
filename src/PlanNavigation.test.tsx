@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Dashboard } from "./SimpleApp";
 import Onboarding from "./Onboarding";
+import { applyChapterProgress } from "./lib/chapter-progress";
 import type { Group } from "./types";
 
 vi.mock("./RecoveryPrompt", () => ({ default: () => null }));
@@ -65,4 +66,29 @@ it.each([false, true])("opens original completed, overdue and future rows withou
   }
   await click(button("Czytaj")); await click(button("Wróć do swojego miejsca"));
   expect(container.querySelector('.reading-focus')!.textContent).toBe(home);
+});
+
+
+it("waits for the dashboard queue to receive verified progress before freezing recovery", async () => {
+  const cached: Group = { id: "g", name: "Test", createdAt: today, startDate: "2026-10-24",
+    frequency: { kind: "daily", days: [0, 1, 2, 3, 4, 5, 6] },
+    members: [{ id: "m", name: "Test", color: "green", isAdmin: true }], progress: { m: {} },
+    planDays: Array.from({ length: 12 }, (_, index) => ({ id: `d${index}`, index, title: "",
+      date: new Date(Date.parse("2026-10-24T12:00:00Z") + index * 86400000).toISOString().slice(0, 10),
+      segments: [{ id: `s${index}`, label: `Rdz ${index + 1}`, section: "Biblia" }],
+    })),
+  };
+  localStorage.setItem("reading-recovery:g:m", today);
+  const render = (group: Group, ready: boolean) => root.render(<Onboarding group={group} credentials={credentials} ready={ready}>
+    <Dashboard group={group} credentials={credentials} setGroup={vi.fn()} onCredentialsChange={vi.fn()}
+      theme="light" onThemeChange={vi.fn()} promptReady={ready} refreshing={false} syncMessage=""
+      onRefresh={vi.fn()} onLeave={vi.fn()} />
+  </Onboarding>);
+  await act(async () => render(cached, false));
+  expect(localStorage.getItem(`reading-recovery:g:m:ordered:${today}:portion-v3`)).toBeNull();
+  let fresh = cached;
+  for (const id of ["s0", "s1", "s2"]) fresh = applyChapterProgress(fresh, "m", id, true);
+  await act(async () => render(fresh, true));
+  expect(container.querySelector(".simple-readings strong")?.textContent).toBe("Rdz 4");
+  expect(container.querySelector(".reading-extra strong")?.textContent).toBe("Rdz 5");
 });
