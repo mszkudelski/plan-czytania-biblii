@@ -25,14 +25,16 @@ Na pierwszym uruchomieniu wykonywane jest **wyłącznie dokumentacyjne** [issue 
 4. Specjalnie dla fabryki użytkownik **wymaga** osobnego brancha od `develop` i draft PR do `develop`, pomimo domyślnej polityki rutynowych zmian w `AGENTS.md`. Nie pisz bezpośrednio na `develop` ani `main`.
 5. Nie merguj i nie wdrażaj zmian. Nie używaj produkcyjnych sekretów, nie zmieniaj istniejących planów grup, nie wykonuj writable E2E na preview/develop. Nie zmieniaj plików `.github/workflows/*`, `AGENTS.md`, konfiguracji produkcji, zależności, migracji ani uprawnień bez osobnej zgody.
 6. Gdy dostępne jest środowisko wykonawcze, uruchom `npm test` i `npm run build`. Jeśli nie możesz uruchomić poleceń, **nie przypisuj im sukcesu**: podaj brak możliwości i wykorzystaj niezależne `Required CI` z GitHub po wystawieniu PR.
-7. PR ma zawierać odnośnik do issue, podsumowanie, zmienione pliki, prawdziwe wyniki testów, link do CI oraz ryzyka. Nie uznawaj review Codex za zamiennik CI.
-8. Gdy Work nie ma uprawnień albo nie potrafi opublikować brancha/PR, pozostaw issue z etykietą `factory:blocked`, napisz konkretny komentarz diagnostyczny i **nie** przedstawiaj zadania jako ukończonego.
+7. PR ma zawierać odnośnik do issue, podsumowanie, zmienione pliki, prawdziwe wyniki testów, link do CI oraz ryzyka. **Bezpośrednio po utworzeniu draft PR opublikuj osobny komentarz `@codex review` w głównej dyskusji tego PR**, aby zlecić Codex Code Review. Nie wystarczy umieścić tej wzmianki w opisie PR lub issue. Przed wysłaniem sprawdź, czy dla aktualnego SHA review już zlecono, trwa lub zostało zakończone; nie zlecaj go ponownie. Błąd publikacji komentarza lub brak dostępnej integracji zgłoś jako blokadę, a nie jako wykonane review. Nie uznawaj review Codex za zamiennik CI.
+8. Po komentarzu sprawdź wynik Codex Review i `Required CI` na aktualnym SHA; otwarte uwagi review przekaż właścicielowi i nie merguj zmian automatycznie. Nie zgłaszaj `running` lub `pending` jako zakończonych.
+9. Gdy Work nie ma uprawnień albo nie potrafi opublikować brancha/PR, pozostaw issue z etykietą `factory:blocked`, napisz konkretny komentarz diagnostyczny i **nie** przedstawiaj zadania jako ukończonego.
 
 ## Odbiór pilotażu
 
 - Zaplanowany przebieg bez ręcznego uruchomienia w Codex Cloud wybiera tylko issue #20.
 - Powstaje bezpieczny branch, a po nim draft PR dokumentacyjny z właściwą bazą `develop`.
 - GitHub Actions uruchamia się na PR i `Required CI` przechodzi, albo blokada jest jawnie opisana.
+- Harmonogram sam publikuje komentarz `@codex review` bezpośrednio po wystawieniu draft PR (bez powtórzeń dla danego SHA); później odczytuje wynik.
 - Żaden krok nie merguje i nie wdraża na produkcję.
 - Po zatwierdzeniu pilotażu można rozszerzyć kolejkę na zadania aplikacyjne i zaplanować poprawki CI/review.
 
