@@ -1,0 +1,54 @@
+name: "Software Factory — zadanie"
+description: "Zadanie do wykonania w kolejce ChatGPT Work/Scheduled; oznaczenie factory:ready uruchamia kwalifikację przy najbliższym przeglądzie."
+title: "[Factory] "
+labels: ["factory:ready"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ten szablon umieszcza issue w kolejce. Oznaczaj wyłącznie zadania z jednoznacznymi kryteriami akceptacji. Agent przygotowuje tylko draft PR; nie wykonuje merge ani deploymentu.
+  - type: textarea
+    id: goal
+    attributes:
+      label: "Cel / obecne i oczekiwane zachowanie"
+      placeholder: "Obecnie... Po zmianie..."
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: "Kryteria akceptacji"
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: "Zakres i wykluczenia"
+      placeholder: "Katalogi/moduły, zależności, czego nie zmieniać..."
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: "Ryzyko"
+      description: "W pilotażu robot wykonuje wyłącznie zadania niskiego ryzyka, dotyczące dokumentacji."
+      options:
+        - "Niskie — tylko dokumentacja"
+        - "Średnie — UI, testy lub logika aplikacji"
+        - "Wysokie — API, dostęp, dane, produkcja, migracje"
+    validations:
+      required: true
+  - type: textarea
+    id: verify
+    attributes:
+      label: "Plan weryfikacji"
+      value: |
+        - [ ] Zmiana zgodna z AGENTS.md
+        - [ ] npm test i npm run build (lub jawnie zgłoszona blokada)
+        - [ ] Required CI zakończył się powodzeniem
+        - [ ] Draft PR do develop, bez merge/deploymentu
+    validations:
+      required: true
