@@ -14,7 +14,7 @@ Po udanym pilotażu issue #20 → draft PR #22, GitHub CI i Codex Review, używa
 
 1. **Zatwierdzone PR**: `factory:merge-approved` na PR do `develop`, nadana przez `mszkudelski` dla bieżącego commita. To świadoma zgoda właściciela na merge; musi pochodzić z weryfikowalnej historii zdarzeń GitHub. Bez takiej zgody nie merguj.
 2. **Poprawki po review**: issue `factory:review` powiązane z otwartym factory PR. Popraw na istniejącej gałęzi, a nie przez nowy PR. Maksymalnie 3 rundy.
-3. **Nowe issue**: `factory:ready` na otwartym issue, o ile nie ma factory PR czekającego na CI, review lub zatwierdzenie oraz `factory:working` w toku. Jeśli kilka issues jest gotowych, wybierz najwyższy jawny priorytet, następnie najstarsze.
+3. **Nowe issue**: `factory:ready` na otwartym issue, o ile nie ma factory PR z trwającym CI/review lub wymagającego napraw oraz `factory:working` w toku. Zweryfikowany PR z zielonym CI i review bez uwag, czekający wyłącznie na ręczne oznaczenie `factory:merge-approved`, nie blokuje kolejnego issue. Jeśli kilka issues jest gotowych, wybierz najwyższy jawny priorytet, następnie najstarsze.
 
 Stany: `factory:ready → factory:working → factory:review → factory:done`, z `factory:blocked` dla problemów. `factory:merge-approved` dotyczy PR, nie issue. PR-y i issues bez etykiet kolejkowych nie są automatycznie podejmowane ani mergowane.
 
@@ -34,7 +34,7 @@ Nie merguj do `main`, nie wdrażaj do produkcji i nie twórz release. Nie merguj
 
 ## Tworzenie PR z issue
 
-- Sprawdź istniejące otwarte PR i powiązania z issues, aby nie tworzyć duplikatów. Nie rozpoczynaj nowego issue, gdy jest aktywne `factory:working` albo factory PR oczekuje na CI/review/merge.
+- Sprawdź istniejące otwarte PR i powiązania z issues, aby nie tworzyć duplikatów. Nie rozpoczynaj nowego issue, gdy jest aktywne `factory:working` albo factory PR oczekuje na wynik CI/review lub naprawy. PR jedynie oczekujący na decyzję właściciela o merge nie blokuje dalszej pracy.
 - Przeczytaj `AGENTS.md`, adekwatne moduły i testy, a dla zmian aplikacji `scripts/select-e2e.mjs` i jego mapę zakresów.
 - Dla Software Factory właściciel wprost wymaga **osobnej gałęzi od `develop` i draft PR do `develop`** — świadomy wyjątek od domyślnego `AGENTS.md`.
 - Ogranicz zakres do jednego issue. Kod wymagający wysokiego ryzyka (uprawnienia, migracje, sekrety, rzeczywiste dane, konfiguracja produkcji) wymaga oddzielnej zgody.
