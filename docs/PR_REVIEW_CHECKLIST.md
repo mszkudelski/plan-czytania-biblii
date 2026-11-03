@@ -14,7 +14,7 @@ Stosuj przed zaakceptowaniem zmian w aplikacji **Plan czytania Biblii**. Źród�
 - [ ] Dla zmian zachowania UI, logiki postępu/odzyskiwania, sesji lub tras backendu dodano/zaktualizowano adekwatne testy jednostkowe i E2E, w tym regresję dla naprawianego błędu.
 - [ ] Przy zmianie modułów lub ich konsumentów zweryfikowano [mapowanie zakresów E2E](../scripts/select-e2e.mjs), zależności między funkcjami oraz testy selektora; nie zawężono pokrycia dla wygody.
 - [ ] Wykonano `npm test` i `npm run build` w odpowiednim środowisku **albo** wyraźnie zapisano, że nie zostały uruchomione lokalnie. Nie oznaczaj niewykonanych testów jako zaliczonych.
-- [ ] Testy regresyjne handlerów API są w `netlify/tests/`, a nie jako `*.test.ts` w `netlify/functions/` (takie pliki mogłyby zostać potraktowane jako funkcje podczas deployu).
+- [ ] Testy regresyjne handlerów API są w `netlify/tests/`, a nie jako `*.test.ts` bezpośrednio w głównym katalogu `netlify/functions/` (pliki na tym poziomie są traktowane jako funkcje podczas deployu). Testy w pomocniczych podkatalogach, np. `netlify/functions/_shared/`, są dozwolone.
 
 ## 3. GitHub CI — wymagany warunek przed merge
 
@@ -27,7 +27,7 @@ Stosuj przed zaakceptowaniem zmian w aplikacji **Plan czytania Biblii**. Źród�
 
 - [ ] Nie uruchamiaj rutynowo zapisywalnych E2E na `develop`, PR ani deploy preview. Dodatkowe E2E tylko na wyraźne zlecenie, zgodnie z [zasadami E2E](../e2e/README.md).
 - [ ] Produkcyjne E2E korzystają z rzeczywistego wdrożonego API i Netlify Blobs, a nie z pomyślnych mocków API lub lokalnego `localStorage`.
-- [ ] Testy zapisujące dane tworzą **wyłącznie własne syntetyczne plany**, oznaczone podczas tworzenia; runner sprząta je według unikalnych identyfikatorów/uprawnień danego przebiegu (także po awarii). Nigdy nie modyfikuj istniejących planów użytkowników ani nie usuwaj danych wyłącznie na podstawie prefiksu nazwy.
+- [ ] Testy zapisujące dane tworzą **wyłącznie własne syntetyczne plany**, oznaczone podczas tworzenia; runner sprząta je według unikalnych identyfikatorów/uprawnień danego przebiegu w `finally` oraz w kroku cleanup CI, również po zwykłej porażce testów. Nagła utrata runnera może uniemożliwić cleanup — nie zakładaj wówczas, że dane zostały usunięte; wymagane jest sprawdzenie i ewentualne ponowienie sprzątania z uprawnieniami danego przebiegu. Nigdy nie modyfikuj istniejących planów użytkowników ani nie usuwaj danych wyłącznie na podstawie prefiksu nazwy.
 - [ ] Nie zapisuj w repozytorium tokenów dostępu, uprawnień do cleanup, `storageState` ani request traces; syntetyczne subskrypcje push są wyłączone z produkcyjnych powiadomień.
 
 ## 5. Review i decyzja
