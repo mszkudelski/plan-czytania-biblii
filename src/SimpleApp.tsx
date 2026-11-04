@@ -2245,6 +2245,25 @@ export function TodayView({
     : nextUnread;
   const returnToRecovery = Boolean(recoveryActive && (notificationDay || planReading));
   const showReturn = returnToRecovery || (returnIndex >= 0 && displayedIndex !== returnIndex);
+  const originalScheduleDates = [...new Set((displayedDay?.segments ?? []).flatMap(segment =>
+    group.planDays.filter(day => day.segments.some(source => source.id === segment.id)).map(day => day.date),
+  ).concat(displayedExtra ? [displayedExtra.originalDate] : []))].sort();
+  const originalScheduleLabel = originalScheduleDates.length === 1
+    ? formatPolishDate(originalScheduleDates[0], "shortYear")
+    : originalScheduleDates.length > 1
+      ? `${formatPolishDate(originalScheduleDates[0], "shortYear")} – ${formatPolishDate(originalScheduleDates.at(-1)!, "shortYear")}`
+      : "";
+  const browsingAnotherDay = showReturn || planReading || Boolean(notificationDay) ||
+    (returnIndex < 0 && selectedIndex !== initialIndex);
+  const readingContext = displayedDay
+    ? useRecoveryView
+      ? `Nadrabianie: porcja na ${formatPolishDate(displayedDay.date, "shortYear")}.${originalScheduleLabel ? ` Fragmenty z harmonogramu grupy: ${originalScheduleLabel}.` : ""}`
+      : browsingAnotherDay
+        ? `Przeglądasz czytanie zaplanowane na ${formatPolishDate(displayedDay.date, "shortYear")}.`
+        : displayedDay.date < today
+          ? `Kontynuujesz czytanie zaplanowane na ${formatPolishDate(displayedDay.date, "shortYear")}.`
+          : `Twoja porcja zaplanowana na ${formatPolishDate(displayedDay.date, "shortYear")}.`
+    : "";
   function returnToReading() {
     if (returnToRecovery) {
       setNotificationDay(undefined);
@@ -2311,11 +2330,17 @@ export function TodayView({
         <DayCard day={displayedDay} progress={displayedProgress} onToggle={toggleDisplayedSegment} restDay={home.restDay}
           pendingReading={finalReadingId} disabled={Boolean(finalReadingId)}
           header={<header className="reading-card-head">
-            <time dateTime={displayedDay.date}>{new Intl.DateTimeFormat("pl-PL", { weekday: "short", day: "numeric", month: "long" }).format(new Date(`${displayedDay.date}T12:00:00`))}</time>
+            <div className="reading-head-copy">
+              <time dateTime={displayedDay.date}>{new Intl.DateTimeFormat("pl-PL", { weekday: "short", day: "numeric", month: "long" }).format(new Date(`${displayedDay.date}T12:00:00`))}</time>
+              <p className="reading-portion-context">{readingContext}</p>
+            </div>
             <div className="reading-head-actions">
               {showReturn && <button type="button" className="reading-return" aria-label="Wróć do swojego miejsca"
                 disabled={Boolean(finalReadingId)}
-                title="Wróć do swojego miejsca" onClick={returnToReading}><Icon name={returnIndex < displayedIndex ? "double-left" : "double-right"} size={20} /></button>}
+                title="Wróć do swojego miejsca" onClick={returnToReading}>
+                <Icon name={returnIndex < displayedIndex ? "double-left" : "double-right"} size={20} />
+                <span>Wróć do swojego miejsca</span>
+              </button>}
               <span aria-live="polite">{portionCompleted ? <span className="reading-finished">Przeczytane</span>
                 : <span aria-label="Postęp wybranego czytania">{portionDone}/{portionTotal}</span>}</span>
             </div>
