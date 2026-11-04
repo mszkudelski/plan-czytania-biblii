@@ -1298,7 +1298,7 @@ function LandingPage({
   );
 }
 
-function Setup({
+export function Setup({
   onCreated,
   onRecovered,
   onJoinInvite,
