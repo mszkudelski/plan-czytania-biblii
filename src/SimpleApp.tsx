@@ -1320,6 +1320,8 @@ export function Setup({
     useState<FrequencyKind>("daily");
   const [customDays, setCustomDays] = useState([1, 2, 3, 4, 5]);
   const [planSource, setPlanSource] = useState<"preset" | "custom">("preset");
+  const planSourceRef = useRef<"preset" | "custom">("preset");
+  const latestCsvRead = useRef(0);
   const [customCsvText, setCustomCsvText] = useState("");
   const [customFileName, setCustomFileName] = useState("");
   const [csvText, setCsvText] = useState(BASIC_PLAN_CSV);
@@ -1336,13 +1338,21 @@ export function Setup({
       : frequencyKind === "weekdays" ? [1, 2, 3, 4, 5] : customDays,
   }), [frequencyKind, customDays]);
   const previewDays = useMemo(() => {
-    if (!startDate || (frequencyKind === "custom" && !customDays.length)) return [];
+    const validDate = (value: string) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(`${value}T12:00:00`);
+      return Number.isFinite(date.getTime()) && date.getFullYear() === Number(value.slice(0, 4)) &&
+        date.getMonth() + 1 === Number(value.slice(5, 7)) && date.getDate() === Number(value.slice(8, 10));
+    };
+    if (!validDate(startDate) || rows.some(row => row.date && !validDate(row.date)) ||
+      (frequencyKind === "custom" && !customDays.length)) return [];
     try {
       const days = buildSchedule(rows, startDate, frequency);
       return days.every(day => Number.isFinite(Date.parse(`${day.date}T12:00:00`))) ? days : [];
     } catch { return []; }
   }, [rows, startDate, frequency, frequencyKind, customDays.length]);
   function chooseSource(source: "preset" | "custom") {
+    planSourceRef.current = source;
     setPlanSource(source);
     setCsvText(source === "preset" ? BASIC_PLAN_CSV : customCsvText);
     setFileName(source === "preset" ? "Plan podstawowy · M’Cheyne · 365 dni" : customFileName);
@@ -1351,14 +1361,18 @@ export function Setup({
 
   function readFile(file?: File) {
     if (!file) return;
+    const readId = ++latestCsvRead.current;
     const reader = new FileReader();
     reader.onload = () => {
+      if (readId !== latestCsvRead.current) return;
       const text = String(reader.result ?? "");
       setCustomCsvText(text);
       setCustomFileName(file.name);
-      setCsvText(text);
-      setFileName(file.name);
-      setError("");
+      if (planSourceRef.current === "custom") {
+        setCsvText(text);
+        setFileName(file.name);
+        setError("");
+      }
     };
     reader.readAsText(file);
   }

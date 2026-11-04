@@ -97,3 +97,46 @@ it("keeps the form usable when a CSV contains an invalid date", async () => {
   expect(summary()).toContain("Sprawdź daty w pliku CSV");
   expect(button("Utwórz plan").disabled).toBe(true);
 });
+
+it("rejects an extended start year before scheduling", async () => {
+  await openSetup();
+  const input = container.querySelector<HTMLInputElement>('input[type="date"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "10000-01-01");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(summary()).toContain("Sprawdź daty");
+  expect(button("Utwórz plan").disabled).toBe(true);
+});
+
+it("rejects a CSV date that rolls into another month", async () => {
+  await openSetup(); await click("Własny plan");
+  vi.stubGlobal("FileReader", class {
+    result = "Data;Fragment\n2026-02-30;Rdz 1";
+    onload: (() => void) | null = null;
+    readAsText() { this.onload?.(); }
+  });
+  const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, "files", { value: [new File([""], "plan.csv")] });
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+  expect(summary()).toContain("Sprawdź daty");
+  expect(button("Utwórz plan").disabled).toBe(true);
+});
+
+it("keeps the selected preset when a delayed CSV finishes and caches it for later", async () => {
+  let finish: () => void = () => {};
+  vi.stubGlobal("FileReader", class {
+    result = "Dzień;Fragment\n1;Rdz 1";
+    onload: (() => void) | null = null;
+    readAsText() { finish = () => this.onload?.(); }
+  });
+  await openSetup(); await click("Własny plan");
+  const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, "files", { value: [new File([""], "plan.csv")] });
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+  await click("Gotowy plan");
+  await act(async () => finish());
+  expect(summary()).toContain("365 czytań");
+  await click("Własny plan");
+  expect(summary()).toContain("1 czytanie");
+});

@@ -228,3 +228,15 @@ test('existing personal codes stay hidden across settings, reload and logout', a
   expect((await request.post('/api/session/recovery-code/redeem', { data: { code } })).status()).toBe(201);
   await expectSaved(request, owner, ['s0']);
 });
+
+test('creation rejects invalid start and CSV dates without freezing the form', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Utwórz plan', exact: true }).click();
+  await page.getByLabel('Start', { exact: true }).fill('10000-01-01');
+  await expect(page.getByRole('region', { name: 'Podsumowanie harmonogramu' })).toContainText('Sprawdź daty');
+  await page.getByLabel('Start', { exact: true }).fill('2026-11-04');
+  await page.getByRole('button', { name: 'Własny plan', exact: true }).click();
+  await page.locator('input[type="file"]').setInputFiles({ name: 'invalid.csv', mimeType: 'text/csv', buffer: Buffer.from('Data;Fragment\n2026-02-30;Rdz 1') });
+  await expect(page.getByRole('region', { name: 'Podsumowanie harmonogramu' })).toContainText('Sprawdź daty');
+  await expect(page.locator('form').getByRole('button', { name: 'Utwórz plan', exact: true })).toBeDisabled();
+});
