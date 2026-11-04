@@ -1317,22 +1317,43 @@ function Setup({
   const [ownerName, setOwnerName] = useState("");
   const [startDate, setStartDate] = useState(todayIso());
   const [frequencyKind, setFrequencyKind] =
-    useState<FrequencyKind>("weekdays");
+    useState<FrequencyKind>("daily");
   const [customDays, setCustomDays] = useState([1, 2, 3, 4, 5]);
-  const [csvText, setCsvText] = useState("");
-  const [fileName, setFileName] = useState("");
+  const [planSource, setPlanSource] = useState<"preset" | "custom">("preset");
+  const [customCsvText, setCustomCsvText] = useState("");
+  const [customFileName, setCustomFileName] = useState("");
+  const [csvText, setCsvText] = useState(BASIC_PLAN_CSV);
+  const [fileName, setFileName] = useState("Plan podstawowy · M’Cheyne · 365 dni");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
   const [view, setView] = useState<
     "choices" | "create" | "transfer" | "join" | "recover" | "admin"
   >("choices");
   const rows = useMemo(() => parsePlanCsv(csvText), [csvText]);
+  const frequency = useMemo<Frequency>(() => ({
+    kind: frequencyKind,
+    days: frequencyKind === "daily" ? [0, 1, 2, 3, 4, 5, 6]
+      : frequencyKind === "weekdays" ? [1, 2, 3, 4, 5] : customDays,
+  }), [frequencyKind, customDays]);
+  const previewDays = useMemo(() => startDate &&
+    (frequencyKind !== "custom" || customDays.length > 0)
+      ? buildSchedule(rows, startDate, frequency) : [],
+    [rows, startDate, frequency, frequencyKind, customDays.length]);
+  function chooseSource(source: "preset" | "custom") {
+    setPlanSource(source);
+    setCsvText(source === "preset" ? BASIC_PLAN_CSV : customCsvText);
+    setFileName(source === "preset" ? "Plan podstawowy · M’Cheyne · 365 dni" : customFileName);
+    setError("");
+  }
 
   function readFile(file?: File) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      setCsvText(String(reader.result ?? ""));
+      const text = String(reader.result ?? "");
+      setCustomCsvText(text);
+      setCustomFileName(file.name);
+      setCsvText(text);
       setFileName(file.name);
       setError("");
     };
@@ -1342,20 +1363,12 @@ function Setup({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!cleanPersonName(ownerName)) return setError("Podaj imię.");
-    if (!rows.length) return setError("Dodaj plan CSV.");
+    if (!rows.length) return setError(planSource === "custom" ? "Dodaj plik własnego planu CSV." : "Nie udało się wczytać gotowego planu.");
     if (frequencyKind === "custom" && !customDays.length) {
       return setError("Wybierz dni czytania.");
     }
 
-    const frequency: Frequency = {
-      kind: frequencyKind,
-      days:
-        frequencyKind === "daily"
-          ? [0, 1, 2, 3, 4, 5, 6]
-          : frequencyKind === "weekdays"
-            ? [1, 2, 3, 4, 5]
-            : customDays,
-    };
+    if (!startDate || !previewDays.length) return setError("Sprawdź datę startu i harmonogram.");
 
     setBusy(true);
     setError("");
@@ -1365,7 +1378,7 @@ function Setup({
         ownerName: cleanPersonName(ownerName),
         startDate,
         frequency,
-        planDays: buildSchedule(rows, startDate, frequency),
+        planDays: previewDays,
       });
       onCreated(result.group, result.credentials);
     } catch {
@@ -1431,6 +1444,18 @@ function Setup({
         </button>
         <form onSubmit={submit}>
           {error && <div className="simple-alert">{error}</div>}
+          <fieldset className="plan-source-choice">
+            <legend>Wybierz źródło planu</legend>
+            <div className="simple-segmented">
+              <button type="button" className={planSource === "preset" ? "active" : ""}
+                aria-pressed={planSource === "preset"} onClick={() => chooseSource("preset")}>Gotowy plan</button>
+              <button type="button" className={planSource === "custom" ? "active" : ""}
+                aria-pressed={planSource === "custom"} onClick={() => chooseSource("custom")}>Własny plan</button>
+            </div>
+            <p className="field-help">{planSource === "preset"
+              ? "Gotowy plan M’Cheyne’a: 365 porcji, po 4 fragmenty. Nie potrzebujesz pliku CSV."
+              : "Wgraj CSV z własnym podziałem czytań albo przygotuj go przy pomocy AI."}</p>
+          </fieldset>
           <div className="form-row">
             <Field label="Nazwa grupy">
               <input
@@ -1453,7 +1478,8 @@ function Setup({
             </Field>
           </div>
 
-          <Field label="Plan czytania">
+          {planSource === "custom" && <>
+          <Field label="Własny plan czytania">
             <label className="simple-upload">
               <input
                 type="file"
@@ -1469,26 +1495,7 @@ function Setup({
               Wybierz plik z planem czytania. Może to być plik CSV, czyli
               zwykła tabela zapisana np. z Excela lub Arkuszy Google.
             </p>
-            {!rows.length && (
-              <button
-                className="link-button"
-                type="button"
-                onClick={() => {
-                  setCsvText(BASIC_PLAN_CSV);
-                  setFrequencyKind("daily");
-                  setFileName("Plan podstawowy · M’Cheyne · 365 dni");
-                }}
-              >
-                Użyj planu podstawowego · 365 dni
-              </button>
-            )}
-            <p className="field-help">
-              Plan podstawowy M’Cheyne’a: 4 fragmenty dziennie przez 365 dni.
-              Stary Testament raz, Nowy Testament i Psalmy dwa razy.
-              Możesz zacząć w dowolnym dniu. Przy czytaniu codziennym trwa rok;
-              przy rzadszym harmonogramie potrwa dłużej.{" "}
-              <a href="https://www.mcheyne.app/" target="_blank" rel="noreferrer">O planie</a>
-            </p>
+            <p className="field-help">Plik CSV określa porcje czytania; poniżej wybierzesz rytm i datę startu.</p>
           </Field>
           <section className="csv-ai-help">
             <div className="csv-ai-help-header">
@@ -1545,6 +1552,7 @@ Zasady:
               </div>
             </details>
           </section>
+          </>}
 
           <div className="form-row">
             <Field label="Start">
@@ -1595,7 +1603,16 @@ Zasady:
             </div>
           )}
 
-          <button className="main-button" disabled={busy}>
+          <section className="plan-schedule-summary" aria-label="Podsumowanie harmonogramu" aria-live="polite">
+            <strong>Podsumowanie harmonogramu</strong>
+            {previewDays.length > 0 ? <>
+              <p><b>{previewDays.length}</b> {previewDays.length === 1 ? "czytanie" : "czytań"} w planie.</p>
+              <p>Start: <b>{formatPolishDate(previewDays[0].date, "shortYear")}</b></p>
+              <p>Przewidywany koniec: <b>{formatPolishDate(previewDays.at(-1)!.date, "shortYear")}</b></p>
+            </> : <p>{planSource === "custom" && !rows.length ? "Wgraj plik CSV, aby zobaczyć podsumowanie."
+              : "Wybierz co najmniej jeden dzień czytania i poprawną datę startu."}</p>}
+          </section>
+          <button className="main-button" disabled={busy || !previewDays.length}>
             {busy ? "Tworzenie…" : "Utwórz plan"}
           </button>
         </form>
