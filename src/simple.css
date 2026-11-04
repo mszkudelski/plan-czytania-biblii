@@ -1902,11 +1902,14 @@ body:has(.notification-card) .install-app-card { display: none; }
 .reading-balance > span, .reading-balance > small { font-size:.75rem; line-height:1.2; }
 .reading-balance .reading-on-track { font-size:1rem; }
 .reading-recovery-link { min-height:28px; padding:4px 0; font-size:.72rem; }
-.reading-home .reading-card-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:56px; padding:6px 17px; border-bottom:1px solid var(--border); font-size:.78rem; }
+.reading-home .reading-card-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 12px; min-height:56px; padding:8px 17px; border-bottom:1px solid var(--border); font-size:.78rem; }
 .reading-card-head time { color:var(--muted); }
+.reading-head-copy { flex:1 1 180px; min-width:0; }
+.reading-portion-context { margin:4px 0 0; color:var(--muted); font-size:.73rem; line-height:1.45; }
 .reading-rest-hint { margin:0; padding:11px 17px; border-bottom:1px solid var(--border); background:var(--soft-green); color:var(--muted); font-size:.75rem; line-height:1.55; }
-.reading-head-actions { display:flex; align-items:center; gap:8px; color:var(--green); font-variant-numeric:tabular-nums; }
-.reading-return { display:grid; place-items:center; width:44px; height:44px; padding:0; border:0; background:transparent; color:var(--green); cursor:pointer; }
+.reading-head-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:var(--green); font-variant-numeric:tabular-nums; }
+.reading-return { display:inline-flex; align-items:center; justify-content:center; gap:5px; min-height:44px; padding:4px 2px; border:0; background:transparent; color:var(--green); cursor:pointer; font-size:.72rem; text-align:left; }
+.reading-return span { max-width:120px; }
 .reading-navigation { display:grid; grid-template-columns:36px minmax(0,1fr) 36px; gap:6px; align-items:center; margin-top:15px; }
 .reading-navigation > button { display:grid; place-items:center; width:36px; height:52px; padding:0; border:0; background:transparent; color:var(--green); cursor:pointer; }
 .reading-navigation > button:disabled { opacity:.35; cursor:not-allowed; }
