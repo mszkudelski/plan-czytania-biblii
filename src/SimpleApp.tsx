@@ -1335,10 +1335,13 @@ export function Setup({
     days: frequencyKind === "daily" ? [0, 1, 2, 3, 4, 5, 6]
       : frequencyKind === "weekdays" ? [1, 2, 3, 4, 5] : customDays,
   }), [frequencyKind, customDays]);
-  const previewDays = useMemo(() => startDate &&
-    (frequencyKind !== "custom" || customDays.length > 0)
-      ? buildSchedule(rows, startDate, frequency) : [],
-    [rows, startDate, frequency, frequencyKind, customDays.length]);
+  const previewDays = useMemo(() => {
+    if (!startDate || (frequencyKind === "custom" && !customDays.length)) return [];
+    try {
+      const days = buildSchedule(rows, startDate, frequency);
+      return days.every(day => Number.isFinite(Date.parse(`${day.date}T12:00:00`))) ? days : [];
+    } catch { return []; }
+  }, [rows, startDate, frequency, frequencyKind, customDays.length]);
   function chooseSource(source: "preset" | "custom") {
     setPlanSource(source);
     setCsvText(source === "preset" ? BASIC_PLAN_CSV : customCsvText);
@@ -1455,6 +1458,7 @@ export function Setup({
             <p className="field-help">{planSource === "preset"
               ? "Gotowy plan M’Cheyne’a: 365 porcji, po 4 fragmenty. Nie potrzebujesz pliku CSV."
               : "Wgraj CSV z własnym podziałem czytań albo przygotuj go przy pomocy AI."}</p>
+            {planSource === "preset" && <p className="field-help"><a href="https://www.mcheyne.app/" target="_blank" rel="noreferrer">Źródło gotowego planu: M’Cheyne</a></p>}
           </fieldset>
           <div className="form-row">
             <Field label="Nazwa grupy">
@@ -1497,6 +1501,11 @@ export function Setup({
             </p>
             <p className="field-help">Plik CSV określa porcje czytania; poniżej wybierzesz rytm i datę startu.</p>
           </Field>
+          <details className="csv-format-help">
+            <summary>Jaki format pliku CSV?</summary>
+            <p className="field-help">Zapisz tabelę w UTF-8 z nagłówkami. Jeden wiersz oznacza jedną porcję czytania. Zalecany separator to średnik (;). Kolumna Dzień jest nazwą porcji, a kolejne kolumny zawierają fragmenty. Rytm i datę startu wybierzesz poniżej.</p>
+            <pre>{`Dzień;Stary Testament;Nowy Testament;Psalm\n1;Rdz 1–3;Mt 1;Ps 1\n2;Rdz 4–6;Mt 2;Ps 2`}</pre>
+          </details>
           <section className="csv-ai-help">
             <div className="csv-ai-help-header">
               <div>
@@ -1610,7 +1619,7 @@ Zasady:
               <p>Start: <b>{formatPolishDate(previewDays[0].date, "shortYear")}</b></p>
               <p>Przewidywany koniec: <b>{formatPolishDate(previewDays.at(-1)!.date, "shortYear")}</b></p>
             </> : <p>{planSource === "custom" && !rows.length ? "Wgraj plik CSV, aby zobaczyć podsumowanie."
-              : "Wybierz co najmniej jeden dzień czytania i poprawną datę startu."}</p>}
+              : "Sprawdź daty w pliku CSV i datę startu oraz wybierz co najmniej jeden dzień czytania."}</p>}
           </section>
           <button className="main-button" disabled={busy || !previewDays.length}>
             {busy ? "Tworzenie…" : "Utwórz plan"}
@@ -2262,25 +2271,6 @@ export function TodayView({
     : nextUnread;
   const returnToRecovery = Boolean(recoveryActive && (notificationDay || planReading));
   const showReturn = returnToRecovery || (returnIndex >= 0 && displayedIndex !== returnIndex);
-  const originalScheduleDates = [...new Set((displayedDay?.segments ?? []).flatMap(segment =>
-    group.planDays.filter(day => day.segments.some(source => source.id === segment.id)).map(day => day.date),
-  ).concat(displayedExtra ? [displayedExtra.originalDate] : []))].sort();
-  const originalScheduleLabel = originalScheduleDates.length === 1
-    ? formatPolishDate(originalScheduleDates[0], "shortYear")
-    : originalScheduleDates.length > 1
-      ? `${formatPolishDate(originalScheduleDates[0], "shortYear")} – ${formatPolishDate(originalScheduleDates.at(-1)!, "shortYear")}`
-      : "";
-  const browsingAnotherDay = showReturn || planReading || Boolean(notificationDay) ||
-    (returnIndex < 0 && selectedIndex !== initialIndex);
-  const readingContext = displayedDay
-    ? useRecoveryView
-      ? `Nadrabianie: porcja na ${formatPolishDate(displayedDay.date, "shortYear")}.${originalScheduleLabel ? ` Fragmenty z harmonogramu grupy: ${originalScheduleLabel}.` : ""}`
-      : browsingAnotherDay
-        ? `Przeglądasz czytanie zaplanowane na ${formatPolishDate(displayedDay.date, "shortYear")}.`
-        : displayedDay.date < today
-          ? `Kontynuujesz czytanie zaplanowane na ${formatPolishDate(displayedDay.date, "shortYear")}.`
-          : `Twoja porcja zaplanowana na ${formatPolishDate(displayedDay.date, "shortYear")}.`
-    : "";
   function returnToReading() {
     if (returnToRecovery) {
       setNotificationDay(undefined);
@@ -2347,17 +2337,11 @@ export function TodayView({
         <DayCard day={displayedDay} progress={displayedProgress} onToggle={toggleDisplayedSegment} restDay={home.restDay}
           pendingReading={finalReadingId} disabled={Boolean(finalReadingId)}
           header={<header className="reading-card-head">
-            <div className="reading-head-copy">
-              <time dateTime={displayedDay.date}>{new Intl.DateTimeFormat("pl-PL", { weekday: "short", day: "numeric", month: "long" }).format(new Date(`${displayedDay.date}T12:00:00`))}</time>
-              <p className="reading-portion-context">{readingContext}</p>
-            </div>
+            <time dateTime={displayedDay.date}>{new Intl.DateTimeFormat("pl-PL", { weekday: "short", day: "numeric", month: "long" }).format(new Date(`${displayedDay.date}T12:00:00`))}</time>
             <div className="reading-head-actions">
               {showReturn && <button type="button" className="reading-return" aria-label="Wróć do swojego miejsca"
                 disabled={Boolean(finalReadingId)}
-                title="Wróć do swojego miejsca" onClick={returnToReading}>
-                <Icon name={returnIndex < displayedIndex ? "double-left" : "double-right"} size={20} />
-                <span>Wróć do swojego miejsca</span>
-              </button>}
+                title="Wróć do swojego miejsca" onClick={returnToReading}><Icon name={returnIndex < displayedIndex ? "double-left" : "double-right"} size={20} /></button>}
               <span aria-live="polite">{portionCompleted ? <span className="reading-finished">Przeczytane</span>
                 : <span aria-label="Postęp wybranego czytania">{portionDone}/{portionTotal}</span>}</span>
             </div>
@@ -3037,3 +3021,4 @@ function formatFrequency(frequency: Frequency) {
     .map((day) => names[day])
     .join(", ");
 }
+

@@ -69,3 +69,31 @@ it("preserves own-plan CSV upload and can return to the ready-made schedule", as
   expect(container.querySelector('input[type="file"]')).toBeNull();
   expect(summary()).toContain("365 czytań");
 });
+
+it("links the ready plan source and keeps the CSV structure collapsed for own plans", async () => {
+  await openSetup();
+  const source = container.querySelector<HTMLAnchorElement>('a[href="https://www.mcheyne.app/"]');
+  expect(source?.textContent).toContain("Źródło");
+  await click("Własny plan");
+  const help = container.querySelector<HTMLDetailsElement>("details.csv-format-help");
+  expect(help?.open).toBe(false);
+  expect(help?.textContent).toContain("Dzień;Stary Testament;Nowy Testament;Psalm");
+  expect(help?.textContent).toContain("Rdz 1–3");
+  await act(async () => { help!.open = true; });
+  expect(help?.open).toBe(true);
+});
+
+it("keeps the form usable when a CSV contains an invalid date", async () => {
+  await openSetup();
+  await click("Własny plan");
+  vi.stubGlobal("FileReader", class {
+    result = "Data;Fragment\n2026-13-01;Rdz 1";
+    onload: (() => void) | null = null;
+    readAsText() { this.onload?.(); }
+  });
+  const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, "files", { value: [new File([""], "plan.csv")] });
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+  expect(summary()).toContain("Sprawdź daty w pliku CSV");
+  expect(button("Utwórz plan").disabled).toBe(true);
+});

@@ -38,16 +38,23 @@ async function access(request, owner, memberId, credentials = owner.credentials)
   return response.json();
 }
 
-test('creating a plan explains group recovery without personal-code options or requests', async ({ page, request }) => {
+for (const source of ['custom', 'preset']) {
+test(`creating a ${source} plan explains group recovery without personal-code options or requests`, async ({ page, request }) => {
   const codeRequests = personalCodeRequests(page);
   const plan = inputPlan('create-ui');
   await page.goto('/');
   await page.getByRole('button', { name: 'Utwórz plan', exact: true }).click();
   await page.getByLabel('Nazwa grupy').fill(plan.name);
   await page.getByLabel('Twoje imię').fill(plan.ownerName);
+  if (source === 'custom') {
+  await page.getByRole('button', { name: 'Własny plan', exact: true }).click();
   await page.locator('input[type="file"]').setInputFiles({
     name: 'e2e.csv', mimeType: 'text/csv', buffer: Buffer.from('Dzień;Stary Testament;Nowy Testament\nDzień 1;Rdz 1;Mt 1'),
   });
+  } else {
+    await expect(page.getByRole('button', { name: 'Gotowy plan', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('input[type="file"]')).toHaveCount(0);
+  }
   await page.locator('form').getByRole('button', { name: 'Utwórz plan', exact: true }).click();
   await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
   const credentials = await browserCredentials(page);
@@ -66,6 +73,7 @@ test('creating a plan explains group recovery without personal-code options or r
   await expect(page.locator('.access-hint')).toHaveCount(0);
   expect(codeRequests).toEqual([]);
 });
+}
 
 for (const width of [1280, 390]) {
   test('joining a duplicate name creates a separate profile at width ' + width, async ({ page, request }) => {
