@@ -333,6 +333,30 @@ it("normal reading shows only chapters not already consumed by a recovery extra"
   expect(f.group.progress.m.s1).toBeDefined();
 });
 
+it("shows the scheduled date and a visible return action without saving while browsing", async () => {
+  const g = plan();
+  const f = mount(g, false); await act(async () => f.render());
+  const context = () => container.querySelector(".reading-portion-context")?.textContent ?? "";
+  expect(context()).toContain("Kontynuujesz czytanie zaplanowane na");
+  expect(container.querySelector(".reading-card-head time")?.getAttribute("datetime")).toBe(date(-4));
+  await click("Następne");
+  expect(context()).toContain("Przeglądasz czytanie zaplanowane na");
+  expect(container.querySelector(".reading-return span")?.textContent).toBe("Wróć do swojego miejsca");
+  await click("Wróć do swojego miejsca");
+  expect(container.querySelector(".reading-card-head time")?.getAttribute("datetime")).toBe(date(-4));
+  expect(f.writes).toHaveLength(0);
+});
+
+it("separates recovery portion date from the original group schedule", async () => {
+  const g = plan();
+  const f = mount(g); await act(async () => f.render());
+  const description = container.querySelector(".reading-portion-context")?.textContent ?? "";
+  expect(description).toContain("Nadrabianie: porcja na");
+  expect(description).toContain("Fragmenty z harmonogramu grupy:");
+  expect(description).toContain("2026");
+  expect(f.writes).toHaveLength(0);
+});
+
 it("keeps an unchecked historical day and every navigation entry in place during and after saving", async () => {
   const g = plan(); g.progress.m = { s0: "done", s1: "done" };
   const f = mount(g); await act(async () => f.render());
