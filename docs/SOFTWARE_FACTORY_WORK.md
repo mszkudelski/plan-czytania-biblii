@@ -3,9 +3,9 @@
 Właściciel zarządza pracą wyłącznie na issues w GitHub Projects. PR-y, review, gałęzie wydaniowe i merge obsługuje automat.
 
 ## Stan wdrożenia integracji
-Nowy proces został przyjęty przez właściciela 5 listopada 2026. Schemat i polityka są zapisane w `docs/software-factory-project.json`. **Tablica i jej pole Status nie zostały jeszcze skonfigurowane przez agenta:** obecna integracja GitHub nie udostępnia narzędzi Projects V2, a próba standardowego odczytu GraphQL przez gh zakończyła się 403 Forbidden. Brak zweryfikowanego adresu projektu i identyfikatorów jego pól/opcji. Nie jest to potwierdzenie działania integracji.
+Nowy proces został przyjęty przez właściciela 5 listopada 2026. Schemat i polityka są zapisane w `docs/software-factory-project.json`. **Tablica i jej pole Status nie zostały jeszcze skonfigurowane przez agenta:** obecna integracja GitHub nie udostępnia narzędzi Projects V2, a próba standardowego odczytu GraphQL przez gh zakończyła się 403 Forbidden. Właściciel wskazał projekt [mszkudelski / 2](https://github.com/users/mszkudelski/projects/2). Adres jest zapisany; nadal brakuje odczytu projektu i zweryfikowanych identyfikatorów jego pól/opcji. Nie wybieraj ani nie twórz innej tablicy. Nie jest to potwierdzenie działania integracji.
 
-Automatyzacja pozostaje włączona zgodnie z dotychczasowym harmonogramem. Do czasu potwierdzenia odczytu/zapisu rzeczywistego pola nie rozpoczyna nowych zadań ani publikacji na podstawie dawnych labelek. Nie udaje zmiany statusu komentarzem, labelką ani lokalnym plikiem. Potrzebne: wskazanie projektu, autoryzowany dostęp Projects do odczytu/zapisu oraz wiarygodna historia zmian statusu zatwierdzenia.
+Automatyzacja pozostaje włączona zgodnie z dotychczasowym harmonogramem. Do czasu potwierdzenia odczytu/zapisu rzeczywistego pola nie rozpoczyna nowych zadań ani publikacji na podstawie dawnych labelek. Nie udaje zmiany statusu komentarzem, labelką ani lokalnym plikiem. Potrzebne: autoryzowany dostęp do wskazanego projektu, jego odczytu/zapisu oraz wiarygodna historia zmian statusu zatwierdzenia.
 
 ## Jedno źródło prawdy
 Pole single-select **Status** w jednym wskazanym projekcie. Otwarcie/zamknięcie issue jest stanem administracyjnym, a nie substytutem etapów. Nie utrzymujemy równoległego workflow labelkami.

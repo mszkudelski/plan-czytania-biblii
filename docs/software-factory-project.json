@@ -5,10 +5,12 @@
   "repository": "mszkudelski/plan-czytania-biblii",
   "owner": "mszkudelski",
   "project": {
-    "url": null,
+    "url": "https://github.com/users/mszkudelski/projects/2",
     "node_id": null,
     "status_field_name": "Status",
-    "status_field_id": null
+    "status_field_id": null,
+    "owner": "mszkudelski",
+    "number": 2
   },
   "statuses": [
     {
