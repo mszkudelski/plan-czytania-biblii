@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "mode": "github_projects_v2_issue_status",
+  "integration_state": "blocked_projects_access",
+  "repository": "mszkudelski/plan-czytania-biblii",
+  "owner": "mszkudelski",
+  "project": {
+    "url": null,
+    "node_id": null,
+    "status_field_name": "Status",
+    "status_field_id": null
+  },
+  "statuses": [
+    {
+      "name": "Backlog",
+      "option_id": null
+    },
+    {
+      "name": "Gotowe do realizacji",
+      "option_id": null
+    },
+    {
+      "name": "W realizacji",
+      "option_id": null
+    },
+    {
+      "name": "Do akceptacji",
+      "option_id": null
+    },
+    {
+      "name": "Zaakceptowane do wydania",
+      "option_id": null
+    },
+    {
+      "name": "W wydaniu",
+      "option_id": null
+    },
+    {
+      "name": "Zakończone",
+      "option_id": null
+    },
+    {
+      "name": "Wymaga decyzji",
+      "option_id": null
+    }
+  ],
+  "approval_status": "Zaakceptowane do wydania",
+  "approval_actor": "mszkudelski",
+  "legacy_labels_control_workflow": false,
+  "temporary_release_branch_for_approved_subset": true,
+  "default_implementation_branch": "develop",
+  "production_branch": "main",
+  "readme": "docs/SOFTWARE_FACTORY_WORK.md"
+}
