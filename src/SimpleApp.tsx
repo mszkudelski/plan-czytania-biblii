@@ -1298,7 +1298,7 @@ function LandingPage({
   );
 }
 
-function Setup({
+export function Setup({
   onCreated,
   onRecovered,
   onJoinInvite,
@@ -1317,24 +1317,62 @@ function Setup({
   const [ownerName, setOwnerName] = useState("");
   const [startDate, setStartDate] = useState(todayIso());
   const [frequencyKind, setFrequencyKind] =
-    useState<FrequencyKind>("weekdays");
+    useState<FrequencyKind>("daily");
   const [customDays, setCustomDays] = useState([1, 2, 3, 4, 5]);
-  const [csvText, setCsvText] = useState("");
-  const [fileName, setFileName] = useState("");
+  const [planSource, setPlanSource] = useState<"preset" | "custom">("preset");
+  const planSourceRef = useRef<"preset" | "custom">("preset");
+  const latestCsvRead = useRef(0);
+  const [customCsvText, setCustomCsvText] = useState("");
+  const [customFileName, setCustomFileName] = useState("");
+  const [csvText, setCsvText] = useState(BASIC_PLAN_CSV);
+  const [fileName, setFileName] = useState("Plan podstawowy · M’Cheyne · 365 dni");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
   const [view, setView] = useState<
     "choices" | "create" | "transfer" | "join" | "recover" | "admin"
   >("choices");
   const rows = useMemo(() => parsePlanCsv(csvText), [csvText]);
+  const frequency = useMemo<Frequency>(() => ({
+    kind: frequencyKind,
+    days: frequencyKind === "daily" ? [0, 1, 2, 3, 4, 5, 6]
+      : frequencyKind === "weekdays" ? [1, 2, 3, 4, 5] : customDays,
+  }), [frequencyKind, customDays]);
+  const previewDays = useMemo(() => {
+    const validDate = (value: string) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(`${value}T12:00:00`);
+      return Number.isFinite(date.getTime()) && date.getFullYear() === Number(value.slice(0, 4)) &&
+        date.getMonth() + 1 === Number(value.slice(5, 7)) && date.getDate() === Number(value.slice(8, 10));
+    };
+    if (!validDate(startDate) || rows.some(row => row.date && !validDate(row.date)) ||
+      (frequencyKind === "custom" && !customDays.length)) return [];
+    try {
+      const days = buildSchedule(rows, startDate, frequency);
+      return days.every(day => Number.isFinite(Date.parse(`${day.date}T12:00:00`))) ? days : [];
+    } catch { return []; }
+  }, [rows, startDate, frequency, frequencyKind, customDays.length]);
+  function chooseSource(source: "preset" | "custom") {
+    planSourceRef.current = source;
+    setPlanSource(source);
+    setCsvText(source === "preset" ? BASIC_PLAN_CSV : customCsvText);
+    setFileName(source === "preset" ? "Plan podstawowy · M’Cheyne · 365 dni" : customFileName);
+    setError("");
+  }
 
   function readFile(file?: File) {
     if (!file) return;
+    const readId = ++latestCsvRead.current;
     const reader = new FileReader();
     reader.onload = () => {
-      setCsvText(String(reader.result ?? ""));
-      setFileName(file.name);
-      setError("");
+      if (readId !== latestCsvRead.current) return;
+      const text = String(reader.result ?? "");
+      setCustomCsvText(text);
+      setCustomFileName(file.name);
+      if (planSourceRef.current === "custom") {
+        setCsvText(text);
+        setFileName(file.name);
+        setError("");
+      }
     };
     reader.readAsText(file);
   }
@@ -1342,20 +1380,12 @@ function Setup({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!cleanPersonName(ownerName)) return setError("Podaj imię.");
-    if (!rows.length) return setError("Dodaj plan CSV.");
+    if (!rows.length) return setError(planSource === "custom" ? "Dodaj plik własnego planu CSV." : "Nie udało się wczytać gotowego planu.");
     if (frequencyKind === "custom" && !customDays.length) {
       return setError("Wybierz dni czytania.");
     }
 
-    const frequency: Frequency = {
-      kind: frequencyKind,
-      days:
-        frequencyKind === "daily"
-          ? [0, 1, 2, 3, 4, 5, 6]
-          : frequencyKind === "weekdays"
-            ? [1, 2, 3, 4, 5]
-            : customDays,
-    };
+    if (!startDate || !previewDays.length) return setError("Sprawdź datę startu i harmonogram.");
 
     setBusy(true);
     setError("");
@@ -1365,7 +1395,7 @@ function Setup({
         ownerName: cleanPersonName(ownerName),
         startDate,
         frequency,
-        planDays: buildSchedule(rows, startDate, frequency),
+        planDays: previewDays,
       });
       onCreated(result.group, result.credentials);
     } catch {
@@ -1431,6 +1461,19 @@ function Setup({
         </button>
         <form onSubmit={submit}>
           {error && <div className="simple-alert">{error}</div>}
+          <fieldset className="plan-source-choice">
+            <legend>Wybierz źródło planu</legend>
+            <div className="simple-segmented">
+              <button type="button" className={planSource === "preset" ? "active" : ""}
+                aria-pressed={planSource === "preset"} onClick={() => chooseSource("preset")}>Gotowy plan</button>
+              <button type="button" className={planSource === "custom" ? "active" : ""}
+                aria-pressed={planSource === "custom"} onClick={() => chooseSource("custom")}>Własny plan</button>
+            </div>
+            <p className="field-help">{planSource === "preset"
+              ? "Gotowy plan M’Cheyne’a: 365 porcji, po 4 fragmenty. Nie potrzebujesz pliku CSV."
+              : "Wgraj CSV z własnym podziałem czytań albo przygotuj go przy pomocy AI."}</p>
+            {planSource === "preset" && <p className="field-help"><a href="https://www.mcheyne.app/" target="_blank" rel="noreferrer">Źródło gotowego planu: M’Cheyne</a></p>}
+          </fieldset>
           <div className="form-row">
             <Field label="Nazwa grupy">
               <input
@@ -1453,7 +1496,8 @@ function Setup({
             </Field>
           </div>
 
-          <Field label="Plan czytania">
+          {planSource === "custom" && <>
+          <Field label="Własny plan czytania">
             <label className="simple-upload">
               <input
                 type="file"
@@ -1469,27 +1513,13 @@ function Setup({
               Wybierz plik z planem czytania. Może to być plik CSV, czyli
               zwykła tabela zapisana np. z Excela lub Arkuszy Google.
             </p>
-            {!rows.length && (
-              <button
-                className="link-button"
-                type="button"
-                onClick={() => {
-                  setCsvText(BASIC_PLAN_CSV);
-                  setFrequencyKind("daily");
-                  setFileName("Plan podstawowy · M’Cheyne · 365 dni");
-                }}
-              >
-                Użyj planu podstawowego · 365 dni
-              </button>
-            )}
-            <p className="field-help">
-              Plan podstawowy M’Cheyne’a: 4 fragmenty dziennie przez 365 dni.
-              Stary Testament raz, Nowy Testament i Psalmy dwa razy.
-              Możesz zacząć w dowolnym dniu. Przy czytaniu codziennym trwa rok;
-              przy rzadszym harmonogramie potrwa dłużej.{" "}
-              <a href="https://www.mcheyne.app/" target="_blank" rel="noreferrer">O planie</a>
-            </p>
+            <p className="field-help">Plik CSV określa porcje czytania; poniżej wybierzesz rytm i datę startu.</p>
           </Field>
+          <details className="csv-format-help">
+            <summary>Jaki format pliku CSV?</summary>
+            <p className="field-help">Zapisz tabelę w UTF-8 z nagłówkami. Jeden wiersz oznacza jedną porcję czytania. Zalecany separator to średnik (;). Kolumna Dzień jest nazwą porcji, a kolejne kolumny zawierają fragmenty. Rytm i datę startu wybierzesz poniżej.</p>
+            <pre>{`Dzień;Stary Testament;Nowy Testament;Psalm\n1;Rdz 1–3;Mt 1;Ps 1\n2;Rdz 4–6;Mt 2;Ps 2`}</pre>
+          </details>
           <section className="csv-ai-help">
             <div className="csv-ai-help-header">
               <div>
@@ -1545,6 +1575,7 @@ Zasady:
               </div>
             </details>
           </section>
+          </>}
 
           <div className="form-row">
             <Field label="Start">
@@ -1595,7 +1626,16 @@ Zasady:
             </div>
           )}
 
-          <button className="main-button" disabled={busy}>
+          <section className="plan-schedule-summary" aria-label="Podsumowanie harmonogramu" aria-live="polite">
+            <strong>Podsumowanie harmonogramu</strong>
+            {previewDays.length > 0 ? <>
+              <p><b>{previewDays.length}</b> {previewDays.length === 1 ? "czytanie" : "czytań"} w planie.</p>
+              <p>Start: <b>{formatPolishDate(previewDays[0].date, "shortYear")}</b></p>
+              <p>Przewidywany koniec: <b>{formatPolishDate(previewDays.at(-1)!.date, "shortYear")}</b></p>
+            </> : <p>{planSource === "custom" && !rows.length ? "Wgraj plik CSV, aby zobaczyć podsumowanie."
+              : "Sprawdź daty w pliku CSV i datę startu oraz wybierz co najmniej jeden dzień czytania."}</p>}
+          </section>
+          <button className="main-button" disabled={busy || !previewDays.length}>
             {busy ? "Tworzenie…" : "Utwórz plan"}
           </button>
         </form>
@@ -2995,3 +3035,4 @@ function formatFrequency(frequency: Frequency) {
     .map((day) => names[day])
     .join(", ");
 }
+

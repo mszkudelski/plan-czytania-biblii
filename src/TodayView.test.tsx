@@ -483,3 +483,4 @@ it("imports legacy completion before deciding whether a startup recovery flag is
   expect(localStorage.getItem(KEY)).toBeNull();
   expect(container.querySelector('.reading-extra')).toBeNull();
 });
+
