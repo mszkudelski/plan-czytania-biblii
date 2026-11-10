@@ -69,3 +69,32 @@ it("validates join choice and persists isolated personal start without inventing
   expect(group.progress[session.credentials.memberId]).toEqual({});
   expect(group.members.find(m => m.id === first.credentials.memberId)?.readingStart?.autoRecoveryAt).toBeTruthy();
 });
+
+it("persists personal cadence for one authenticated member, rejects stale devices and preserves the group", async () => {
+  const session = await fixture(); const base = `/groups/${session.group.id}`;
+  const input = { ...session.credentials, days: [1, 3, 5], expectedVersion: 0, expectedPlanRevision: "", timeZone: "Europe/Warsaw" };
+  expect((await call(base + "/personal-tempo", { ...input, token: "invalid" })).status).toBe(401);
+  expect((await call(base + "/personal-tempo", { ...input, days: [] })).status).toBe(400);
+  expect((await call(base + "/personal-tempo", { ...input, timeZone: "invalid" })).status).toBe(400);
+  const saved = await call(base + "/personal-tempo", input); expect(saved.status).toBe(200);
+  const next = await saved.json() as Group;
+  const tempo = next.members[0].personalTempo!;
+  expect(tempo.version).toBe(1); expect(tempo.changes[0].days).toEqual([1, 3, 5]);
+  expect(next.planDays).toEqual(session.group.planDays); expect(next.progress).toEqual(session.group.progress);
+  expect((await call(base + "/personal-tempo", { ...input, days: [6] })).status).toBe(409);
+  const fetched = await (await call(base)).json() as Group;
+  expect(fetched.members[0].personalTempo).toEqual(tempo);
+  expect((await call(base + "/personal-tempo", { ...input, days: null, expectedVersion: 1 })).status).toBe(200);
+  const cancelled = await (await call(base)).json() as Group;
+  expect(cancelled.members[0].personalTempo?.changes).toHaveLength(0);
+});
+
+it("serializes competing cadence writes and never overwrites the winner", async () => {
+  const session = await fixture(); const path = `/groups/${session.group.id}/personal-tempo`;
+  const input = { ...session.credentials, expectedVersion: 0, expectedPlanRevision: "", timeZone: "UTC" };
+  const responses = await Promise.all([call(path, { ...input, days: [1] }), call(path, { ...input, days: [6] })]);
+  expect(responses.map(r => r.status).sort()).toEqual([200, 409]);
+  const winner = await responses.find(r => r.status === 200)!.json() as Group;
+  const actual = await (await call(`/groups/${session.group.id}`)).json() as Group;
+  expect(actual.members[0].personalTempo).toEqual(winner.members[0].personalTempo);
+});

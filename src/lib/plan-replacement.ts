@@ -104,7 +104,7 @@ export function replaceGroupPlan<T extends Group>(group: T, input: PlanReplaceme
   }));
   const activeIds = new Set(planDays.flatMap(day => day.segments.map(segment => segment.id)));
   return {
-    ...group, members: group.members.map(member => ({ ...member, readingStart: member.readingStart ? {
+    ...group, members: group.members.map(member => ({ ...member, personalTempo: undefined, readingStart: member.readingStart ? {
       ...member.readingStart, skippedSegmentIds: member.readingStart.skippedSegmentIds.filter(id => activeIds.has(id)),
     } : undefined })), previousPlan, planRestore: { savedAt, expiresAt }, planDays, startDate: input.startDate, frequency: input.frequency,
     planTemplate: planTemplate(input.planDays),
@@ -140,7 +140,7 @@ export function restoreGroupPlan<T extends RestorableGroup>(group: T, expectedRe
     }),
   }));
   return {
-    ...group, members: group.members.map(member => ({ ...member, readingStart: saved.readingStarts?.[member.id] ? {
+    ...group, members: group.members.map(member => ({ ...member, personalTempo: undefined, readingStart: saved.readingStarts?.[member.id] ? {
       ...saved.readingStarts[member.id], skippedSegmentIds: saved.readingStarts[member.id]!.skippedSegmentIds.flatMap(id => restoredIds.has(id) ? [restoredIds.get(id)!] : []),
     } : undefined })), planDays, startDate: saved.startDate, frequency: structuredClone(saved.frequency),
     planTemplate: saved.planTemplate ?? "unknown",

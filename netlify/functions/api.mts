@@ -1,3 +1,4 @@
+import { nextTempo } from "../../src/lib/personal-tempo";
 import { createReadingStart, readingStartDate } from "../../src/lib/personal-schedule";
 import { replaceGroupPlan, restoreGroupPlan, planRestoreAvailable, replacementPlanError, type SavedPlan, type PlanReplacementInput } from "../../src/lib/plan-replacement";
 import { DEFAULT_RECOVERY_PROMPT, recoveryPromptPreference, type RecoveryPromptPreference } from "../../src/lib/recovery-prompt";
@@ -843,6 +844,27 @@ async function updateMemberRole(request: Request, groupId: string, memberId: str
   });
 }
 
+async function personalTempo(request: Request, groupId: string) {
+  const value = await request.json() as Record<string, unknown>;
+  const credentials = cleanCredentials(value);
+  if (!credentials || credentials.groupId !== groupId) return error("Nieprawidłowy dostęp.", 401);
+  if (!value || !Number.isSafeInteger(value.expectedVersion) || Number(value.expectedVersion) < 0 ||
+      typeof value.expectedPlanRevision !== "string") return error("Nieprawidłowa wersja.");
+  let today: string;
+  try { today = readingStartDate(value.timeZone); } catch { return error("Nieprawidłowa strefa czasowa."); }
+  const rejected = await changeGroupState(groupStateStore(groupId), async group => {
+    const member = await authenticate(group, credentials);
+    if (!member) return error("Nieprawidłowy dostęp.", 401);
+    const current = await storedGroup(groupId);
+    if (!current) return error("Nie znaleziono grupy.", 404);
+    try { member.personalTempo = nextTempo({ ...group, progress: current.progress, chapterProgress: current.chapterProgress }, member.id,
+      value.days as number[] | null, today, value.expectedVersion as number, value.expectedPlanRevision as string); }
+    catch (cause) { return error((cause as Error).message, /zmienion|zmieniono/.test((cause as Error).message) ? 409 : 400); }
+  });
+  if (rejected) return rejected;
+  return json(publicGroup((await storedGroup(groupId))!));
+}
+
 async function recoveryPrompt(request: Request, groupId: string, resetLegacySnoozes: boolean) {
   const value = await request.json();
   const credentials = cleanCredentials(value);
@@ -959,6 +981,9 @@ export default async (request: Request, context: Context) => {
         scheduled: context.deploy.context === "production" && !e2eRunToken(request),
         missingKeys: missingPushConfiguration(),
       });
+    }
+    if (request.method === "POST" && route.length === 3 && route[0] === "groups" && route[2] === "personal-tempo") {
+      return personalTempo(request, route[1]);
     }
     if (request.method === "POST" && route.length === 3 && route[0] === "groups" && route[2] === "recovery-prompt") {
       return recoveryPrompt(request, route[1], context.deploy.context === "branch-deploy");

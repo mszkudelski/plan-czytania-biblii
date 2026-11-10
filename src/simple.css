@@ -2076,3 +2076,11 @@ body:has(.notification-card) .install-app-card { display: none; }
 .setup-custom-plan textarea { width: 100%; box-sizing: border-box; resize: vertical; }
 .setup-custom-plan pre { overflow-x: auto; }
 .setup-box h1:focus { outline: none; }
+
+.personal-tempo fieldset { border: 0; padding: 0; min-width: 0; }
+.personal-tempo .simple-segmented { flex-wrap: wrap; margin-bottom: 1rem; }
+.personal-tempo .simple-days { margin-bottom: 1rem; }
+.tempo-setting-button { display: flex; justify-content: space-between; gap: 1rem; width: 100%; border: 0; padding: .5rem 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.tempo-preview { max-height: 18rem; overflow: auto; padding-left: 1.5rem; }
+.tempo-preview li { margin: .75rem 0; overflow-wrap: anywhere; }
+.tempo-actions { display: flex; gap: 1rem; margin-top: 1rem; }

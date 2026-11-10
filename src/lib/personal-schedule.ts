@@ -1,3 +1,4 @@
+import { projectPersonalTempo } from "./personal-tempo";
 import type { Group, Member } from "../types";
 import { todayIso } from "./schedule";
 
@@ -32,6 +33,7 @@ export function skippedSegmentIds(group: Group, memberId: string) {
 }
 
 export function personalGroup(group: Group, memberId: string): Group {
+  group = projectPersonalTempo(group, memberId);
   const skipped = skippedSegmentIds(group, memberId);
   if (!group.planDays.some(day => day.segments.some(segment => skipped.has(segment.id)))) return group;
   return { ...group, planDays: group.planDays.map(day => {

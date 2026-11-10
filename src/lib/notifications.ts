@@ -1,3 +1,4 @@
+import { personalGroup } from "./personal-schedule";
 import type { Group } from "../types";
 
 export type ReminderSettings = { enabled: boolean; time: string; timeZone: string };
@@ -72,6 +73,7 @@ function readingReminderPayload(group: Group, dayId: string, labels: string[], t
 
 export function todaysReminder(group: Group, memberId: string, now: Date, timeZone: string) {
   if (!group.members.some(member => member.id === memberId)) return null;
+  group = personalGroup(group, memberId);
   const { date } = localReminderClock(now, timeZone);
   const day = group.planDays.find(day => day.date === date);
   const segments = day?.segments ?? [];
@@ -82,6 +84,7 @@ export function todaysReminder(group: Group, memberId: string, now: Date, timeZo
 
 export function testReminder(group: Group, memberId: string, deviceId: string, now: Date, timeZone: string) {
   if (!group.members.some(member => member.id === memberId)) return null;
+  group = personalGroup(group, memberId);
   const tag = `reading-test-${deviceId}`;
   let payload = todaysReminder(group, memberId, now, timeZone);
   if (!payload) {

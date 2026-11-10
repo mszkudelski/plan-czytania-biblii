@@ -24,6 +24,7 @@ export function formatProgressPercent(percent: number) {
 // Both reading and group views use calendar dates, regardless of cadence.
 // Today's unfinished reading is due today; future work cannot erase past debt.
 export function getReadingBalance(group: Group, memberId: string, today: string) {
+  group = personalGroup(group, memberId);
   const completed = group.progress[memberId] ?? {};
   const days = personalGroup(group, memberId).planDays.filter(day => day.segments.length > 0);
   const complete = (day: PlanDay) => day.segments.every(segment => completed[segment.id]);
@@ -40,7 +41,8 @@ export function getMemberMetrics(
 ): MemberMetrics {
   const completed = group.progress[memberId] ?? {};
   const allSegments = group.planDays.flatMap((day) => day.segments);
-  const expectedDays = personalGroup(group, memberId).planDays.filter((day) => day.date <= today);
+  const projected = personalGroup(group, memberId);
+  const expectedDays = projected.planDays.filter((day) => day.date <= today);
   const expectedSegments = expectedDays.flatMap((day) => day.segments).length;
   const completedSegments = allSegments.filter((segment) => completed[segment.id]).length;
 
@@ -62,7 +64,7 @@ export function getMemberMetrics(
     ),
     paceDays,
     completedDays,
-    streak: calculateStreak(personalGroup(group, memberId).planDays, completed, today),
+    streak: calculateStreak(projected.planDays, projected.progress[memberId] ?? {}, today),
   };
 }
 
@@ -90,6 +92,7 @@ function calculateStreak(
 }
 
 export function getNextDay(group: Group, memberId: string) {
+  group = personalGroup(group, memberId);
   const completed = group.progress[memberId] ?? {};
   return personalGroup(group, memberId).planDays.find((day) =>
     day.segments.some((segment) => !completed[segment.id]),
