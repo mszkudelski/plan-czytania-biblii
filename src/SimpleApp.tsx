@@ -1314,8 +1314,30 @@ export function Setup({
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
 }) {
-  const [groupName, setGroupName] = useState("Plan czytania Biblii");
+  const [groupName, setGroupName] = useState("Plan M’Cheyne’a");
   const [ownerName, setOwnerName] = useState("");
+  const [step, setStep] = useState<1 | 2>(1);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+  const [prompt, setPrompt] = useState(`Przygotuj plan czytania Biblii w formacie CSV.
+
+Mój cel: [np. przeczytać Ewangelię Jana w 30 czytaniach].
+
+Zasady:
+- Użyj kolumn: Dzień;Czytanie 1;Czytanie 2.
+- Jeden wiersz oznacza jedno czytanie; numeruj od 1.
+- Wpisuj konkretne fragmenty, np. J 1:1–18.
+- Zachowaj kolejność tekstu i nie pomijaj fragmentów objętych celem.
+- Rozłóż tekst możliwie równomiernie pod względem długości.
+- Możesz dzielić długie rozdziały na zakresy wersetów.
+- Nie wpisuj dat ani dni tygodnia — ustawię je w aplikacji.
+- Puste kolumny czytań pozostaw puste.
+- Używaj średnika jako separatora.
+- Zwróć tylko CSV: bez komentarzy i bez bloku Markdown.`);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const sourceNames = useRef({ preset: "Plan M’Cheyne’a", custom: "" });
+
   const [startDate, setStartDate] = useState(todayIso());
   const [frequencyKind, setFrequencyKind] =
     useState<FrequencyKind>("daily");
@@ -1326,12 +1348,14 @@ export function Setup({
   const [customCsvText, setCustomCsvText] = useState("");
   const [customFileName, setCustomFileName] = useState("");
   const [csvText, setCsvText] = useState(BASIC_PLAN_CSV);
-  const [fileName, setFileName] = useState("Plan podstawowy · M’Cheyne · 365 dni");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
   const [view, setView] = useState<
     "choices" | "create" | "transfer" | "join" | "recover" | "admin"
   >("choices");
+  useEffect(() => {
+    if (view === "create") headingRef.current?.focus();
+  }, [view, step, planSource]);
   const rows = useMemo(() => parsePlanCsv(csvText), [csvText]);
   const frequency = useMemo<Frequency>(() => ({
     kind: frequencyKind,
@@ -1355,24 +1379,37 @@ export function Setup({
   function chooseSource(source: "preset" | "custom") {
     planSourceRef.current = source;
     setPlanSource(source);
+    setGroupName(sourceNames.current[source]);
     setCsvText(source === "preset" ? BASIC_PLAN_CSV : customCsvText);
-    setFileName(source === "preset" ? "Plan podstawowy · M’Cheyne · 365 dni" : customFileName);
     setError("");
   }
 
   function readFile(file?: File) {
     if (!file) return;
     const readId = ++latestCsvRead.current;
+    setFileLoading(true);
+    setError("");
     const reader = new FileReader();
     reader.onload = () => {
       if (readId !== latestCsvRead.current) return;
+      setFileLoading(false);
       const text = String(reader.result ?? "");
+      if (!sourceNames.current.custom) sourceNames.current.custom = file.name.replace(/\.csv$/i, "");
       setCustomCsvText(text);
       setCustomFileName(file.name);
       if (planSourceRef.current === "custom") {
+        setGroupName(sourceNames.current.custom);
         setCsvText(text);
-        setFileName(file.name);
-        setError("");
+        setError(parsePlanCsv(text).length ? "" : "Plik nie zawiera czytań. Sprawdź format CSV.");
+      }
+    };
+    reader.onerror = () => {
+      if (readId !== latestCsvRead.current) return;
+      setFileLoading(false);
+      setCustomCsvText("");
+      if (planSourceRef.current === "custom") {
+        setCsvText("");
+        setError("Nie udało się odczytać pliku. Wybierz go ponownie.");
       }
     };
     reader.readAsText(file);
@@ -1380,6 +1417,8 @@ export function Setup({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (step !== 2 || (planSource === "custom" && fileLoading)) return;
+    if (!groupName.trim()) return setError("Podaj nazwę planu.");
     if (!cleanPersonName(ownerName)) return setError("Podaj imię.");
     if (!rows.length) return setError(planSource === "custom" ? "Dodaj plik własnego planu CSV." : "Nie udało się wczytać gotowego planu.");
     if (frequencyKind === "custom" && !customDays.length) {
@@ -1445,201 +1484,78 @@ export function Setup({
     );
   }
 
+  async function copyPrompt() {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setCopyStatus("Skopiowano prompt.");
+    } catch {
+      promptRef.current?.focus();
+      promptRef.current?.select();
+      setCopyStatus("Zaznaczono tekst — skopiuj go ręcznie.");
+    }
+  }
+  const scheduleSummary = <section className="plan-schedule-summary" aria-label="Podsumowanie harmonogramu" aria-live="polite">
+    <strong>{groupName || "Twój plan"}</strong>
+    {previewDays.length > 0 ? <>
+      <p>{frequencyKind === "daily" ? "Codziennie" : frequencyKind === "weekdays" ? "Od poniedziałku do piątku" : "Wybrane dni tygodnia"} · Start: <b>{formatPolishDate(previewDays[0].date, "shortYear")}</b></p>
+      <p><b>{previewDays.length}</b> {previewDays.length === 1 ? "czytanie" : "czytań"} · Przewidywany koniec: <b>{formatPolishDate(previewDays.at(-1)!.date, "shortYear")}</b></p>
+    </> : <p>{planSource === "custom" && !rows.length ? "Wgraj plik CSV, aby zobaczyć podsumowanie."
+      : "Sprawdź daty w pliku CSV i datę startu oraz wybierz co najmniej jeden dzień czytania."}</p>}
+  </section>;
   return (
     <main className="setup-page">
       <div className="setup-box">
-        <div className="setup-top">
-          <Brand />
-          <ThemeToggle theme={theme} onChange={onThemeChange} />
-        </div>
-        <h1>Utwórz plan</h1>
-        <button
-          type="button"
-          className="link-button setup-back-link"
-          onClick={() => setView("choices")}
-        >
-          Wróć do wyboru
-        </button>
-        <form onSubmit={submit}>
-          {error && <div className="simple-alert">{error}</div>}
-          <fieldset className="plan-source-choice">
-            <legend>Wybierz źródło planu</legend>
-            <div className="simple-segmented">
-              <button type="button" className={planSource === "preset" ? "active" : ""}
-                aria-pressed={planSource === "preset"} onClick={() => chooseSource("preset")}>Gotowy plan</button>
-              <button type="button" className={planSource === "custom" ? "active" : ""}
-                aria-pressed={planSource === "custom"} onClick={() => chooseSource("custom")}>Własny plan</button>
-            </div>
-            <p className="field-help">{planSource === "preset"
-              ? "Gotowy plan M’Cheyne’a: 365 porcji, po 4 fragmenty. Nie potrzebujesz pliku CSV."
-              : "Wgraj CSV z własnym podziałem czytań albo przygotuj go przy pomocy AI."}</p>
-            {planSource === "preset" && <p className="field-help"><a href="https://www.mcheyne.app/" target="_blank" rel="noreferrer">Źródło gotowego planu: M’Cheyne</a></p>}
-          </fieldset>
-          <div className="form-row">
-            <Field label="Nazwa grupy">
-              <input
-                value={groupName}
-                onChange={(event) => setGroupName(event.target.value)}
-                required
-              />
-            </Field>
-            <Field label="Twoje imię">
-              <input
-                type="text"
-                name="ownerName"
-                autoComplete="name"
-                maxLength={80}
-                placeholder="np. Marek Kowalski"
-                value={ownerName}
-                onChange={(event) => setOwnerName(event.target.value)}
-                required
-              />
-            </Field>
-          </div>
-
-          {planSource === "custom" && <>
-          <Field label="Własny plan czytania">
-            <label className="simple-upload">
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                  readFile(event.target.files?.[0])
-                }
-              />
-              <span>{rows.length ? fileName : "Wybierz plik z planem"}</span>
-              {rows.length > 0 && <b>{rows.length} dni</b>}
-            </label>
-            <p className="field-help">
-              Wybierz plik z planem czytania. Może to być plik CSV, czyli
-              zwykła tabela zapisana np. z Excela lub Arkuszy Google.
-            </p>
-            <p className="field-help">Plik CSV określa porcje czytania; poniżej wybierzesz rytm i datę startu.</p>
-          </Field>
-          <details className="csv-format-help">
-            <summary>Jaki format pliku CSV?</summary>
-            <p className="field-help">Zapisz tabelę w UTF-8 z nagłówkami. Jeden wiersz oznacza jedną porcję czytania. Zalecany separator to średnik (;). Kolumna Dzień jest nazwą porcji, a kolejne kolumny zawierają fragmenty. Rytm i datę startu wybierzesz poniżej.</p>
-            <pre>{`Dzień;Stary Testament;Nowy Testament;Psalm\n1;Rdz 1–3;Mt 1;Ps 1\n2;Rdz 4–6;Mt 2;Ps 2`}</pre>
+        <div className="setup-top"><Brand /><ThemeToggle theme={theme} onChange={onThemeChange} /></div>
+        <button type="button" className="link-button setup-back-link" disabled={busy} onClick={() => {
+          setError("");
+          if (step === 2) setStep(1);
+          else if (planSource === "custom") chooseSource("preset");
+          else setView("choices");
+        }}>Wróć</button>
+        <p className="field-help">Krok {step} z 2{step === 1 && planSource === "custom" ? " · Własny plan" : ""}</p>
+        <h1 ref={headingRef} tabIndex={-1}>{step === 2 ? "Zacznij czytać" : planSource === "custom" ? "Dodaj swój plan" : "Od czego chcesz zacząć?"}</h1>
+        {error && <div className="simple-alert" role="alert">{error}</div>}
+        {step === 1 ? planSource === "preset" ? <div className="setup-plan-choice">
+          <p>Wybierz gotowy plan lub dodaj własny.</p>
+          <section className="plan-schedule-summary" aria-label="Plan M’Cheyne’a">
+            <h2>Plan M’Cheyne’a</h2>
+            <p>365 czytań · po 4 fragmenty</p>
+            <p>Stary Testament raz, Nowy Testament i Psalmy dwa razy.</p>
+            <p>Rdz 1 · Mt 1 · Ezd 1 · Dz 1</p>
+            <p className="field-help"><a href="https://www.mcheyne.app/" target="_blank" rel="noreferrer">Źródło planu</a></p>
+            <button type="button" className="main-button" onClick={() => setStep(2)}>Wybierz plan</button>
+          </section>
+          <button type="button" className="link-button" onClick={() => chooseSource("custom")}>Mam własny plan →</button>
+        </div> : <div className="setup-custom-plan">
+          <Field label="Plik z planem"><input type="file" accept=".csv,text/csv" onChange={(event: ChangeEvent<HTMLInputElement>) => readFile(event.target.files?.[0])} /></Field>
+          {customFileName && <p className="field-help">{customFileName}{fileLoading ? " · Odczytywanie…" : ` · ${rows.length} czytań`}</p>}
+          <details className="csv-format-help"><summary>Jak przygotować plan?</summary>
+            <p>Zapisz tabelę z Excela lub Arkuszy Google jako CSV UTF-8 z nagłówkami. Jeden wiersz to jedno czytanie. Użyj średnika (;) jako separatora. Datę startu i rytm ustawisz w kolejnym kroku.</p>
+            <pre>{`Dzień;Czytanie 1;Czytanie 2\n1;Rdz 1–3;Mt 1\n2;Rdz 4–6;Mt 2`}</pre>
+            <h2>Przygotuj plan z pomocą AI</h2>
+            <Field label="Prompt do przygotowania planu"><textarea ref={promptRef} rows={14} value={prompt} onChange={event => { setPrompt(event.target.value); setCopyStatus(""); }} /></Field>
+            <button type="button" className="small-button" onClick={() => void copyPrompt()}>Kopiuj prompt</button>
+            <p role="status">{copyStatus}</p>
           </details>
-          <section className="csv-ai-help">
-            <div className="csv-ai-help-header">
-              <div>
-                <strong>Nie masz jeszcze planu?</strong>
-                <p>Poproś AI o przygotowanie tabeli do wgrania do aplikacji.</p>
-              </div>
-            </div>
-            <details>
-              <summary>Zobacz przykładowy prompt</summary>
-              <div className="csv-prompt-box">
-                <pre>{`Przygotuj dla mnie plan czytania Biblii w formacie CSV.
-
-Chcę czytać:
-- [np. całą Biblię w rok / Ewangelię Jana w 30 dni]
-- [np. 5 dni w tygodniu]
-- po kilka fragmentów dziennie
-
-Użyj dokładnie tych kolumn:
-Dzień;Stary Testament;Nowy Testament;Psalm
-
-Zasady:
-- jeden wiersz = jeden dzień czytania,
-- wpisuj konkretne fragmenty, np. Rdz 1–3, Mt 1, Ps 1,
-- nie dodawaj pustych wierszy,
-- używaj średnika (;) jako separatora,
-- odpowiedź zwróć wyłącznie jako CSV, bez komentarza, bez nagłówka Markdown i bez bloku kodu.`}</pre>
-                <button
-                  type="button"
-                  className="small-button"
-                  onClick={() =>
-                    void copyText(
-                      `Przygotuj dla mnie plan czytania Biblii w formacie CSV.
-
-Chcę czytać:
-- [np. całą Biblię w rok / Ewangelię Jana w 30 dni]
-- [np. 5 dni w tygodniu]
-- po kilka fragmentów dziennie
-
-Użyj dokładnie tych kolumn:
-Dzień;Stary Testament;Nowy Testament;Psalm
-
-Zasady:
-- jeden wiersz = jeden dzień czytania,
-- wpisuj konkretne fragmenty, np. Rdz 1–3, Mt 1, Ps 1,
-- nie dodawaj pustych wierszy,
-- używaj średnika (;) jako separatora,
-- odpowiedź zwróć wyłącznie jako CSV, bez komentarza, bez nagłówka Markdown i bez bloku kodu.`,
-                    )
-                  }
-                >
-                  Kopiuj prompt
-                </button>
-              </div>
-            </details>
-          </section>
-          </>}
-
-          <div className="form-row">
-            <Field label="Start">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
-              />
-            </Field>
-            <Field label="Częstotliwość">
-              <div className="simple-segmented">
-                {[
-                  ["daily", "Codziennie"],
-                  ["weekdays", "Pon.–pt."],
-                  ["custom", "Własna"],
-                ].map(([value, label]) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={frequencyKind === value ? "active" : ""}
-                    onClick={() => setFrequencyKind(value as FrequencyKind)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </Field>
-          </div>
-
-          {frequencyKind === "custom" && (
-            <div className="simple-days">
-              {["N", "Pn", "Wt", "Śr", "Cz", "Pt", "So"].map((label, day) => (
-                <button
-                  type="button"
-                  key={label}
-                  className={customDays.includes(day) ? "active" : ""}
-                  onClick={() =>
-                    setCustomDays((current) =>
-                      current.includes(day)
-                        ? current.filter((item) => item !== day)
-                        : [...current, day],
-                    )
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <section className="plan-schedule-summary" aria-label="Podsumowanie harmonogramu" aria-live="polite">
-            <strong>Podsumowanie harmonogramu</strong>
-            {previewDays.length > 0 ? <>
-              <p><b>{previewDays.length}</b> {previewDays.length === 1 ? "czytanie" : "czytań"} w planie.</p>
-              <p>Start: <b>{formatPolishDate(previewDays[0].date, "shortYear")}</b></p>
-              <p>Przewidywany koniec: <b>{formatPolishDate(previewDays.at(-1)!.date, "shortYear")}</b></p>
-            </> : <p>{planSource === "custom" && !rows.length ? "Wgraj plik CSV, aby zobaczyć podsumowanie."
-              : "Sprawdź daty w pliku CSV i datę startu oraz wybierz co najmniej jeden dzień czytania."}</p>}
-          </section>
-          <button className="main-button" disabled={busy || !previewDays.length}>
-            {busy ? "Tworzenie…" : "Utwórz plan"}
-          </button>
-        </form>
+          {rows.length > 0 && !previewDays.length && scheduleSummary}
+          <button type="button" className="main-button" disabled={!rows.length || fileLoading || !previewDays.length} onClick={() => { setError(""); setStep(2); }}>Dalej</button>
+        </div> : <form onSubmit={submit}>
+          <p>Twój plan jest gotowy. Jak masz na imię?</p>
+          <Field label="Twoje imię"><input type="text" name="ownerName" autoComplete="name" maxLength={80} placeholder="np. Marek" value={ownerName} onChange={event => setOwnerName(event.target.value)} required disabled={busy} /></Field>
+          {scheduleSummary}
+          <details className="setup-customize"><summary>Dostosuj plan</summary>
+            <fieldset disabled={busy}>
+              <Field label="Nazwa planu"><input value={groupName} required onChange={event => { setGroupName(event.target.value); sourceNames.current[planSource] = event.target.value; }} /></Field>
+              <Field label="Start"><input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} /></Field>
+              <fieldset className="plan-source-choice"><legend>Dni czytania</legend>
+                <div className="simple-segmented">{[["daily", "Codziennie"], ["weekdays", "Od poniedziałku do piątku"], ["custom", "Wybierz dni"]].map(([value, label]) => <button type="button" key={value} aria-pressed={frequencyKind === value} className={frequencyKind === value ? "active" : ""} onClick={() => setFrequencyKind(value as FrequencyKind)}>{label}</button>)}</div>
+              </fieldset>
+              {frequencyKind === "custom" && <div className="simple-days">{["N", "Pn", "Wt", "Śr", "Cz", "Pt", "So"].map((label, day) => <button type="button" key={label} aria-pressed={customDays.includes(day)} className={customDays.includes(day) ? "active" : ""} onClick={() => setCustomDays(current => current.includes(day) ? current.filter(item => item !== day) : [...current, day])}>{label}</button>)}</div>}
+              {frequencyKind === "custom" && !customDays.length && <p role="alert">Wybierz dni czytania.</p>}
+            </fieldset>
+          </details>
+          <button className="main-button" disabled={busy || !previewDays.length || (planSource === "custom" && fileLoading)}>{busy ? "Tworzenie…" : "Utwórz plan"}</button>
+        </form>}
       </div>
     </main>
   );
