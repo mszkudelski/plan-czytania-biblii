@@ -832,6 +832,10 @@ button {
 .reading-home .page-title h1 { overflow-wrap: anywhere; }
 .reading-balance { margin: 0 0 24px; color: var(--muted); font-size: 0.82rem; }
 .reading-focus { min-width: 0; }
+.reading-view-choice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; font-size: .85rem; }
+.reading-view-choice small { display: block; color: var(--muted); font-size: .75rem; }
+.reading-view-choice select { min-width: 0; max-width: 60%; min-height: 44px; padding: 8px; border: 1px solid var(--border); border-radius: 9px; color: var(--ink); background: var(--field); font: inherit; }
+.reading-view-choice select:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 .reading-footer { display: flex; align-items: center; min-height: 40px; color: var(--muted); font-size: 0.76rem; }
 .reading-finished { display: inline-flex; align-items: center; gap: 6px; color: var(--green); }
 .reading-week { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; }

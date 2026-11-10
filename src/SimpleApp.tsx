@@ -1,3 +1,4 @@
+import { readingChapters } from "./lib/reading-parts";
 import { groupStartDay, initialRecoveryStart, skippedSegmentIds, type ReadingStartChoice } from "./lib/personal-schedule";
 import PlanReplacement from "./PlanReplacement";
 import { trackPlanOpened, trackSavedReading } from "./lib/analytics";
@@ -9,7 +10,7 @@ import GroupAccessHint from "./GroupAccessHint";
 import { devicePromptAllowed, INSTALL_KEY, parseDevicePreference, postponeDevicePrompt, SETUP_KEY, startOnboarding } from "./lib/onboarding";
 import RecoveryPrompt from "./RecoveryPrompt";
 import { canStartRecovery } from "./lib/recovery-prompt";
-import { isReadingDateComplete, getStandardReadingPortion, parseRecoverySchedule, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, parseRecoveryPortion, type RecoveryPortion, getRecoveryNavigationDays } from "./lib/recovery";
+import { isReadingDateComplete, getStandardReadingPortion, parseRecoverySchedule, getRecoveryDay, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, parseRecoveryPortion, type RecoveryPortion, getRecoveryNavigationDays } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1936,6 +1937,18 @@ export function TodayView({
     group, member.id, today, localStorage.getItem(normalPortionKey) ?? "",
   )?.id ?? "");
   const progress = group.progress[member.id] ?? {};
+  const readingViewKey = `reading-view:${group.id}:${member.id}`;
+  const [readingView, setReadingView] = useState(() => ({ key: readingViewKey,
+    split: localStorage.getItem(readingViewKey) === "chapters" }));
+  useEffect(() => {
+    setReadingView({ key: readingViewKey, split: localStorage.getItem(readingViewKey) === "chapters" });
+  }, [readingViewKey]);
+  const preferChapters = readingView.key === readingViewKey && readingView.split;
+  function changeReadingView(split: boolean) {
+    setReadingView({ key: readingViewKey, split });
+    try { localStorage.setItem(readingViewKey, split ? "chapters" : "fragments"); }
+    catch { onError("Nie udało się zapamiętać widoku na tym urządzeniu. Bieżący wybór nadal działa."); }
+  }
   const [notificationDay, setNotificationDay] = useState(() => reminderReadingDay(group, window.location.search));
   const initialIndex = dailyDayId
     ? group.planDays.findIndex((day) => day.id === dailyDayId)
@@ -2001,7 +2014,7 @@ export function TodayView({
     const confirmed = parseReadChapters(localStorage.getItem(`${recoveryKey}:confirmed-segments`));
     const writes = group.planDays.flatMap(day => day.segments).flatMap(segment => {
       if (confirmed[segment.id] || group.progress[member.id]?.[segment.id]) return [];
-      const indices = splitReadingChapters(segment.label).map((_, index) => index)
+      const indices = readingChapters(segment).map((_, index) => index)
         .filter(index => index < (legacyCounts[segment.id] ?? 0) || legacyMarks[segment.id]?.includes(index));
       return indices.length ? [onToggle(segment.id, true, false, indices, true)] : [];
     });
@@ -2113,6 +2126,7 @@ export function TodayView({
     if (!hadRecoverySession.current && !notificationDay && !planReading) setSelectedIndex(resumedIndex);
   }, [dailyKey, group.planDays, portionKey, progress, promptReady, recoveryKey, recoveryStart, week.overdueReadings, savingProgress, notificationDay, scheduleKey, currentDailyComplete, finalReadingId, recoveryDayKey, planReading, chaptersReady]);
   const useRecoveryView = Boolean((recoveryActive || finishedRecoveryView) && !notificationDay && !planReading);
+  const splitChapters = useRecoveryView || preferChapters;
   // Checking a row changes progress, not the navigation or the selected date.
   // Rebuild this snapshot only when entering/leaving recovery or its schedule changes.
   const navigationDays = useMemo(() => useRecoveryView
@@ -2152,6 +2166,14 @@ export function TodayView({
   }
   const displayedProgress = { ...progress };
   const selectedPortion = isRecoveryPortion ? currentPortion : isForecast ? browsedPortion : !useRecoveryView ? normalPortion : undefined;
+  const displayedChapters = Object.fromEntries((displayedDay?.segments ?? []).map(segment => {
+    const original = group.planDays.flatMap(day => day.segments).find(item => item.id === segment.id) ?? segment;
+    const labels = readingChapters(original);
+    const indices = selectedPortion?.chapterIndices[segment.id] ?? labels.map((_, index) => index);
+    return [segment.id, indices.map(index => ({ label: labels[index], index,
+      completed: Boolean(progress[segment.id]) || isRecoveryChapterRead(readChapters, chapterMarks, segment.id, index),
+    }))];
+  }));
   if (selectedPortion) {
     for (const segment of selectedPortion.day.segments) {
       const indices = selectedPortion.chapterIndices[segment.id];
@@ -2218,7 +2240,7 @@ export function TodayView({
       else await save();
     } finally { if (activeView.current) setRecoveryBusy(false); }
   }
-  async function toggleDisplayedSegment(segmentId: string) {
+  async function toggleDisplayedSegment(segmentId: string, chapterIndex?: number) {
     if (finalWrite.current) return;
     const original = group.planDays.flatMap(day => day.segments).find(segment => segment.id === segmentId);
     if (!original) return;
@@ -2226,20 +2248,23 @@ export function TodayView({
       localStorage.setItem(portionKey, JSON.stringify(currentPortion));
       setDailyPortion(currentPortion);
     }
-    const allIndices = splitReadingChapters(original.label).map((_, index) => index);
-    const indices = selectedPortion?.chapterIndices[segmentId] ?? allIndices;
-    const completed = !Boolean(displayedProgress[segmentId]);
-    const finishesDay = completed && Boolean(displayedDay?.segments.every(segment =>
+    const allIndices = readingChapters(original).map((_, index) => index);
+    const indices = chapterIndex === undefined ? selectedPortion?.chapterIndices[segmentId] ?? allIndices : [chapterIndex];
+    const completed = chapterIndex === undefined ? !Boolean(displayedProgress[segmentId])
+      : !(progress[segmentId] || isRecoveryChapterRead(readChapters, chapterMarks, segmentId, chapterIndex));
+    const finishesSegment = (selectedPortion?.chapterIndices[segmentId] ?? allIndices).every(index =>
+      indices.includes(index) || progress[segmentId] || isRecoveryChapterRead(readChapters, chapterMarks, segmentId, index));
+    const finishesDay = completed && finishesSegment && Boolean(displayedDay?.segments.every(segment =>
       segment.id === segmentId || displayedProgress[segment.id])) && (!displayedExtra || extraComplete);
     const save = async () => {
-      if (!isRecoveryPortion && !isForecast && !readChapters[segmentId] && !chapterMarks[segmentId]?.length) {
+      if (indices.length === allIndices.length && !isRecoveryPortion && !isForecast && !readChapters[segmentId] && !chapterMarks[segmentId]?.length) {
         try { await onToggle(segmentId, completed, !finishesDay); }
         catch { onError("Nie udało się zapisać zmiany. Spróbuj ponownie."); }
       } else {
         await toggleChapterSelection(segmentId, indices.length ? indices : allIndices, completed, false, !finishesDay || indices.length < allIndices.length);
       }
     };
-    if (finishesDay) await saveFinalReading(segmentId, save);
+    if (finishesDay) await saveFinalReading(chapterIndex === undefined ? segmentId : `${segmentId}:${chapterIndex}`, save);
     else await save();
   }
   function changeRecovery(start: string) {
@@ -2276,9 +2301,10 @@ export function TodayView({
     : [];
   const showReading = Boolean(displayedDay);
   const portionCompleted = baseComplete && (!displayedExtra || extraComplete);
-  const completedCount = displayedDay?.segments.filter(segment => displayedProgress[segment.id]).length ?? 0;
-  const portionTotal = (displayedDay?.segments.length ?? 0) + (displayedExtra ? 1 : 0);
-  const portionDone = completedCount + (extraComplete ? 1 : 0);
+  const visibleChapters = Object.values(displayedChapters).flat();
+  const portionTotal = (splitChapters ? visibleChapters.length : displayedDay?.segments.length ?? 0) + (displayedExtra ? 1 : 0);
+  const portionDone = (splitChapters ? visibleChapters.filter(chapter => chapter.completed).length
+    : displayedDay?.segments.filter(segment => displayedProgress[segment.id]).length ?? 0) + (extraComplete ? 1 : 0);
   const nextUnread = group.planDays.findIndex(day => day.id === getNextDay(group, member.id)?.id);
   const returnIndex = useRecoveryView
     ? navigationDays.findIndex(day => day.id === currentPortion?.day.id)
@@ -2348,7 +2374,16 @@ export function TodayView({
           <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate, "shortYear")}.</p></div></section>
       ) : null}
       {showReading && displayedDay && <section className="reading-focus" aria-label="Wybrane czytanie" tabIndex={-1}>
+        {!useRecoveryView && <label className="reading-view-choice">
+          <span>Widok czytania <small>na tym urządzeniu</small></span>
+          <select aria-label="Widok czytania" value={preferChapters ? "chapters" : "fragments"}
+            disabled={Boolean(finalReadingId)} onChange={event => changeReadingView(event.target.value === "chapters")}>
+            <option value="fragments">Całe fragmenty</option>
+            <option value="chapters">Osobne rozdziały</option>
+          </select>
+        </label>}
         <DayCard day={displayedDay} progress={displayedProgress} onToggle={toggleDisplayedSegment} restDay={home.restDay}
+          chapters={displayedChapters} splitChapters={splitChapters}
           pendingReading={finalReadingId} disabled={Boolean(finalReadingId)}
           header={<header className="reading-card-head">
             <time dateTime={displayedDay.date}>{new Intl.DateTimeFormat("pl-PL", { weekday: "short", day: "numeric", month: "long" }).format(new Date(`${displayedDay.date}T12:00:00`))}</time>
@@ -2742,6 +2777,8 @@ export function DayCard({
   restDay = false,
   pendingReading = "",
   disabled = false,
+  chapters,
+  splitChapters = false,
 }: {
   header?: ReactNode;
   restDay?: boolean;
@@ -2749,7 +2786,9 @@ export function DayCard({
   disabled?: boolean;
   day: PlanDay;
   progress: Record<string, string>;
-  onToggle: (segmentId: string) => Promise<void>;
+  onToggle: (segmentId: string, chapterIndex?: number) => Promise<void>;
+  chapters?: Record<string, { label: string; index: number; completed: boolean }[]>;
+  splitChapters?: boolean;
   extraReading?: {
     reading: RecoveryReading;
     completed: boolean;
@@ -2764,17 +2803,23 @@ export function DayCard({
         Dziś dzień wolny w planie. Możesz czytać dalej we własnym tempie.
       </p>}
       <div className="simple-readings">
-        {day.segments.map((segment) => (
+        {day.segments.flatMap((segment) => splitChapters ? (chapters?.[segment.id] ?? readingChapters(segment).map((label, index) => ({
+          label, index, completed: Boolean(progress[segment.id]),
+        }))).map(chapter => (
           <ReadingRow
-            key={segment.id}
-            label={segment.label}
+            key={`${segment.id}:${chapter.index}`}
+            label={chapter.label}
             section={segment.section}
-            completed={Boolean(progress[segment.id])}
+            completed={chapter.completed}
             disabled={disabled}
-            pending={pendingReading === segment.id}
-            onToggle={() => onToggle(segment.id)}
+            pending={pendingReading === segment.id || pendingReading === `${segment.id}:${chapter.index}`}
+            onToggle={() => onToggle(segment.id, chapter.index)}
           />
-        ))}
+        )) : [<ReadingRow key={segment.id} label={segment.label} section={segment.section}
+          completed={Boolean(progress[segment.id])} disabled={disabled} pending={pendingReading === segment.id}
+          detail={chapters?.[segment.id]?.some(chapter => chapter.completed) && !progress[segment.id]
+            ? `Przeczytano ${chapters[segment.id].filter(chapter => chapter.completed).length} z ${chapters[segment.id].length} części` : undefined}
+          onToggle={() => onToggle(segment.id)} />])}
         {extraReading && (
           <ReadingRow
             label={extraReading.reading.label}
@@ -2799,6 +2844,7 @@ function ReadingRow({
   onToggle,
   isExtra = false,
   pending = false,
+  detail,
 }: {
   label: string;
   section: string;
@@ -2807,6 +2853,7 @@ function ReadingRow({
   onToggle: () => Promise<void>;
   isExtra?: boolean;
   pending?: boolean;
+  detail?: string;
 }) {
   return (
     <button
@@ -2829,6 +2876,7 @@ function ReadingRow({
           <Icon name="plus" size={12} />{section} · 1 rozdział
         </span></small>}
         <strong>{label}</strong>
+        {detail && <small>{detail}</small>}
       </span>
     </button>
   );

@@ -1,5 +1,6 @@
 import type { Frequency, Group, Member, PlanDay, PlanSegment } from "../types";
 import { planTemplate } from "./plan-template";
+import { readingChapters } from "./reading-parts";
 
 export type PlanReplacementInput = {
   planDays: PlanDay[];
@@ -95,7 +96,10 @@ export function replaceGroupPlan<T extends Group>(group: T, input: PlanReplaceme
       const match = matches[index++];
       const id = match.previous?.id ?? `plan-${revision}-segment-${index}`;
       if (!match.previous) progressSegmentIds.push(id);
-      return { ...segment, id };
+      // Reusing an ID also reuses immutable progress logs with the old indices.
+      const referenceVersion = match.previous ? match.previous.referenceVersion : segment.referenceVersion;
+      const changesIndices = match.previous && readingChapters({ ...segment, referenceVersion }).length !== readingChapters(match.previous).length;
+      return { ...segment, id, referenceVersion, label: changesIndices ? match.previous!.label : segment.label };
     }),
   }));
   const activeIds = new Set(planDays.flatMap(day => day.segments.map(segment => segment.id)));
