@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
-  "mode": "github_projects_v2_issue_status",
-  "integration_state": "blocked_projects_access",
+  "schema_version": 2,
+  "mode": "github_issue_labels",
+  "integration_state": "issue_labels_enabled",
   "repository": "mszkudelski/plan-czytania-biblii",
   "owner": "mszkudelski",
   "project": {
@@ -10,7 +10,8 @@
     "status_field_name": "Status",
     "status_field_id": null,
     "owner": "mszkudelski",
-    "number": 2
+    "number": 2,
+    "active": false
   },
   "statuses": [
     {
@@ -46,11 +47,22 @@
       "option_id": null
     }
   ],
-  "approval_status": "Zaakceptowane do wydania",
   "approval_actor": "mszkudelski",
-  "legacy_labels_control_workflow": false,
+  "legacy_labels_control_workflow": true,
   "temporary_release_branch_for_approved_subset": true,
   "default_implementation_branch": "develop",
   "production_branch": "main",
-  "readme": "docs/SOFTWARE_FACTORY_WORK.md"
+  "readme": "docs/SOFTWARE_FACTORY_WORK.md",
+  "approval_label": "factory:deploy-approved",
+  "approval_scope": "issue",
+  "implementation_approval_label": "factory:ready",
+  "stage_labels": [
+    "factory:working",
+    "factory:review",
+    "factory:releasing",
+    "factory:done",
+    "factory:blocked"
+  ],
+  "projects_access_required": false,
+  "approval_requires_owner_event_after_proposal": true
 }

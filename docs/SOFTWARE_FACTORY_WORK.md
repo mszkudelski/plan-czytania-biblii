@@ -1,32 +1,28 @@
-# Software Factory — proces sterowany statusem issue
+# Software Factory — proces sterowany etykietami issue
 
-Właściciel zarządza pracą wyłącznie na issues w GitHub Projects. PR-y, review, gałęzie wydaniowe i merge obsługuje automat.
-
-## Stan wdrożenia integracji
-Nowy proces został przyjęty przez właściciela 5 listopada 2026. Schemat i polityka są zapisane w `docs/software-factory-project.json`. **Tablica i jej pole Status nie zostały jeszcze skonfigurowane przez agenta:** obecna integracja GitHub nie udostępnia narzędzi Projects V2, a próba standardowego odczytu GraphQL przez gh zakończyła się 403 Forbidden. Właściciel wskazał projekt [mszkudelski / 2](https://github.com/users/mszkudelski/projects/2). Adres jest zapisany; nadal brakuje odczytu projektu i zweryfikowanych identyfikatorów jego pól/opcji. Nie wybieraj ani nie twórz innej tablicy. Nie jest to potwierdzenie działania integracji.
-
-Automatyzacja pozostaje włączona zgodnie z dotychczasowym harmonogramem. Do czasu potwierdzenia odczytu/zapisu rzeczywistego pola nie rozpoczyna nowych zadań ani publikacji na podstawie dawnych labelek. Nie udaje zmiany statusu komentarzem, labelką ani lokalnym plikiem. Potrzebne: autoryzowany dostęp do wskazanego projektu, jego odczytu/zapisu oraz wiarygodna historia zmian statusu zatwierdzenia.
+Właściciel zarządza zadaniami i zgodą wyłącznie na issues. PR-y, review, gałęzie wydaniowe i merge obsługuje automat. Ta dyspozycja z 10 listopada 2026 zastępuje proces GitHub Projects V2. Bramka blocked_projects_access nie obowiązuje w trybie etykiet; nie wymaga to dostępu do Projects ani rozszerzania uprawnień.
 
 ## Jedno źródło prawdy
-Pole single-select **Status** w jednym wskazanym projekcie. Otwarcie/zamknięcie issue jest stanem administracyjnym, a nie substytutem etapów. Nie utrzymujemy równoległego workflow labelkami.
+Etykiety factory:* na issue (nie na PR). Brak factory:ready oznacza backlog. Otwarcie/zamknięcie issue jest stanem administracyjnym.
 
-| Status | Kto ustawia | Znaczenie |
+| Etykieta | Kto ustawia | Znaczenie |
 |---|---|---|
-| Backlog | Właściciel / początkowy import | Nie rozpoczynaj pracy. |
-| Gotowe do realizacji | Właściciel | Zgoda na implementację opisanego zadania. Nie jest jeszcze zgodą na publikację nieobejrzanego rezultatu. |
-| W realizacji | Automat | Implementacja, testy i naprawy na develop. |
-| Do akceptacji | Automat | Na issue jest konkretna propozycja: opis zmian, screenshoty, testy, SHA i zakres. Właściciel ocenia wynik. |
-| Zaakceptowane do wydania | Wyłącznie właściciel mszkudelski | Zgoda na merge i deployment przedstawionego zakresu; bez osobnej akceptacji PR i bez labelki zgody. |
-| W wydaniu | Automat | Izolowanie zakresu, CI i Codex Review PR, merge, deployment, kontrole produkcji, E2E i cleanup. |
-| Zakończone | Automat | Zweryfikowano deployment i wymagane testy produkcyjne, zamknięto issue. |
-| Wymaga decyzji | Automat | Potrzebna konkretna decyzja, zależność lub dostęp. Naprawialne błędy kodu/testów automat naprawia sam. |
+| factory:ready | Właściciel mszkudelski | Zgoda na implementację zakresu issue, jeszcze bez zgody na publikację wyniku. |
+| factory:working | Automat | Implementacja, testy i naprawy. |
+| factory:review | Automat | Konkretna propozycja czeka na ocenę właściciela. |
+| factory:deploy-approved | Wyłącznie właściciel mszkudelski | Zgoda na merge i deployment aktualnej propozycji; bez osobnej akceptacji PR. |
+| factory:releasing | Automat | CI, Codex Review PR, merge, deployment i kontrole produkcji. |
+| factory:done | Automat | Deployment, wymagane testy i cleanup zweryfikowane; zamknij issue. |
+| factory:blocked | Automat | Potrzebna konkretna decyzja, zależność lub dostęp. Naprawialne błędy kodu/testów napraw sam. |
 
-Poprawki z oceny właściciela wracają do W realizacji. Istotna zmiana rezultatu po akceptacji wraca do Do akceptacji. Drobna techniczna naprawa review/CI w zaakceptowanym zakresie nie wymaga ponownej akceptacji tego samego zachowania; jej pochodzenie i granice muszą być udokumentowane.
+Automat utrzymuje jeden bieżący etap spośród working/review/releasing/done/blocked, nie usuwa innych etykiet repozytorium. factory:ready i factory:deploy-approved są dowodami zgody, a nie etapami; zachowuj ich audyt. Gotowe zadania podejmuj kolejno według priorytetu i wieku, bez limitu jednego issue. Przed działaniem sprawdź brak duplikatu, zależności i aktualny stan repozytorium. Jeden zapis/merge naraz; po każdej mutacji odśwież SHA, CI, review i etykiety. Oczekiwanie na niezależną kontrolę nie blokuje innych bezpiecznych prac.
 
 ## Propozycja i dowód akceptacji
-Przed Do akceptacji agent zapisuje komentarz z markerem `<!-- factory-proposal -->`: issue, cel, kryteria, rzeczywiste zmiany dla użytkownika, commit bazowy i commity implementacji, pliki, wyniki CI/lokalnych testów, screenshoty i ograniczenia. Propozycja ma jednoznaczny identyfikator/wersję.
+Przed factory:review opublikuj na issue komentarz z markerem `<!-- factory-proposal -->`: jednoznaczny identyfikator/wersja, cel, kryteria, rzeczywiste zmiany dla użytkownika, commit bazowy i implementacji, pliki, wyniki CI/lokalnych testów, screenshoty i ograniczenia.
 
-Agent nigdy sam nie ustawia Zaakceptowane do wydania. Przed merge odczytuje świeży status i wiarygodny dowód, że właściciel zmienił właściwe pole właściwego elementu projektu na ten status po opublikowaniu aktualnej propozycji. Sam aktualny tekst pola, autor issue, jego creator lub dowolne zdarzenie projektu nie dowodzą akceptacji. Nie wolno przypisywać autorstwa na podstawie domysłu. Gdy dostępna historia/audyt zdarzenia nie pozwala jednoznacznie połączyć projektu, issue, pola, wartości, autora i czasu, publikacja wymaga uzupełnienia integracji; nie zastępuj jej dawną labelką PR.
+Przed implementacją zweryfikuj w timeline/events issue nadanie factory:ready przez mszkudelski (albo jego utworzenie issue z tą etykietą). Przed wydaniem wymagaj świeżego odczytu etykiet oraz zdarzenia labeled dla factory:deploy-approved przez mszkudelski po aktualnej propozycji. Zdarzenie musi dotyczyć właściwego issue i istniejącej, nieodwołanej zgody. Sam aktualny zestaw etykiet, autor issue czy komentarz agenta nie dowodzą akceptacji. Automat nigdy sam nie nadaje etykiet zgody. Nie traktuj starych factory:merge-approved na PR jako zgody w nowym procesie.
+
+Poprawki właściciela wracają do factory:working. Istotna zmiana wyniku po akceptacji wymaga nowej propozycji factory:review i ponownego nadania factory:deploy-approved przez właściciela; starą zgodę traktuj jako nieaktualną. Drobne techniczne naprawy CI/review w zaakceptowanym zakresie nie wymagają ponownej zgody na to samo zachowanie, ale muszą mieć udokumentowane pochodzenie i granice. Brak wiarygodnego audytu oznacza factory:blocked, bez zgadywania zgody.
 
 ## Implementacja
 - Zwykłe zmiany bezpośrednio na develop. Przed zapisem odczytaj HEAD, po każdym zapisie odśwież repozytorium, CI, statusy i zależności; nie nadpisuj cudzych zmian.
@@ -37,7 +33,7 @@ Agent nigdy sam nie ustawia Zaakceptowane do wydania. Przed merge odczytuje świ
 ## Wydanie zaakceptowanego podzbioru
 Jeśli pełne main...develop odpowiada wyłącznie zaakceptowanemu zakresowi, użyj PR develop → main. Jeśli develop zawiera też inne zadania, agent **może bez dodatkowego pytania utworzyć tymczasowy release branch od aktualnego main**, przenieść/rekomponować wyłącznie zaakceptowane zmiany i utworzyć PR do main. Nie jest do tego potrzebny konflikt dwóch zmian.
 
-Przygotuj manifest wydania: issue i wersje propozycji, dowody statusowej akceptacji, commity źródłowe, zależności, bazowy main SHA, docelowy head SHA. Sprawdź rzeczywisty wynikowy diff. Nie przenoś niezaakceptowanych zależności; jeśli izolacja pozostawia niekompletną funkcję, zgłoś konkretną zależność i kontynuuj inne niezależne zadania.
+Przygotuj manifest wydania: issue i wersje propozycji, dowody akceptacji etykietą na issue, commity źródłowe, zależności, bazowy main SHA, docelowy head SHA. Sprawdź rzeczywisty wynikowy diff. Nie przenoś niezaakceptowanych zależności; jeśli izolacja pozostawia niekompletną funkcję, zgłoś konkretną zależność i kontynuuj inne niezależne zadania.
 
 Na **dokładnym SHA wydaniowym** wymagaj PR CI / Required CI success i ukończonego Codex Review bez findings oraz otwartych blokujących wątków. Nie wystarcza CI pierwotnego develop. @codex review tylko raz na SHA; poprawki do trzech rund. Dla izolowanego release popraw/rekomponuj zakres na develop i gałęzi wydaniowej, nie dopisuj zmian nieobjętych akceptacją.
 
@@ -56,12 +52,12 @@ Każdy release PR i pierwsza/finalna informacja o wydaniu zawiera **Co zmieniło
 Zmiany wizualne wymagają prawdziwych screenshotów uruchomionej aplikacji desktop i mobile, istotnych stanów interaktywnych i przed/po, gdy wiarygodne przed jest dostępne. Nie generuj makiet jako dowodu. Dodaj obrazy/linki do aktualnej propozycji na issue i do release PR. Wyjaśnij lokalną reprodukcję/syntetyczne dane i ograniczenia; nie twierdź, że sprawdzono backend, gdy go nie sprawdzono. Istotna zmiana UI po capture wymaga nowych screenów.
 
 ## Migracja i istniejące zadania
-- Dawne factory:* pozostają historią, nie sterują nowymi decyzjami. Nie usuwaj ich masowo przed potwierdzeniem migracji elementów do projektu.
-- #26 ma dotychczasową zgodę właściciela na implementację (factory:ready). Po podłączeniu projektu przenieś je do Gotowe do realizacji jako migrację tej zgody, z audytem; publikacja wyniku wymaga nowego statusu Zaakceptowane do wydania.
+- Powrót do etykiet autoryzowany przez właściciela 10 listopada 2026. Projects V2 nie steruje fabryką i jego niedostępność nie blokuje pracy. Nie zmieniaj tablicy ani uprawnień.
+- #26 zachowuje zweryfikowaną zgodę właściciela na implementację przez factory:ready; publikacja wymaga factory:deploy-approved po aktualnej propozycji.
 - #8 pozostaje zamknięte jako wycofane — nie wznawiaj.
-- #10 i #24 mają zweryfikowane wdrożenie #25, main 67e29a070f7657fef08b4d57d24b99738672d92f, 143/143 E2E oraz cleanup success; po migracji oznacz je Zakończone bez ponownego wydania.
-- Inne backlog/piloty nie otrzymują automatycznej zgody na implementację lub wdrożenie na podstawie historycznych PR/labelek.
-- Historyczny otwarty PR #21 opisuje poprzedni proces i nie jest źródłem nowych zasad.
+- #10 i #24 pozostają zakończone: wdrożenie #25, main 67e29a070f7657fef08b4d57d24b99738672d92f, 143/143 E2E i cleanup success. Nie wydawaj ich ponownie.
+- Nie aktywuj historycznych pilotów ani nie przenoś dawnych zgód na PR-ach na nowy wynik. PR #21 opisuje poprzedni proces.
+- Nie usuwaj masowo istniejących etykiet. Weryfikuj pochodzenie zgody na każdym issue; sama etykieta automatu nie dowodzi zgody właściciela.
 
 ## Granice i komunikacja
 Bez Copilota, osobnego OpenAI API, nieoficjalnych endpointów lub obchodzenia uwierzytelnienia. Bez zmian sekretów, uprawnień, ochrony gałęzi, AGENTS.md, workflows, zależności i konfiguracji produkcji bez odrębnej zgody. Korzystaj z autoryzowanych narzędzi/CLI; brak dostępu nie oznacza zgody na obejście.
