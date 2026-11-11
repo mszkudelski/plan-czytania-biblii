@@ -48,6 +48,7 @@ export function buildSchedule(
         id: `day-${dayIndex + 1}-segment-${segmentIndex + 1}`,
         label: segment.label,
         section: segment.section,
+        referenceVersion: 1,
       })),
     };
   });

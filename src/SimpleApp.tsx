@@ -1,3 +1,4 @@
+import { readingChapters } from "./lib/reading-parts";
 import { groupStartDay, initialRecoveryStart, skippedSegmentIds, type ReadingStartChoice } from "./lib/personal-schedule";
 import PlanReplacement from "./PlanReplacement";
 import { trackPlanOpened, trackSavedReading } from "./lib/analytics";
@@ -9,7 +10,7 @@ import GroupAccessHint from "./GroupAccessHint";
 import { devicePromptAllowed, INSTALL_KEY, parseDevicePreference, postponeDevicePrompt, SETUP_KEY, startOnboarding } from "./lib/onboarding";
 import RecoveryPrompt from "./RecoveryPrompt";
 import { canStartRecovery } from "./lib/recovery-prompt";
-import { isReadingDateComplete, getStandardReadingPortion, parseRecoverySchedule, getRecoveryDay, splitReadingChapters, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, parseRecoveryPortion, type RecoveryPortion, getRecoveryNavigationDays } from "./lib/recovery";
+import { isReadingDateComplete, getStandardReadingPortion, parseRecoverySchedule, getRecoveryDay, parseReadChapters, validateDailyRecoveryReading, type RecoveryReading, projectRecoveryPortions, parseChapterMarks, isRecoveryChapterRead, parseRecoveryPortion, type RecoveryPortion, getRecoveryNavigationDays } from "./lib/recovery";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -1313,8 +1314,30 @@ export function Setup({
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
 }) {
-  const [groupName, setGroupName] = useState("Plan czytania Biblii");
+  const [groupName, setGroupName] = useState("Plan M’Cheyne’a");
   const [ownerName, setOwnerName] = useState("");
+  const [step, setStep] = useState<1 | 2>(1);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+  const [prompt, setPrompt] = useState(`Przygotuj plan czytania Biblii w formacie CSV.
+
+Mój cel: [np. przeczytać Ewangelię Jana w 30 czytaniach].
+
+Zasady:
+- Użyj kolumn: Dzień;Czytanie 1;Czytanie 2.
+- Jeden wiersz oznacza jedno czytanie; numeruj od 1.
+- Wpisuj konkretne fragmenty, np. J 1:1–18.
+- Zachowaj kolejność tekstu i nie pomijaj fragmentów objętych celem.
+- Rozłóż tekst możliwie równomiernie pod względem długości.
+- Możesz dzielić długie rozdziały na zakresy wersetów.
+- Nie wpisuj dat ani dni tygodnia — ustawię je w aplikacji.
+- Puste kolumny czytań pozostaw puste.
+- Używaj średnika jako separatora.
+- Zwróć tylko CSV: bez komentarzy i bez bloku Markdown.`);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const sourceNames = useRef({ preset: "Plan M’Cheyne’a", custom: "" });
+
   const [startDate, setStartDate] = useState(todayIso());
   const [frequencyKind, setFrequencyKind] =
     useState<FrequencyKind>("daily");
@@ -1325,25 +1348,28 @@ export function Setup({
   const [customCsvText, setCustomCsvText] = useState("");
   const [customFileName, setCustomFileName] = useState("");
   const [csvText, setCsvText] = useState(BASIC_PLAN_CSV);
-  const [fileName, setFileName] = useState("Plan podstawowy · M’Cheyne · 365 dni");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
   const [view, setView] = useState<
     "choices" | "create" | "transfer" | "join" | "recover" | "admin"
   >("choices");
+  useEffect(() => {
+    if (view === "create") headingRef.current?.focus();
+  }, [view, step, planSource]);
   const rows = useMemo(() => parsePlanCsv(csvText), [csvText]);
   const frequency = useMemo<Frequency>(() => ({
     kind: frequencyKind,
     days: frequencyKind === "daily" ? [0, 1, 2, 3, 4, 5, 6]
       : frequencyKind === "weekdays" ? [1, 2, 3, 4, 5] : customDays,
   }), [frequencyKind, customDays]);
-  const previewDays = useMemo(() => {
-    const validDate = (value: string) => {
+  const validDate = (value: string) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
       const date = new Date(`${value}T12:00:00`);
       return Number.isFinite(date.getTime()) && date.getFullYear() === Number(value.slice(0, 4)) &&
         date.getMonth() + 1 === Number(value.slice(5, 7)) && date.getDate() === Number(value.slice(8, 10));
-    };
+  };
+  const validCsv = rows.length > 0 && rows.every(row => !row.date || validDate(row.date));
+  const previewDays = useMemo(() => {
     if (!validDate(startDate) || rows.some(row => row.date && !validDate(row.date)) ||
       (frequencyKind === "custom" && !customDays.length)) return [];
     try {
@@ -1354,24 +1380,37 @@ export function Setup({
   function chooseSource(source: "preset" | "custom") {
     planSourceRef.current = source;
     setPlanSource(source);
+    setGroupName(sourceNames.current[source]);
     setCsvText(source === "preset" ? BASIC_PLAN_CSV : customCsvText);
-    setFileName(source === "preset" ? "Plan podstawowy · M’Cheyne · 365 dni" : customFileName);
     setError("");
   }
 
   function readFile(file?: File) {
     if (!file) return;
     const readId = ++latestCsvRead.current;
+    setFileLoading(true);
+    setError("");
     const reader = new FileReader();
     reader.onload = () => {
       if (readId !== latestCsvRead.current) return;
+      setFileLoading(false);
       const text = String(reader.result ?? "");
+      if (!sourceNames.current.custom) sourceNames.current.custom = file.name.replace(/\.csv$/i, "");
       setCustomCsvText(text);
       setCustomFileName(file.name);
       if (planSourceRef.current === "custom") {
+        setGroupName(sourceNames.current.custom);
         setCsvText(text);
-        setFileName(file.name);
-        setError("");
+        setError(parsePlanCsv(text).length ? "" : "Plik nie zawiera czytań. Sprawdź format CSV.");
+      }
+    };
+    reader.onerror = () => {
+      if (readId !== latestCsvRead.current) return;
+      setFileLoading(false);
+      setCustomCsvText("");
+      if (planSourceRef.current === "custom") {
+        setCsvText("");
+        setError("Nie udało się odczytać pliku. Wybierz go ponownie.");
       }
     };
     reader.readAsText(file);
@@ -1379,6 +1418,8 @@ export function Setup({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (step !== 2 || (planSource === "custom" && fileLoading)) return;
+    if (!groupName.trim()) return setError("Podaj nazwę planu.");
     if (!cleanPersonName(ownerName)) return setError("Podaj imię.");
     if (!rows.length) return setError(planSource === "custom" ? "Dodaj plik własnego planu CSV." : "Nie udało się wczytać gotowego planu.");
     if (frequencyKind === "custom" && !customDays.length) {
@@ -1444,201 +1485,78 @@ export function Setup({
     );
   }
 
+  async function copyPrompt() {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setCopyStatus("Skopiowano prompt.");
+    } catch {
+      promptRef.current?.focus();
+      promptRef.current?.select();
+      setCopyStatus("Zaznaczono tekst — skopiuj go ręcznie.");
+    }
+  }
+  const scheduleSummary = <section className="plan-schedule-summary" aria-label="Podsumowanie harmonogramu" aria-live="polite">
+    <strong>{groupName || "Twój plan"}</strong>
+    {previewDays.length > 0 ? <>
+      <p>{rows.some(row => row.date) ? "Harmonogram z datami z pliku CSV" : frequencyKind === "daily" ? "Codziennie" : frequencyKind === "weekdays" ? "Od poniedziałku do piątku" : "Wybrane dni tygodnia"} · Start: <b>{formatPolishDate(previewDays[0].date, "shortYear")}</b></p>
+      <p><b>{previewDays.length}</b> {previewDays.length === 1 ? "czytanie" : "czytań"} · Przewidywany koniec: <b>{formatPolishDate(previewDays.at(-1)!.date, "shortYear")}</b></p>
+    </> : <p>{planSource === "custom" && !rows.length ? "Wgraj plik CSV, aby zobaczyć podsumowanie."
+      : "Sprawdź daty w pliku CSV i datę startu oraz wybierz co najmniej jeden dzień czytania."}</p>}
+  </section>;
   return (
     <main className="setup-page">
       <div className="setup-box">
-        <div className="setup-top">
-          <Brand />
-          <ThemeToggle theme={theme} onChange={onThemeChange} />
-        </div>
-        <h1>Utwórz plan</h1>
-        <button
-          type="button"
-          className="link-button setup-back-link"
-          onClick={() => setView("choices")}
-        >
-          Wróć do wyboru
-        </button>
-        <form onSubmit={submit}>
-          {error && <div className="simple-alert">{error}</div>}
-          <fieldset className="plan-source-choice">
-            <legend>Wybierz źródło planu</legend>
-            <div className="simple-segmented">
-              <button type="button" className={planSource === "preset" ? "active" : ""}
-                aria-pressed={planSource === "preset"} onClick={() => chooseSource("preset")}>Gotowy plan</button>
-              <button type="button" className={planSource === "custom" ? "active" : ""}
-                aria-pressed={planSource === "custom"} onClick={() => chooseSource("custom")}>Własny plan</button>
-            </div>
-            <p className="field-help">{planSource === "preset"
-              ? "Gotowy plan M’Cheyne’a: 365 porcji, po 4 fragmenty. Nie potrzebujesz pliku CSV."
-              : "Wgraj CSV z własnym podziałem czytań albo przygotuj go przy pomocy AI."}</p>
-            {planSource === "preset" && <p className="field-help"><a href="https://www.mcheyne.app/" target="_blank" rel="noreferrer">Źródło gotowego planu: M’Cheyne</a></p>}
-          </fieldset>
-          <div className="form-row">
-            <Field label="Nazwa grupy">
-              <input
-                value={groupName}
-                onChange={(event) => setGroupName(event.target.value)}
-                required
-              />
-            </Field>
-            <Field label="Twoje imię">
-              <input
-                type="text"
-                name="ownerName"
-                autoComplete="name"
-                maxLength={80}
-                placeholder="np. Marek Kowalski"
-                value={ownerName}
-                onChange={(event) => setOwnerName(event.target.value)}
-                required
-              />
-            </Field>
-          </div>
-
-          {planSource === "custom" && <>
-          <Field label="Własny plan czytania">
-            <label className="simple-upload">
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                  readFile(event.target.files?.[0])
-                }
-              />
-              <span>{rows.length ? fileName : "Wybierz plik z planem"}</span>
-              {rows.length > 0 && <b>{rows.length} dni</b>}
-            </label>
-            <p className="field-help">
-              Wybierz plik z planem czytania. Może to być plik CSV, czyli
-              zwykła tabela zapisana np. z Excela lub Arkuszy Google.
-            </p>
-            <p className="field-help">Plik CSV określa porcje czytania; poniżej wybierzesz rytm i datę startu.</p>
-          </Field>
-          <details className="csv-format-help">
-            <summary>Jaki format pliku CSV?</summary>
-            <p className="field-help">Zapisz tabelę w UTF-8 z nagłówkami. Jeden wiersz oznacza jedną porcję czytania. Zalecany separator to średnik (;). Kolumna Dzień jest nazwą porcji, a kolejne kolumny zawierają fragmenty. Rytm i datę startu wybierzesz poniżej.</p>
-            <pre>{`Dzień;Stary Testament;Nowy Testament;Psalm\n1;Rdz 1–3;Mt 1;Ps 1\n2;Rdz 4–6;Mt 2;Ps 2`}</pre>
+        <div className="setup-top"><Brand /><ThemeToggle theme={theme} onChange={onThemeChange} /></div>
+        <button type="button" className="link-button setup-back-link" disabled={busy} onClick={() => {
+          setError("");
+          if (step === 2) setStep(1);
+          else if (planSource === "custom") chooseSource("preset");
+          else setView("choices");
+        }}>Wróć</button>
+        <p className="field-help">Krok {step} z 2{step === 1 && planSource === "custom" ? " · Własny plan" : ""}</p>
+        <h1 ref={headingRef} tabIndex={-1}>{step === 2 ? "Zacznij czytać" : planSource === "custom" ? "Dodaj swój plan" : "Od czego chcesz zacząć?"}</h1>
+        {error && <div className="simple-alert" role="alert">{error}</div>}
+        {step === 1 ? planSource === "preset" ? <div className="setup-plan-choice">
+          <p>Wybierz gotowy plan lub dodaj własny.</p>
+          <section className="plan-schedule-summary" aria-label="Plan M’Cheyne’a">
+            <h2>Plan M’Cheyne’a</h2>
+            <p>365 czytań · po 4 fragmenty</p>
+            <p>Stary Testament raz, Nowy Testament i Psalmy dwa razy.</p>
+            <p>Rdz 1 · Mt 1 · Ezd 1 · Dz 1</p>
+            <p className="field-help"><a href="https://www.mcheyne.app/" target="_blank" rel="noreferrer">Źródło planu</a></p>
+            <button type="button" className="main-button" onClick={() => setStep(2)}>Wybierz plan</button>
+          </section>
+          <button type="button" className="link-button" onClick={() => chooseSource("custom")}>Mam własny plan →</button>
+        </div> : <div className="setup-custom-plan">
+          <Field label="Plik z planem"><input type="file" accept=".csv,text/csv" onChange={(event: ChangeEvent<HTMLInputElement>) => readFile(event.target.files?.[0])} /></Field>
+          {customFileName && <p className="field-help">{customFileName}{fileLoading ? " · Odczytywanie…" : ` · ${rows.length} czytań`}</p>}
+          <details className="csv-format-help"><summary>Jak przygotować plan?</summary>
+            <p>Zapisz tabelę z Excela lub Arkuszy Google jako CSV UTF-8 z nagłówkami. Jeden wiersz to jedno czytanie. Użyj średnika (;) jako separatora. Datę startu i rytm ustawisz w kolejnym kroku.</p>
+            <pre>{`Dzień;Czytanie 1;Czytanie 2\n1;Rdz 1–3;Mt 1\n2;Rdz 4–6;Mt 2`}</pre>
+            <h2>Przygotuj plan z pomocą AI</h2>
+            <Field label="Prompt do przygotowania planu"><textarea ref={promptRef} rows={14} value={prompt} onChange={event => { setPrompt(event.target.value); setCopyStatus(""); }} /></Field>
+            <button type="button" className="small-button" onClick={() => void copyPrompt()}>Kopiuj prompt</button>
+            <p role="status">{copyStatus}</p>
           </details>
-          <section className="csv-ai-help">
-            <div className="csv-ai-help-header">
-              <div>
-                <strong>Nie masz jeszcze planu?</strong>
-                <p>Poproś AI o przygotowanie tabeli do wgrania do aplikacji.</p>
-              </div>
-            </div>
-            <details>
-              <summary>Zobacz przykładowy prompt</summary>
-              <div className="csv-prompt-box">
-                <pre>{`Przygotuj dla mnie plan czytania Biblii w formacie CSV.
-
-Chcę czytać:
-- [np. całą Biblię w rok / Ewangelię Jana w 30 dni]
-- [np. 5 dni w tygodniu]
-- po kilka fragmentów dziennie
-
-Użyj dokładnie tych kolumn:
-Dzień;Stary Testament;Nowy Testament;Psalm
-
-Zasady:
-- jeden wiersz = jeden dzień czytania,
-- wpisuj konkretne fragmenty, np. Rdz 1–3, Mt 1, Ps 1,
-- nie dodawaj pustych wierszy,
-- używaj średnika (;) jako separatora,
-- odpowiedź zwróć wyłącznie jako CSV, bez komentarza, bez nagłówka Markdown i bez bloku kodu.`}</pre>
-                <button
-                  type="button"
-                  className="small-button"
-                  onClick={() =>
-                    void copyText(
-                      `Przygotuj dla mnie plan czytania Biblii w formacie CSV.
-
-Chcę czytać:
-- [np. całą Biblię w rok / Ewangelię Jana w 30 dni]
-- [np. 5 dni w tygodniu]
-- po kilka fragmentów dziennie
-
-Użyj dokładnie tych kolumn:
-Dzień;Stary Testament;Nowy Testament;Psalm
-
-Zasady:
-- jeden wiersz = jeden dzień czytania,
-- wpisuj konkretne fragmenty, np. Rdz 1–3, Mt 1, Ps 1,
-- nie dodawaj pustych wierszy,
-- używaj średnika (;) jako separatora,
-- odpowiedź zwróć wyłącznie jako CSV, bez komentarza, bez nagłówka Markdown i bez bloku kodu.`,
-                    )
-                  }
-                >
-                  Kopiuj prompt
-                </button>
-              </div>
-            </details>
-          </section>
-          </>}
-
-          <div className="form-row">
-            <Field label="Start">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
-              />
-            </Field>
-            <Field label="Częstotliwość">
-              <div className="simple-segmented">
-                {[
-                  ["daily", "Codziennie"],
-                  ["weekdays", "Pon.–pt."],
-                  ["custom", "Własna"],
-                ].map(([value, label]) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={frequencyKind === value ? "active" : ""}
-                    onClick={() => setFrequencyKind(value as FrequencyKind)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </Field>
-          </div>
-
-          {frequencyKind === "custom" && (
-            <div className="simple-days">
-              {["N", "Pn", "Wt", "Śr", "Cz", "Pt", "So"].map((label, day) => (
-                <button
-                  type="button"
-                  key={label}
-                  className={customDays.includes(day) ? "active" : ""}
-                  onClick={() =>
-                    setCustomDays((current) =>
-                      current.includes(day)
-                        ? current.filter((item) => item !== day)
-                        : [...current, day],
-                    )
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <section className="plan-schedule-summary" aria-label="Podsumowanie harmonogramu" aria-live="polite">
-            <strong>Podsumowanie harmonogramu</strong>
-            {previewDays.length > 0 ? <>
-              <p><b>{previewDays.length}</b> {previewDays.length === 1 ? "czytanie" : "czytań"} w planie.</p>
-              <p>Start: <b>{formatPolishDate(previewDays[0].date, "shortYear")}</b></p>
-              <p>Przewidywany koniec: <b>{formatPolishDate(previewDays.at(-1)!.date, "shortYear")}</b></p>
-            </> : <p>{planSource === "custom" && !rows.length ? "Wgraj plik CSV, aby zobaczyć podsumowanie."
-              : "Sprawdź daty w pliku CSV i datę startu oraz wybierz co najmniej jeden dzień czytania."}</p>}
-          </section>
-          <button className="main-button" disabled={busy || !previewDays.length}>
-            {busy ? "Tworzenie…" : "Utwórz plan"}
-          </button>
-        </form>
+          {rows.length > 0 && !previewDays.length && scheduleSummary}
+          <button type="button" className="main-button" disabled={!validCsv || fileLoading} onClick={() => { setError(""); setStep(2); }}>Dalej</button>
+        </div> : <form onSubmit={submit}>
+          <p>Twój plan jest gotowy. Jak masz na imię?</p>
+          <Field label="Twoje imię"><input type="text" name="ownerName" autoComplete="name" maxLength={80} placeholder="np. Marek" value={ownerName} onChange={event => setOwnerName(event.target.value)} required disabled={busy} /></Field>
+          {scheduleSummary}
+          <details className="setup-customize"><summary>Dostosuj plan</summary>
+            <fieldset disabled={busy}>
+              <Field label="Nazwa planu"><input value={groupName} required onChange={event => { setGroupName(event.target.value); sourceNames.current[planSource] = event.target.value; }} /></Field>
+              <Field label="Start"><input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} /></Field>
+              <fieldset className="plan-source-choice"><legend>Dni czytania</legend>
+                <div className="simple-segmented">{[["daily", "Codziennie"], ["weekdays", "Od poniedziałku do piątku"], ["custom", "Wybierz dni"]].map(([value, label]) => <button type="button" key={value} aria-pressed={frequencyKind === value} className={frequencyKind === value ? "active" : ""} onClick={() => setFrequencyKind(value as FrequencyKind)}>{label}</button>)}</div>
+              </fieldset>
+              {frequencyKind === "custom" && <div className="simple-days">{["N", "Pn", "Wt", "Śr", "Cz", "Pt", "So"].map((label, day) => <button type="button" key={label} aria-pressed={customDays.includes(day)} className={customDays.includes(day) ? "active" : ""} onClick={() => setCustomDays(current => current.includes(day) ? current.filter(item => item !== day) : [...current, day])}>{label}</button>)}</div>}
+              {frequencyKind === "custom" && !customDays.length && <p role="alert">Wybierz dni czytania.</p>}
+            </fieldset>
+          </details>
+          <button className="main-button" disabled={busy || !previewDays.length || (planSource === "custom" && fileLoading)}>{busy ? "Tworzenie…" : "Utwórz plan"}</button>
+        </form>}
       </div>
     </main>
   );
@@ -2001,7 +1919,7 @@ export function TodayView({
     const confirmed = parseReadChapters(localStorage.getItem(`${recoveryKey}:confirmed-segments`));
     const writes = group.planDays.flatMap(day => day.segments).flatMap(segment => {
       if (confirmed[segment.id] || group.progress[member.id]?.[segment.id]) return [];
-      const indices = splitReadingChapters(segment.label).map((_, index) => index)
+      const indices = readingChapters(segment).map((_, index) => index)
         .filter(index => index < (legacyCounts[segment.id] ?? 0) || legacyMarks[segment.id]?.includes(index));
       return indices.length ? [onToggle(segment.id, true, false, indices, true)] : [];
     });
@@ -2113,6 +2031,7 @@ export function TodayView({
     if (!hadRecoverySession.current && !notificationDay && !planReading) setSelectedIndex(resumedIndex);
   }, [dailyKey, group.planDays, portionKey, progress, promptReady, recoveryKey, recoveryStart, week.overdueReadings, savingProgress, notificationDay, scheduleKey, currentDailyComplete, finalReadingId, recoveryDayKey, planReading, chaptersReady]);
   const useRecoveryView = Boolean((recoveryActive || finishedRecoveryView) && !notificationDay && !planReading);
+  const splitChapters = true;
   // Checking a row changes progress, not the navigation or the selected date.
   // Rebuild this snapshot only when entering/leaving recovery or its schedule changes.
   const navigationDays = useMemo(() => useRecoveryView
@@ -2152,6 +2071,14 @@ export function TodayView({
   }
   const displayedProgress = { ...progress };
   const selectedPortion = isRecoveryPortion ? currentPortion : isForecast ? browsedPortion : !useRecoveryView ? normalPortion : undefined;
+  const displayedChapters = Object.fromEntries((displayedDay?.segments ?? []).map(segment => {
+    const original = group.planDays.flatMap(day => day.segments).find(item => item.id === segment.id) ?? segment;
+    const labels = readingChapters(original);
+    const indices = selectedPortion?.chapterIndices[segment.id] ?? labels.map((_, index) => index);
+    return [segment.id, indices.map(index => ({ label: labels[index], index,
+      completed: Boolean(progress[segment.id]) || isRecoveryChapterRead(readChapters, chapterMarks, segment.id, index),
+    }))];
+  }));
   if (selectedPortion) {
     for (const segment of selectedPortion.day.segments) {
       const indices = selectedPortion.chapterIndices[segment.id];
@@ -2218,7 +2145,7 @@ export function TodayView({
       else await save();
     } finally { if (activeView.current) setRecoveryBusy(false); }
   }
-  async function toggleDisplayedSegment(segmentId: string) {
+  async function toggleDisplayedSegment(segmentId: string, chapterIndex?: number) {
     if (finalWrite.current) return;
     const original = group.planDays.flatMap(day => day.segments).find(segment => segment.id === segmentId);
     if (!original) return;
@@ -2226,20 +2153,23 @@ export function TodayView({
       localStorage.setItem(portionKey, JSON.stringify(currentPortion));
       setDailyPortion(currentPortion);
     }
-    const allIndices = splitReadingChapters(original.label).map((_, index) => index);
-    const indices = selectedPortion?.chapterIndices[segmentId] ?? allIndices;
-    const completed = !Boolean(displayedProgress[segmentId]);
-    const finishesDay = completed && Boolean(displayedDay?.segments.every(segment =>
+    const allIndices = readingChapters(original).map((_, index) => index);
+    const indices = chapterIndex === undefined ? selectedPortion?.chapterIndices[segmentId] ?? allIndices : [chapterIndex];
+    const completed = chapterIndex === undefined ? !Boolean(displayedProgress[segmentId])
+      : !(progress[segmentId] || isRecoveryChapterRead(readChapters, chapterMarks, segmentId, chapterIndex));
+    const finishesSegment = (selectedPortion?.chapterIndices[segmentId] ?? allIndices).every(index =>
+      indices.includes(index) || progress[segmentId] || isRecoveryChapterRead(readChapters, chapterMarks, segmentId, index));
+    const finishesDay = completed && finishesSegment && Boolean(displayedDay?.segments.every(segment =>
       segment.id === segmentId || displayedProgress[segment.id])) && (!displayedExtra || extraComplete);
     const save = async () => {
-      if (!isRecoveryPortion && !isForecast && !readChapters[segmentId] && !chapterMarks[segmentId]?.length) {
+      if (indices.length === allIndices.length && !isRecoveryPortion && !isForecast && !readChapters[segmentId] && !chapterMarks[segmentId]?.length) {
         try { await onToggle(segmentId, completed, !finishesDay); }
         catch { onError("Nie udało się zapisać zmiany. Spróbuj ponownie."); }
       } else {
-        await toggleChapterSelection(segmentId, indices.length ? indices : allIndices, completed, false, !finishesDay || indices.length < allIndices.length);
+        await toggleChapterSelection(segmentId, indices.length ? indices : allIndices, completed, false, !finishesDay);
       }
     };
-    if (finishesDay) await saveFinalReading(segmentId, save);
+    if (finishesDay) await saveFinalReading(chapterIndex === undefined ? segmentId : `${segmentId}:${chapterIndex}`, save);
     else await save();
   }
   function changeRecovery(start: string) {
@@ -2276,9 +2206,10 @@ export function TodayView({
     : [];
   const showReading = Boolean(displayedDay);
   const portionCompleted = baseComplete && (!displayedExtra || extraComplete);
-  const completedCount = displayedDay?.segments.filter(segment => displayedProgress[segment.id]).length ?? 0;
-  const portionTotal = (displayedDay?.segments.length ?? 0) + (displayedExtra ? 1 : 0);
-  const portionDone = completedCount + (extraComplete ? 1 : 0);
+  const visibleChapters = Object.values(displayedChapters).flat();
+  const portionTotal = (splitChapters ? visibleChapters.length : displayedDay?.segments.length ?? 0) + (displayedExtra ? 1 : 0);
+  const portionDone = (splitChapters ? visibleChapters.filter(chapter => chapter.completed).length
+    : displayedDay?.segments.filter(segment => displayedProgress[segment.id]).length ?? 0) + (extraComplete ? 1 : 0);
   const nextUnread = group.planDays.findIndex(day => day.id === getNextDay(group, member.id)?.id);
   const returnIndex = useRecoveryView
     ? navigationDays.findIndex(day => day.id === currentPortion?.day.id)
@@ -2349,6 +2280,7 @@ export function TodayView({
       ) : null}
       {showReading && displayedDay && <section className="reading-focus" aria-label="Wybrane czytanie" tabIndex={-1}>
         <DayCard day={displayedDay} progress={displayedProgress} onToggle={toggleDisplayedSegment} restDay={home.restDay}
+          chapters={displayedChapters} splitChapters={splitChapters}
           pendingReading={finalReadingId} disabled={Boolean(finalReadingId)}
           header={<header className="reading-card-head">
             <time dateTime={displayedDay.date}>{new Intl.DateTimeFormat("pl-PL", { weekday: "short", day: "numeric", month: "long" }).format(new Date(`${displayedDay.date}T12:00:00`))}</time>
@@ -2742,6 +2674,8 @@ export function DayCard({
   restDay = false,
   pendingReading = "",
   disabled = false,
+  chapters,
+  splitChapters = false,
 }: {
   header?: ReactNode;
   restDay?: boolean;
@@ -2749,7 +2683,9 @@ export function DayCard({
   disabled?: boolean;
   day: PlanDay;
   progress: Record<string, string>;
-  onToggle: (segmentId: string) => Promise<void>;
+  onToggle: (segmentId: string, chapterIndex?: number) => Promise<void>;
+  chapters?: Record<string, { label: string; index: number; completed: boolean }[]>;
+  splitChapters?: boolean;
   extraReading?: {
     reading: RecoveryReading;
     completed: boolean;
@@ -2764,17 +2700,23 @@ export function DayCard({
         Dziś dzień wolny w planie. Możesz czytać dalej we własnym tempie.
       </p>}
       <div className="simple-readings">
-        {day.segments.map((segment) => (
+        {day.segments.flatMap((segment) => splitChapters ? (chapters?.[segment.id] ?? readingChapters(segment).map((label, index) => ({
+          label, index, completed: Boolean(progress[segment.id]),
+        }))).map(chapter => (
           <ReadingRow
-            key={segment.id}
-            label={segment.label}
+            key={`${segment.id}:${chapter.index}`}
+            label={chapter.label}
             section={segment.section}
-            completed={Boolean(progress[segment.id])}
+            completed={chapter.completed}
             disabled={disabled}
-            pending={pendingReading === segment.id}
-            onToggle={() => onToggle(segment.id)}
+            pending={pendingReading === segment.id || pendingReading === `${segment.id}:${chapter.index}`}
+            onToggle={() => onToggle(segment.id, chapter.index)}
           />
-        ))}
+        )) : [<ReadingRow key={segment.id} label={segment.label} section={segment.section}
+          completed={Boolean(progress[segment.id])} disabled={disabled} pending={pendingReading === segment.id}
+          detail={chapters?.[segment.id]?.some(chapter => chapter.completed) && !progress[segment.id]
+            ? `Przeczytano ${chapters[segment.id].filter(chapter => chapter.completed).length} z ${chapters[segment.id].length} części` : undefined}
+          onToggle={() => onToggle(segment.id)} />])}
         {extraReading && (
           <ReadingRow
             label={extraReading.reading.label}
@@ -2799,6 +2741,7 @@ function ReadingRow({
   onToggle,
   isExtra = false,
   pending = false,
+  detail,
 }: {
   label: string;
   section: string;
@@ -2807,6 +2750,7 @@ function ReadingRow({
   onToggle: () => Promise<void>;
   isExtra?: boolean;
   pending?: boolean;
+  detail?: string;
 }) {
   return (
     <button
@@ -2829,6 +2773,7 @@ function ReadingRow({
           <Icon name="plus" size={12} />{section} · 1 rozdział
         </span></small>}
         <strong>{label}</strong>
+        {detail && <small>{detail}</small>}
       </span>
     </button>
   );

@@ -46,14 +46,15 @@ async function openSetup() {
 
 it("offers the ready-made plan first and calculates its actual end date without CSV upload", async () => {
   await openSetup();
-  expect(button("Gotowy plan").getAttribute("aria-pressed")).toBe("true");
+  expect(button("Wybierz plan").textContent).toBe("Wybierz plan");
   expect(container.querySelector('input[type="file"]')).toBeNull();
+  await click("Wybierz plan");
   const rows = parsePlanCsv(BASIC_PLAN_CSV);
   const daily = buildSchedule(rows, todayIso(), { kind: "daily", days: [0, 1, 2, 3, 4, 5, 6] });
   expect(summary()).toContain(`${rows.length} czytań`);
   expect(summary()).toContain(formatPolishDate(daily.at(-1)!.date, "shortYear"));
 
-  await click("Pon.–pt.");
+  await click("Od poniedziałku do piątku");
   const weekdays = buildSchedule(rows, todayIso(), { kind: "weekdays", days: [1, 2, 3, 4, 5] });
   expect(summary()).toContain(formatPolishDate(weekdays.at(-1)!.date, "shortYear"));
   expect(weekdays.at(-1)!.date).not.toBe(daily.at(-1)!.date);
@@ -61,12 +62,13 @@ it("offers the ready-made plan first and calculates its actual end date without 
 
 it("preserves own-plan CSV upload and can return to the ready-made schedule", async () => {
   await openSetup();
-  await click("Własny plan");
-  expect(button("Własny plan").getAttribute("aria-pressed")).toBe("true");
+  await click("Mam własny plan →");
+  expect(container.querySelector("h1")?.textContent).toBe("Dodaj swój plan");
   expect(container.querySelector('input[type="file"]')).toBeTruthy();
-  expect(summary()).toContain("Wgraj plik CSV");
-  await click("Gotowy plan");
+  expect(button("Dalej").disabled).toBe(true);
+  await click("Wróć");
   expect(container.querySelector('input[type="file"]')).toBeNull();
+  await click("Wybierz plan");
   expect(summary()).toContain("365 czytań");
 });
 
@@ -74,10 +76,10 @@ it("links the ready plan source and keeps the CSV structure collapsed for own pl
   await openSetup();
   const source = container.querySelector<HTMLAnchorElement>('a[href="https://www.mcheyne.app/"]');
   expect(source?.textContent).toContain("Źródło");
-  await click("Własny plan");
+  await click("Mam własny plan →");
   const help = container.querySelector<HTMLDetailsElement>("details.csv-format-help");
   expect(help?.open).toBe(false);
-  expect(help?.textContent).toContain("Dzień;Stary Testament;Nowy Testament;Psalm");
+  expect(help?.textContent).toContain("Dzień;Czytanie 1;Czytanie 2");
   expect(help?.textContent).toContain("Rdz 1–3");
   await act(async () => { help!.open = true; });
   expect(help?.open).toBe(true);
@@ -85,7 +87,7 @@ it("links the ready plan source and keeps the CSV structure collapsed for own pl
 
 it("keeps the form usable when a CSV contains an invalid date", async () => {
   await openSetup();
-  await click("Własny plan");
+  await click("Mam własny plan →");
   vi.stubGlobal("FileReader", class {
     result = "Data;Fragment\n2026-13-01;Rdz 1";
     onload: (() => void) | null = null;
@@ -95,22 +97,41 @@ it("keeps the form usable when a CSV contains an invalid date", async () => {
   Object.defineProperty(input, "files", { value: [new File([""], "plan.csv")] });
   await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
   expect(summary()).toContain("Sprawdź daty w pliku CSV");
-  expect(button("Utwórz plan").disabled).toBe(true);
+  expect(button(container.querySelector("form") ? "Utwórz plan" : "Dalej").disabled).toBe(true);
+});
+
+it("describes imported dates without claiming the selected frequency governs them", async () => {
+  await openSetup(); await click("Mam własny plan →");
+  vi.stubGlobal("FileReader", class {
+    result = "Data;Fragment\n2026-10-15;Rdz 1\n2026-10-22;Rdz 2";
+    onload: (() => void) | null = null;
+    readAsText() { this.onload?.(); }
+  });
+  const file = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(file, "files", { value: [new File([""], "plan.csv")] });
+  await act(async () => file.dispatchEvent(new Event("change", { bubbles: true })));
+  await click("Dalej");
+  expect(summary()).toContain("Harmonogram z datami z pliku CSV");
+  expect(summary()).not.toContain("Codziennie");
+  await click("Od poniedziałku do piątku");
+  expect(summary()).toContain("Harmonogram z datami z pliku CSV");
+  expect(summary()).not.toContain("Od poniedziałku do piątku");
 });
 
 it("rejects an extended start year before scheduling", async () => {
   await openSetup();
+  await click("Wybierz plan");
   const input = container.querySelector<HTMLInputElement>('input[type="date"]')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "10000-01-01");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   expect(summary()).toContain("Sprawdź daty");
-  expect(button("Utwórz plan").disabled).toBe(true);
+  expect(button(container.querySelector("form") ? "Utwórz plan" : "Dalej").disabled).toBe(true);
 });
 
 it("rejects a CSV date that rolls into another month", async () => {
-  await openSetup(); await click("Własny plan");
+  await openSetup(); await click("Mam własny plan →");
   vi.stubGlobal("FileReader", class {
     result = "Data;Fragment\n2026-02-30;Rdz 1";
     onload: (() => void) | null = null;
@@ -120,7 +141,7 @@ it("rejects a CSV date that rolls into another month", async () => {
   Object.defineProperty(input, "files", { value: [new File([""], "plan.csv")] });
   await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
   expect(summary()).toContain("Sprawdź daty");
-  expect(button("Utwórz plan").disabled).toBe(true);
+  expect(button(container.querySelector("form") ? "Utwórz plan" : "Dalej").disabled).toBe(true);
 });
 
 it("keeps the selected preset when a delayed CSV finishes and caches it for later", async () => {
@@ -130,13 +151,122 @@ it("keeps the selected preset when a delayed CSV finishes and caches it for late
     onload: (() => void) | null = null;
     readAsText() { finish = () => this.onload?.(); }
   });
-  await openSetup(); await click("Własny plan");
+  await openSetup(); await click("Mam własny plan →");
   const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
   Object.defineProperty(input, "files", { value: [new File([""], "plan.csv")] });
   await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
-  await click("Gotowy plan");
+  await click("Wróć");
   await act(async () => finish());
+  await click("Wybierz plan");
   expect(summary()).toContain("365 czytań");
-  await click("Własny plan");
+  await click("Wróć");
+  await click("Mam własny plan →");
+  expect(button("Dalej").disabled).toBe(false);
+  await click("Dalej");
   expect(summary()).toContain("1 czytanie");
+});
+
+it("keeps name and schedule across back navigation and focuses each step heading", async () => {
+  await openSetup();
+  expect(document.activeElement).toBe(container.querySelector("h1"));
+  await click("Wybierz plan");
+  expect(container.querySelector<HTMLDetailsElement>(".setup-customize")?.open).toBe(false);
+  expect(document.activeElement).toBe(container.querySelector("h1"));
+  const name = container.querySelector<HTMLInputElement>('input[name="ownerName"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(name, "Tester");
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await click("Od poniedziałku do piątku");
+  const expected = summary();
+  await click("Wróć");
+  await click("Wybierz plan");
+  expect(container.querySelector<HTMLInputElement>('input[name="ownerName"]')?.value).toBe("Tester");
+  expect(summary()).toBe(expected);
+});
+
+it.each(["date", "days"])("lets a custom CSV return to repair invalid %s without losing input", async invalid => {
+  await openSetup(); await click("Mam własny plan →");
+  vi.stubGlobal("FileReader", class {
+    result = "Dzień;Fragment\n1;Rdz 1";
+    onload: (() => void) | null = null;
+    readAsText() { this.onload?.(); }
+  });
+  const file = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(file, "files", { value: [new File([""], "plan.csv")] });
+  await act(async () => file.dispatchEvent(new Event("change", { bubbles: true })));
+  await click("Dalej");
+  if (invalid === "date") {
+    const date = container.querySelector<HTMLInputElement>('input[type="date"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(date, "");
+      date.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  } else {
+    await click("Wybierz dni");
+    for (const day of [...container.querySelectorAll<HTMLButtonElement>('.simple-days button.active')]) {
+      await act(async () => day.click());
+    }
+  }
+  expect(button("Utwórz plan").disabled).toBe(true);
+  await click("Wróć");
+  expect(button("Dalej").disabled).toBe(false);
+  await click("Dalej");
+  expect(container.querySelector("h1")?.textContent).toBe("Zacznij czytać");
+  expect(button("Utwórz plan").disabled).toBe(true);
+  if (invalid === "date") {
+    const date = container.querySelector<HTMLInputElement>('input[type="date"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(date, "2026-10-15");
+      date.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  } else await click("Codziennie");
+  expect(button("Utwórz plan").disabled).toBe(false);
+  expect(summary()).toContain("1 czytanie");
+});
+
+it("copies the edited prompt, reports success and selects text on clipboard failure", async () => {
+  await openSetup(); await click("Mam własny plan →");
+  const textarea = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "Plan Jana;30 czytań");
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  await click("Kopiuj prompt");
+  expect(writeText).toHaveBeenCalledWith("Plan Jana;30 czytań");
+  expect(container.querySelector('[role="status"]')?.textContent).toBe("Skopiowano prompt.");
+  writeText.mockRejectedValue(new Error("Unavailable"));
+  await click("Kopiuj prompt");
+  expect(document.activeElement).toBe(textarea);
+  expect(textarea.selectionStart).toBe(0);
+  expect(textarea.selectionEnd).toBe(textarea.value.length);
+  expect(container.querySelector('[role="status"]')?.textContent).toContain("ręcznie");
+});
+
+it("requires a real valid import and disables continuation during read or on read failure", async () => {
+  let fail: () => void = () => {};
+  vi.stubGlobal("FileReader", class {
+    onerror: (() => void) | null = null;
+    readAsText() { fail = () => this.onerror?.(); }
+  });
+  await openSetup(); await click("Mam własny plan →");
+  expect(button("Dalej").disabled).toBe(true);
+  const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, "files", { value: [new File([""], "plan.csv")] });
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+  expect(button("Dalej").disabled).toBe(true);
+  await act(async () => fail());
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Nie udało się odczytać");
+  expect(button("Dalej").disabled).toBe(true);
+});
+
+it("disables creation if all custom weekdays are deselected", async () => {
+  await openSetup(); await click("Wybierz plan"); await click("Wybierz dni");
+  for (const day of ["Pn", "Wt", "Śr", "Cz", "Pt"]) await click(day);
+  expect(button("Utwórz plan").disabled).toBe(true);
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe("Wybierz dni czytania.");
+  await click("So");
+  expect(button("Utwórz plan").disabled).toBe(false);
 });

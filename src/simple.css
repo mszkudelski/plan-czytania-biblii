@@ -2063,3 +2063,12 @@ body:has(.notification-card) .install-app-card { display: none; }
     padding-bottom: calc(162px + env(safe-area-inset-bottom));
   }
 }
+
+/* Two-step plan creation: keep optional controls readable on small screens. */
+.setup-plan-choice, .setup-custom-plan { display: grid; gap: 1rem; }
+.setup-customize { margin: 1rem 0; }
+.setup-customize > fieldset { border: 0; padding: 1rem 0 0; min-width: 0; display: grid; gap: 1rem; }
+.setup-customize .simple-segmented { flex-wrap: wrap; }
+.setup-custom-plan textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.setup-custom-plan pre { overflow-x: auto; }
+.setup-box h1:focus { outline: none; }

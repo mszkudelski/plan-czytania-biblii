@@ -191,3 +191,27 @@ it("persists chapter intents, validates ownership and survives replacement and r
   expect(group.chapterProgress?.[session.credentials.memberId][id]).toEqual([1, 2]);
   expect(group.progress[session.credentials.memberId][id]).toBeUndefined();
 });
+
+it("assigns the new reference format on creation and persists mixed chapters and verse portions independently", async () => {
+  const response = await call("/groups", { name: "Unit mixed references", ownerName: "Adam", startDate: "2026-10-19",
+    frequency, planDays: days(["1 Kor 1–3; J 3,16–18; 4:1-5"]) });
+  expect(response.status).toBe(201);
+  const session = await response.json() as { group: Group; credentials: Credentials };
+  expect(session.group.planDays[0].segments[0].referenceVersion).toBe(1);
+  const base = `/groups/${session.group.id}`;
+  const write = (indices: number[], completed = true) => call(base + "/progress", {
+    ...session.credentials, segmentId: "s0", completed, indices,
+  });
+  expect((await write([5])).status).toBe(400);
+  await Promise.all([write([1]), write([3])]);
+  let group = await (await call(base)).json() as Group;
+  expect(group.chapterProgress?.[session.credentials.memberId].s0).toEqual([1, 3]);
+  expect(group.progress[session.credentials.memberId].s0).toBeUndefined();
+  await write([0, 2, 4]);
+  group = await (await call(base)).json() as Group;
+  expect(group.progress[session.credentials.memberId].s0).toBeDefined();
+  await write([3], false);
+  group = await (await call(base)).json() as Group;
+  expect(group.chapterProgress?.[session.credentials.memberId].s0).toEqual([0, 1, 2, 4]);
+  expect(group.progress[session.credentials.memberId].s0).toBeUndefined();
+});

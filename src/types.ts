@@ -9,6 +9,8 @@ export type PlanSegment = {
   id: string;
   label: string;
   section: string;
+  // Missing on historical plans: retain their original progress index mapping.
+  referenceVersion?: 1;
 };
 
 export type PlanDay = {

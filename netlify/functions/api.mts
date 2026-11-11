@@ -5,7 +5,7 @@ import { getStore } from "@netlify/blobs";
 import { planTemplate } from "../../src/lib/plan-template";
 import { cleanupE2e, e2eRunHash, e2eRunToken, registerE2eGroup, trackE2eResource } from "./_shared/e2e-cleanup";
 import { changeGroupState, readGroupState, type GroupStateStore } from "../../src/lib/group-state";
-import { splitReadingChapters } from "../../src/lib/recovery";
+import { readingChapters } from "../../src/lib/reading-parts";
 import { applyProgressLog, chapterProgressLogKey, progressLogKey, progressLogPrefix } from "../../src/lib/progress-log";
 import type { Config, Context } from "@netlify/functions";
 import { validReminderSettings, validPushSubscription, testReminder } from "../../src/lib/notifications";
@@ -251,6 +251,7 @@ function validatePlanDays(value: unknown): PlanDay[] | null {
         id: cleanText(segment.id, 120),
         label: cleanText(segment.label, 180),
         section: cleanText(segment.section, 80),
+        referenceVersion: 1 as const,
       })),
     };
   });
@@ -616,7 +617,7 @@ async function updateProgress(request: Request, groupId: string) {
   }
 
   if (body.groupId !== groupId) return error("Nieprawidłowy link dostępu.", 401);
-  const count = splitReadingChapters(segments.find(segment => segment.id === segmentId)!.label).length;
+  const count = readingChapters(segments.find(segment => segment.id === segmentId)!).length;
   if (body.indices !== undefined && (!Array.isArray(body.indices) || !body.indices.length ||
     body.indices.length > count || body.indices.some(index => !Number.isInteger(index) || index < 0 || index >= count))) {
     return error("Nieprawidłowe rozdziały.");
