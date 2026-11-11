@@ -37,7 +37,19 @@ for (const width of [1280, 390]) {
     await expect.poll(chapters).toEqual([1]);
     for (const label of labels.filter(label => label !== '1 Kor 2')) {
       await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'false');
-      await reading(page, label).click();
+      if (label === labels.at(-1)) {
+        await page.route('**' + progressPath(session), route => route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), token: 'invalid' }) }), { times: 1 });
+        await reading(page, label).click();
+        await expect(page.getByRole('alert')).toContainText('Nie udało się zapisać');
+        await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'false');
+        await expectSaved(request, session, []);
+        const held = await holdNextProgress(page, session);
+        try {
+          await reading(page, label).click(); await held.started;
+          await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'false');
+          await expectSaved(request, session, []);
+        } finally { held.release(); }
+      } else await reading(page, label).click();
     }
     await expect.poll(chapters).toEqual([0, 1, 2, 3, 4]);
     await expectSaved(request, session, ['s0']);
@@ -68,7 +80,8 @@ test('partial chapters synchronize between two devices of one profile, including
     await expect(reading(other, 'Rdz 3')).toBeVisible();
     await extraReading(page).click(); await expect.poll(chapters).toEqual([]);
     await other.reload();
-    await expect(reading(other, 'Rdz 2-3')).toHaveAttribute('aria-pressed', 'false');
+    await expect(reading(other, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
+    await expect(reading(other, 'Rdz 3')).toHaveAttribute('aria-pressed', 'false');
     // Real API rejection of this plan's operation, never a mocked response.
     await page.route('**' + progressPath(session), async route => {
       await route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), token: 'invalid' }) });

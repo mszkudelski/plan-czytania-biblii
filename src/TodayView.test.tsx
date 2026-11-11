@@ -74,6 +74,25 @@ afterEach(async () => {
   await act(async () => root.unmount()); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 
+it("confirms the final chapter only after a successful save and permits retry after rejection", async () => {
+  const g = plan(1);
+  Object.assign(g.planDays[0].segments[0], { label: "Rdz 1–3", referenceVersion: 1 });
+  const f = mount(g, false); await act(async () => f.render());
+  await click("Rdz 1"); await act(async () => f.writes[0].resolve());
+  await click("Rdz 2"); await act(async () => f.writes[1].resolve());
+  await click("Rdz 3");
+  expect(f.group.progress.m.s0).toBeUndefined();
+  expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("false");
+  expect(button("Rdz 3").disabled).toBe(true);
+  await act(async () => f.writes[2].reject());
+  expect(f.group.progress.m.s0).toBeUndefined();
+  expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("false");
+  expect(button("Rdz 3").disabled).toBe(false);
+  await click("Rdz 3"); await act(async () => f.writes[3].resolve());
+  expect(f.group.progress.m.s0).toBe(`${TODAY}T12:00:00Z`);
+  expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("true");
+});
+
 it("checks each chapter of a new mixed reading independently and completes only after its verse portion", async () => {
   const g = plan();
   Object.assign(g.planDays[0].segments[0], { label: "Rdz 1–3; J 3,16–18", referenceVersion: 1 });

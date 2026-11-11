@@ -1364,13 +1364,14 @@ Zasady:
     days: frequencyKind === "daily" ? [0, 1, 2, 3, 4, 5, 6]
       : frequencyKind === "weekdays" ? [1, 2, 3, 4, 5] : customDays,
   }), [frequencyKind, customDays]);
-  const previewDays = useMemo(() => {
-    const validDate = (value: string) => {
+  const validDate = (value: string) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
       const date = new Date(`${value}T12:00:00`);
       return Number.isFinite(date.getTime()) && date.getFullYear() === Number(value.slice(0, 4)) &&
         date.getMonth() + 1 === Number(value.slice(5, 7)) && date.getDate() === Number(value.slice(8, 10));
-    };
+  };
+  const validCsv = rows.length > 0 && rows.every(row => !row.date || validDate(row.date));
+  const previewDays = useMemo(() => {
     if (!validDate(startDate) || rows.some(row => row.date && !validDate(row.date)) ||
       (frequencyKind === "custom" && !customDays.length)) return [];
     try {
@@ -1499,7 +1500,7 @@ Zasady:
   const scheduleSummary = <section className="plan-schedule-summary" aria-label="Podsumowanie harmonogramu" aria-live="polite">
     <strong>{groupName || "Twój plan"}</strong>
     {previewDays.length > 0 ? <>
-      <p>{frequencyKind === "daily" ? "Codziennie" : frequencyKind === "weekdays" ? "Od poniedziałku do piątku" : "Wybrane dni tygodnia"} · Start: <b>{formatPolishDate(previewDays[0].date, "shortYear")}</b></p>
+      <p>{rows.some(row => row.date) ? "Harmonogram z datami z pliku CSV" : frequencyKind === "daily" ? "Codziennie" : frequencyKind === "weekdays" ? "Od poniedziałku do piątku" : "Wybrane dni tygodnia"} · Start: <b>{formatPolishDate(previewDays[0].date, "shortYear")}</b></p>
       <p><b>{previewDays.length}</b> {previewDays.length === 1 ? "czytanie" : "czytań"} · Przewidywany koniec: <b>{formatPolishDate(previewDays.at(-1)!.date, "shortYear")}</b></p>
     </> : <p>{planSource === "custom" && !rows.length ? "Wgraj plik CSV, aby zobaczyć podsumowanie."
       : "Sprawdź daty w pliku CSV i datę startu oraz wybierz co najmniej jeden dzień czytania."}</p>}
@@ -1540,7 +1541,7 @@ Zasady:
             <p role="status">{copyStatus}</p>
           </details>
           {rows.length > 0 && !previewDays.length && scheduleSummary}
-          <button type="button" className="main-button" disabled={!rows.length || fileLoading || !previewDays.length} onClick={() => { setError(""); setStep(2); }}>Dalej</button>
+          <button type="button" className="main-button" disabled={!validCsv || fileLoading} onClick={() => { setError(""); setStep(2); }}>Dalej</button>
         </div> : <form onSubmit={submit}>
           <p>Twój plan jest gotowy. Jak masz na imię?</p>
           <Field label="Twoje imię"><input type="text" name="ownerName" autoComplete="name" maxLength={80} placeholder="np. Marek" value={ownerName} onChange={event => setOwnerName(event.target.value)} required disabled={busy} /></Field>
@@ -2171,7 +2172,7 @@ export function TodayView({
         try { await onToggle(segmentId, completed, !finishesDay); }
         catch { onError("Nie udało się zapisać zmiany. Spróbuj ponownie."); }
       } else {
-        await toggleChapterSelection(segmentId, indices.length ? indices : allIndices, completed, false, !finishesDay || indices.length < allIndices.length);
+        await toggleChapterSelection(segmentId, indices.length ? indices : allIndices, completed, false, !finishesDay);
       }
     };
     if (finishesDay) await saveFinalReading(chapterIndex === undefined ? segmentId : `${segmentId}:${chapterIndex}`, save);
