@@ -100,6 +100,24 @@ it("keeps the form usable when a CSV contains an invalid date", async () => {
   expect(button(container.querySelector("form") ? "Utwórz plan" : "Dalej").disabled).toBe(true);
 });
 
+it("describes imported dates without claiming the selected frequency governs them", async () => {
+  await openSetup(); await click("Mam własny plan →");
+  vi.stubGlobal("FileReader", class {
+    result = "Data;Fragment\n2026-10-15;Rdz 1\n2026-10-22;Rdz 2";
+    onload: (() => void) | null = null;
+    readAsText() { this.onload?.(); }
+  });
+  const file = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(file, "files", { value: [new File([""], "plan.csv")] });
+  await act(async () => file.dispatchEvent(new Event("change", { bubbles: true })));
+  await click("Dalej");
+  expect(summary()).toContain("Harmonogram z datami z pliku CSV");
+  expect(summary()).not.toContain("Codziennie");
+  await click("Od poniedziałku do piątku");
+  expect(summary()).toContain("Harmonogram z datami z pliku CSV");
+  expect(summary()).not.toContain("Od poniedziałku do piątku");
+});
+
 it("rejects an extended start year before scheduling", async () => {
   await openSetup();
   await click("Wybierz plan");
@@ -165,6 +183,46 @@ it("keeps name and schedule across back navigation and focuses each step heading
   await click("Wybierz plan");
   expect(container.querySelector<HTMLInputElement>('input[name="ownerName"]')?.value).toBe("Tester");
   expect(summary()).toBe(expected);
+});
+
+it.each(["date", "days"])("lets a custom CSV return to repair invalid %s without losing input", async invalid => {
+  await openSetup(); await click("Mam własny plan →");
+  vi.stubGlobal("FileReader", class {
+    result = "Dzień;Fragment\n1;Rdz 1";
+    onload: (() => void) | null = null;
+    readAsText() { this.onload?.(); }
+  });
+  const file = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(file, "files", { value: [new File([""], "plan.csv")] });
+  await act(async () => file.dispatchEvent(new Event("change", { bubbles: true })));
+  await click("Dalej");
+  if (invalid === "date") {
+    const date = container.querySelector<HTMLInputElement>('input[type="date"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(date, "");
+      date.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  } else {
+    await click("Wybierz dni");
+    for (const day of [...container.querySelectorAll<HTMLButtonElement>('.simple-days button.active')]) {
+      await act(async () => day.click());
+    }
+  }
+  expect(button("Utwórz plan").disabled).toBe(true);
+  await click("Wróć");
+  expect(button("Dalej").disabled).toBe(false);
+  await click("Dalej");
+  expect(container.querySelector("h1")?.textContent).toBe("Zacznij czytać");
+  expect(button("Utwórz plan").disabled).toBe(true);
+  if (invalid === "date") {
+    const date = container.querySelector<HTMLInputElement>('input[type="date"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(date, "2026-10-15");
+      date.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  } else await click("Codziennie");
+  expect(button("Utwórz plan").disabled).toBe(false);
+  expect(summary()).toContain("1 czytanie");
 });
 
 it("copies the edited prompt, reports success and selects text on clipboard failure", async () => {
