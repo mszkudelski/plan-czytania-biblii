@@ -1,3 +1,4 @@
+import { readingChapters } from "./lib/reading-parts";
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -55,7 +56,7 @@ it.each([false, true])("opens original completed, overdue and future rows withou
     vi.spyOn(window, "scrollY", "get").mockReturnValue(720);
     await click(row);
     const card = container.querySelector<HTMLElement>('.reading-focus')!;
-    expect(card.textContent).toContain(group.planDays[index].segments[0].label);
+    for (const chapter of readingChapters(group.planDays[index].segments[0])) expect(card.textContent).toContain(chapter);
     expect(document.activeElement).toBe(card);
     expect(card.querySelector('time')!.dateTime).toBe(group.planDays[index].date);
     expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 0, behavior: "instant" });

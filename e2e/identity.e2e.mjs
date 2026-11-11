@@ -44,17 +44,19 @@ test(`creating a ${source} plan explains group recovery without personal-code op
   const plan = inputPlan('create-ui');
   await page.goto('/');
   await page.getByRole('button', { name: 'Utwórz plan', exact: true }).click();
-  await page.getByLabel('Nazwa grupy').fill(plan.name);
-  await page.getByLabel('Twoje imię').fill(plan.ownerName);
   if (source === 'custom') {
-  await page.getByRole('button', { name: 'Własny plan', exact: true }).click();
+  await page.getByRole('button', { name: 'Mam własny plan →', exact: true }).click();
   await page.locator('input[type="file"]').setInputFiles({
     name: 'e2e.csv', mimeType: 'text/csv', buffer: Buffer.from('Dzień;Stary Testament;Nowy Testament\nDzień 1;Rdz 1;Mt 1'),
   });
+    await page.getByRole('button', { name: 'Dalej', exact: true }).click();
   } else {
-    await expect(page.getByRole('button', { name: 'Gotowy plan', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('input[type="file"]')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Wybierz plan', exact: true }).click();
   }
+  await page.getByLabel('Twoje imię').fill(plan.ownerName);
+  await page.getByText('Dostosuj plan', { exact: true }).click();
+  await page.getByLabel('Nazwa planu', { exact: true }).fill(plan.name);
   await page.locator('form').getByRole('button', { name: 'Utwórz plan', exact: true }).click();
   await expect(page.getByRole('heading', { name: /^E2E /, exact: false })).toBeVisible();
   const credentials = await browserCredentials(page);
@@ -232,11 +234,40 @@ test('existing personal codes stay hidden across settings, reload and logout', a
 test('creation rejects invalid start and CSV dates without freezing the form', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Utwórz plan', exact: true }).click();
+  await page.getByRole('button', { name: 'Wybierz plan', exact: true }).click();
+  await page.getByText('Dostosuj plan', { exact: true }).click();
   await page.getByLabel('Start', { exact: true }).fill('10000-01-01');
   await expect(page.getByRole('region', { name: 'Podsumowanie harmonogramu' })).toContainText('Sprawdź daty');
   await page.getByLabel('Start', { exact: true }).fill('2026-11-04');
-  await page.getByRole('button', { name: 'Własny plan', exact: true }).click();
+  await page.getByRole('button', { name: 'Wróć', exact: true }).click();
+  await page.getByRole('button', { name: 'Mam własny plan →', exact: true }).click();
   await page.locator('input[type="file"]').setInputFiles({ name: 'invalid.csv', mimeType: 'text/csv', buffer: Buffer.from('Data;Fragment\n2026-02-30;Rdz 1') });
   await expect(page.getByRole('region', { name: 'Podsumowanie harmonogramu' })).toContainText('Sprawdź daty');
-  await expect(page.locator('form').getByRole('button', { name: 'Utwórz plan', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Dalej', exact: true })).toBeDisabled();
 });
+
+for (const width of [1280, 390]) {
+  test('two-step setup keeps optional CSV instructions hidden and preserves input at width ' + width, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Utwórz plan', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Od czego chcesz zacząć?' })).toBeFocused();
+    await expect(page.getByLabel('Twoje imię')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Mam własny plan →', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Dalej', exact: true })).toBeDisabled();
+    await expect(page.getByLabel('Prompt do przygotowania planu')).toBeHidden();
+    await page.getByText('Jak przygotować plan?', { exact: true }).click();
+    await page.getByLabel('Prompt do przygotowania planu').fill('Przygotuj 30 czytań Jana.');
+    await page.getByRole('button', { name: 'Kopiuj prompt', exact: true }).click();
+    await expect(page.getByRole('status')).toContainText(/Skopiowano|skopiuj go ręcznie/);
+    await page.locator('input[type="file"]').setInputFiles({ name: 'e2e.csv', mimeType: 'text/csv', buffer: Buffer.from('Dzień;Fragment\n1;J 1\n2;J 2') });
+    await page.getByRole('button', { name: 'Dalej', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Zacznij czytać' })).toBeFocused();
+    await expect(page.getByLabel('Nazwa planu', { exact: true })).toBeHidden();
+    await page.getByLabel('Twoje imię').fill('Tester E2E');
+    await page.getByRole('button', { name: 'Wróć', exact: true }).click();
+    await page.getByRole('button', { name: 'Dalej', exact: true }).click();
+    await expect(page.getByLabel('Twoje imię')).toHaveValue('Tester E2E');
+    await expect(page.getByRole('region', { name: 'Podsumowanie harmonogramu' })).toContainText('2 czytań');
+  });
+}

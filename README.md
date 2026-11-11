@@ -166,6 +166,24 @@ Obsługiwane są separatory `;`, `,` oraz tabulator. Kolumny `Data/Date` i
 kolumna staje się osobnym fragmentem. Jeśli plan zawiera kolumnę
 `Fragmenty/Readings`, wiele fragmentów można rozdzielić znakiem `|`.
 
+Domyślnie zwykłe czytanie pokazuje całe fragmenty. Przy czytaniu można wybrać
+**Widok czytania → Osobne rozdziały**: zakres `Rdz 1–3` daje wtedy trzy pola
+odznaczania: `Rdz 1`, `Rdz 2`, `Rdz 3`. Wybór jest zapamiętywany osobno dla
+profilu i planu na danym urządzeniu. Zmiana widoku zachowuje postęp.
+Nadrabianie automatycznie pokazuje osobne rozdziały; po wyłączeniu wraca
+wybrany widok zwykłego czytania. Obsługiwane są też `-`, `—`, `−`, księgi
+numerowane (`1 Kor 1–3`) i zapisy mieszane, np. `Rdz 1–3; J 3,16–18`.
+Średnik wewnątrz komórki CSV wymaga ujęcia całej komórki w cudzysłowy,
+jeśli jest również separatorem kolumn.
+
+Przecinek w `J 3,16–18` oznacza wersety, a nie listę rozdziałów.
+Zakresy i listy wersetów, również przechodzące między rozdziałami
+(`Rdz 1,20–2,3`), pozostają jednym dokładnym fragmentem do odznaczenia.
+Dwukropek (`J 3:16–18`) jest również obsługiwany. Rozdziały i fragmenty
+można łączyć średnikiem, np. `Rdz 1–3; 5; J 3,16–18; 4,1–5`.
+Niejasne lub niepoprawne zapisy pozostają w całości. Starsze plany zachowują
+dotychczasowy podział i zapisany postęp.
+
 Jeżeli każdy wiersz ma datę w formacie `YYYY-MM-DD` lub `DD.MM.YYYY`, aplikacja
 użyje dat z pliku. W przeciwnym razie wyliczy daty od wybranego startu i według
 wybranej częstotliwości.

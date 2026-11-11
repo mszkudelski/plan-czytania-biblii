@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Group, PlanDay } from "../types";
 import { PLAN_RESTORE_TTL, restoreGroupPlan, replaceGroupPlan, replacementSummary } from "./plan-replacement";
 import { applyProgressLog, progressLogKey } from "./progress-log";
+import { readingChapters } from "./reading-parts";
 
 const time = Date.parse("2026-10-19T12:00:00Z");
 function plan(labels: string[]): PlanDay[] {
@@ -20,6 +21,31 @@ function replace(group: Group, labels: string[], revision = "v1") {
 }
 
 describe("plan replacement", () => {
+  it("preserves historical indices when a matched replacement changes dash notation", () => {
+    const group = fixture();
+    const incoming = plan(["Mt 1 — 2"]);
+    incoming[0].segments[0].referenceVersion = 1;
+    const next = replaceGroupPlan(group, { planDays: incoming, startDate: group.startDate,
+      frequency: group.frequency, expectedRevision: "" }, "v1", time);
+    expect(next.planDays[0].segments[0].id).toBe("s1");
+    expect(readingChapters(next.planDays[0].segments[0])).toEqual(["Mt 1", "Mt 2"]);
+    expect(next.progress.b.s1).toBe("other member");
+  });
+  it("retains the reference version when reusing IDs and restores it with the saved plan", () => {
+    const group = fixture();
+    group.planDays[0].segments[0].label = "Rdz 1-3; J 3,16–18";
+    const incoming = plan(["Rdz 1-3; J 3,16–18", "J 4-5"]);
+    incoming.forEach(day => { day.segments[0].referenceVersion = 1; });
+    const next = replaceGroupPlan(group, { planDays: incoming, startDate: group.startDate,
+      frequency: group.frequency, expectedRevision: "" }, "v1", time);
+    expect(next.planDays[0].segments[0].referenceVersion).toBeUndefined();
+    expect(readingChapters(next.planDays[0].segments[0])).toEqual(["Rdz 1-3; J 3,16–18"]);
+    expect(next.planDays[1].segments[0].referenceVersion).toBe(1);
+    expect(readingChapters(next.planDays[1].segments[0])).toEqual(["J 4", "J 5"]);
+    const restored = restoreGroupPlan(next, "v1", "v2", time + 1);
+    expect(restored.planDays[0].segments[0].referenceVersion).toBeUndefined();
+    expect(restored.progress.a[restored.planDays[0].segments[0].id]).toBe("legacy");
+  });
   it("retains dates and per-member timestamps by reading rather than position or CSV heading", () => {
     const group = fixture();
     const original = JSON.stringify(group);

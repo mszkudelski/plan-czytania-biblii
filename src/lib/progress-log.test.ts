@@ -70,6 +70,17 @@ it("merges independent chapter writes and synchronizes partial unchecks without 
   expect(JSON.stringify(group)).toBe(original);
 });
 
+it("does not reinterpret historical chapter intents with the expanded reference parser", async () => {
+  const { chapterProgressLogKey: key } = await import("./progress-log");
+  const group = fixture(); group.progress.a = {};
+  group.planDays[0].segments[0].label = "Rdz 1-3; J 3,16–18";
+  const keys = [key("g", "a", 0, true, [0], false, timestamp, "a")];
+  expect(applyProgressLog(group, keys).progress.a.s0).toBeDefined();
+  group.planDays[0].segments[0].referenceVersion = 1;
+  expect(applyProgressLog(group, keys).progress.a.s0).toBeUndefined();
+  expect(applyProgressLog(group, keys).chapterProgress?.a.s0).toEqual([0]);
+});
+
 it("imports legacy marks idempotently at lower priority than subsequent edits, including whole-fragment unchecks", async () => {
   const { chapterProgressLogKey: key } = await import("./progress-log");
   const group = fixture(); group.progress.a = {};

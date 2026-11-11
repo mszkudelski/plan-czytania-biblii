@@ -1,6 +1,6 @@
 import type { Group } from "../types";
 import { applyChapterProgress } from "./chapter-progress";
-import { splitReadingChapters } from "./recovery";
+import { readingChapters } from "./reading-parts";
 
 const PREFIX = "progress-v1/";
 export function progressLogPrefix(groupId: string) {
@@ -49,7 +49,7 @@ export function applyProgressLog<T extends Group>(group: T, keys: string[]): T {
         !["0", "1"].includes(completed)) continue;
     const segmentId = segmentIds[index];
     const indices = chapterText === undefined ? undefined : chapterText.split(".").map(value => parseInt(value, 36));
-    const count = splitReadingChapters(segments.find(segment => segment.id === segmentId)!.label).length;
+    const count = readingChapters(segments.find(segment => segment.id === segmentId)!).length;
     if (action.split(":").length > 2 || indices && (!/^[0-9a-z]+(\.[0-9a-z]+)*$/.test(chapterText!) ||
       indices.some(index => !Number.isSafeInteger(index) || index < 0 || index >= count))) continue;
     // Legacy imports are lower priority than every real server operation and
