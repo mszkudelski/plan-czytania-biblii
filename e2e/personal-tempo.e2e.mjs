@@ -5,7 +5,7 @@ test.use({ screenshot: 'off' });
 const credentialsKey = 'plan-czytania-biblii-credentials';
 const iso = d => d.toISOString().slice(0, 10);
 function futureMonday() { const d = new Date(); d.setUTCHours(12,0,0,0); d.setUTCDate(d.getUTCDate() + (8 - d.getUTCDay()) % 7 + 7); return iso(d); }
-for (const width of [1280, 390]) {
+for (const width of [1280, 390, 320]) {
   test('personal days sync between devices while preserving the group plan at width ' + width, async ({ page, request, browser }) => {
     const input = inputPlan('personal-tempo-' + width); const start = futureMonday();
     input.startDate = start;
@@ -18,6 +18,20 @@ for (const width of [1280, 390]) {
     await page.evaluate(({ key, credentials }) => localStorage.setItem(key, JSON.stringify(credentials)), { key: credentialsKey, credentials: session.credentials });
     await page.reload(); await tab(page, 'Ustawienia').click();
     await page.getByRole('button', { name: /Moje dni czytania/ }).click();
+    const tempoCard = page.getByRole('region', { name: 'Moje dni czytania' });
+    const layout = await tempoCard.evaluate(card => {
+      const box = card.getBoundingClientRect();
+      const presets = [...card.querySelectorAll('.simple-segmented button')].map(b => b.getBoundingClientRect());
+      const days = card.querySelector('.simple-days').getBoundingClientRect();
+      return { padding: parseFloat(getComputedStyle(card).paddingLeft),
+        presetTops: presets.map(b => b.top),
+        contained: presets.every(b => b.left >= box.left && b.right <= box.right && b.bottom <= days.top),
+        noOverflow: document.documentElement.scrollWidth <= innerWidth };
+    });
+    expect(layout.padding).toBeGreaterThanOrEqual(16);
+    expect(new Set(layout.presetTops).size).toBe(1);
+    expect(layout.contained).toBe(true);
+    expect(layout.noOverflow).toBe(true);
     await expect(page.getByText('Podgląd czytań', { exact: true }).locator('..')).not.toHaveAttribute('open', '');
     await page.getByRole('button', { name: '3 dni', exact: true }).click();
     await page.getByRole('button', { name: 'Zapisz', exact: true }).click();
