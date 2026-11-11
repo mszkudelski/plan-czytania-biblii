@@ -35,6 +35,7 @@ for (const width of [1280, 390]) {
     await expect(reading(page, '1 Kor 2')).toHaveAttribute('aria-pressed', 'true');
     await expect(reading(page, '1 Kor 2')).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(chapters).toEqual([1]);
+    const confirmedIndices = [1];
     for (const label of labels.filter(label => label !== '1 Kor 2')) {
       await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'false');
       if (label === labels.at(-1)) {
@@ -43,13 +44,20 @@ for (const width of [1280, 390]) {
         await expect(page.getByRole('alert')).toContainText('Nie udało się zapisać');
         await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'false');
         await expectSaved(request, session, []);
+        await expect.poll(chapters).toEqual([0, 1, 2, 3]);
         const held = await holdNextProgress(page, session);
         try {
           await reading(page, label).click(); await held.started;
           await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'false');
           await expectSaved(request, session, []);
         } finally { held.release(); }
-      } else await reading(page, label).click();
+      } else {
+        await reading(page, label).click();
+        confirmedIndices.push(labels.indexOf(label));
+        confirmedIndices.sort((a, b) => a - b);
+        // Target the final write only after all earlier writes reached the real API.
+        await expect.poll(chapters).toEqual([...confirmedIndices]);
+      }
     }
     await expect.poll(chapters).toEqual([0, 1, 2, 3, 4]);
     await expectSaved(request, session, ['s0']);
