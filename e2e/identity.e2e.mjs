@@ -278,7 +278,9 @@ for (const width of [1280, 390]) {
     await page.getByText('Dostosuj plan', { exact: true }).click();
     await page.getByLabel('Start', { exact: true }).fill('2026-11-11');
     await page.getByRole('button', { name: 'Wybierz dni', exact: true }).click();
-    for (const day of await page.locator('.simple-days button.active').all()) await day.click();
+    const selectedDays = page.locator('.simple-days button.active');
+    while (await selectedDays.count()) await selectedDays.first().click();
+    await expect(page.locator('.simple-days button.active')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Utwórz plan', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: 'Wróć', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Dalej', exact: true })).toBeEnabled();
