@@ -62,10 +62,6 @@ function button(label: string) {
   return element;
 }
 async function click(label: string) { await act(async () => button(label).click()); }
-async function chooseReadingView(value: "fragments" | "chapters") {
-  const select = container.querySelector<HTMLSelectElement>('select[aria-label="Widok czytania"]')!;
-  await act(async () => { select.value = value; select.dispatchEvent(new Event("change", { bubbles: true })); });
-}
 async function flush() { await act(async () => { await Promise.resolve(); }); }
 
 beforeEach(() => {
@@ -83,8 +79,7 @@ it("checks each chapter of a new mixed reading independently and completes only 
   Object.assign(g.planDays[0].segments[0], { label: "Rdz 1–3; J 3,16–18", referenceVersion: 1 });
   const f = mount(g, false); await act(async () => f.render());
   const labels = () => [...container.querySelectorAll('.simple-readings strong')].map(node => node.textContent);
-  expect(labels()).toEqual(["Rdz 1–3; J 3,16–18"]);
-  await chooseReadingView("chapters");
+  expect(container.querySelector('select[aria-label="Widok czytania"]')).toBeNull();
   expect(f.writes).toHaveLength(0);
   expect(labels()).toEqual(["Rdz 1", "Rdz 2", "Rdz 3", "J 3,16–18"]);
   expect(container.querySelector('[aria-label="Postęp wybranego czytania"]')?.textContent).toBe("0/4");
@@ -94,10 +89,8 @@ it("checks each chapter of a new mixed reading independently and completes only 
   expect(f.group.progress.m.s0).toBeUndefined();
   expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("false");
   expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("true");
-  await chooseReadingView("fragments");
-  expect(button("Rdz 1–3; J 3,16–18").textContent).toContain("Przeczytano 1 z 4 części");
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("true");
   expect(f.writes).toHaveLength(1);
-  await chooseReadingView("chapters");
   expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("true");
   await click("Rdz 3"); await act(async () => f.writes[1].reject());
   expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("false");
@@ -113,26 +106,27 @@ it("checks each chapter of a new mixed reading independently and completes only 
   expect(f.group.progress.m.s0).toBeUndefined();
 });
 
-it("remembers the chosen normal reading view across remounts without changing progress", async () => {
+it("always splits normal reading across remounts and ignores the old whole-fragment preference", async () => {
   const g = plan(); g.planDays[0].segments[0].label = "Rdz 1-3";
+  localStorage.setItem("reading-view:g:m", "fragments");
   const f = mount(g, false); await act(async () => f.render());
-  expect(button("Rdz 1-3").getAttribute("aria-pressed")).toBe("false");
-  await chooseReadingView("chapters");
-  expect(localStorage.getItem("reading-view:g:m")).toBe("chapters");
-  expect(f.writes).toHaveLength(0);
-  await act(async () => root.unmount()); root = createRoot(container);
-  const reloaded = mount(g, false); await act(async () => reloaded.render());
   expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("false");
-  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Widok czytania"]')?.value).toBe("chapters");
-  await chooseReadingView("fragments");
-  await click("Rdz 1-3"); await act(async () => reloaded.writes[0].resolve());
-  expect(reloaded.group.chapterProgress?.m.s0).toEqual([0, 1, 2]);
-  await chooseReadingView("chapters");
-  for (const label of ["Rdz 1", "Rdz 2", "Rdz 3"]) expect(button(label).getAttribute("aria-pressed")).toBe("true");
-  expect(reloaded.writes).toHaveLength(1);
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
+  expect(container.querySelector('select[aria-label="Widok czytania"]')).toBeNull();
+  expect(f.writes).toHaveLength(0);
+  await click("Rdz 2"); await act(async () => f.writes[0].resolve());
+  expect(f.group.chapterProgress?.m.s0).toEqual([1]);
+  await act(async () => root.unmount()); root = createRoot(container);
+  const reloaded = mount(f.group, false); await act(async () => reloaded.render());
+  expect(reloaded.group.chapterProgress?.m.s0).toEqual([1]);
+  expect([...container.querySelectorAll('.simple-readings strong')].map(node => node.textContent)).toEqual(["Rdz 1", "Rdz 3"]);
+  await click("Rdz 1"); await act(async () => reloaded.writes[0].resolve());
+  expect(reloaded.group.chapterProgress?.m.s0).toEqual([0, 1]);
+  expect(reloaded.group.progress.m.s0).toBeUndefined();
+  expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("false");
 });
 
-it("automatically splits recovery without overwriting the normal view preference", async () => {
+it("keeps single chapters when recovery is disabled despite an old preference", async () => {
   const g = plan(); g.planDays[0].segments[0].label = "Rdz 1-3";
   localStorage.setItem("reading-view:g:m", "fragments");
   const f = mount(g); await act(async () => f.render());
@@ -141,7 +135,8 @@ it("automatically splits recovery without overwriting the normal view preference
   expect(container.querySelector('select[aria-label="Widok czytania"]')).toBeNull();
   expect(localStorage.getItem("reading-view:g:m")).toBe("fragments");
   await click("Wyłącz nadrabianie");
-  expect(button("Rdz 1-3")).toBeDefined();
+  expect(button("Rdz 1")).toBeDefined();
+  expect(button("Rdz 3")).toBeDefined();
   expect(f.writes).toHaveLength(0);
 });
 
@@ -152,13 +147,15 @@ it("keeps view preferences scoped to the current plan and profile", async () => 
   expect(button("Rdz 1")).toBeDefined();
   const other = structuredClone(g); other.id = "other";
   await act(async () => f.refresh(other));
-  expect(button("Rdz 1-3")).toBeDefined();
+  expect(button("Rdz 1")).toBeDefined();
+  expect(button("Rdz 3")).toBeDefined();
   expect(localStorage.getItem("reading-view:g:m")).toBe("chapters");
   const samePlanOtherProfile = structuredClone(g);
   samePlanOtherProfile.members[0].id = "other-member";
   samePlanOtherProfile.progress = { "other-member": {} };
   await act(async () => f.refresh(samePlanOtherProfile));
-  expect(button("Rdz 1-3")).toBeDefined();
+  expect(button("Rdz 1")).toBeDefined();
+  expect(button("Rdz 3")).toBeDefined();
 });
 
 it("sends one request for a recovery check, without a second autosync request", async () => {
@@ -413,7 +410,6 @@ it("normal reading shows only chapters not already consumed by a recovery extra"
   await act(async () => f.writes[1].resolve());
   expect(f.group.progress.m.s1).toBeUndefined();
   await click("Wyłącz nadrabianie"); await click("Następne");
-  await chooseReadingView("chapters");
   expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("false");
   expect(button("Rdz 4").getAttribute("aria-pressed")).toBe("false");
   await click("Rdz 3");
@@ -454,7 +450,6 @@ it("keeps the labels and chapter selection stable while toggling a normal partia
   const g = plan(); g.planDays[0].segments[0].label = "Rdz 1-3";
   g.chapterProgress = { m: { s0: [0] } };
   const f = mount(g, false); await act(async () => f.render());
-  await chooseReadingView("chapters");
   await click("Rdz 2");
   expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("true");
   expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("false");
@@ -548,8 +543,8 @@ it("imports legacy prefix and sparse marks only after verification and updates t
   await act(async () => f.writes[0].resolve());
   expect(f.group.chapterProgress?.m.s0).toEqual([0, 2]);
   expect(f.group.progress.m.s0).toBeUndefined();
-  expect(button("Rdz 2 · Rdz 4")).toBeDefined();
-  await chooseReadingView("chapters");
+  expect(button("Rdz 2")).toBeDefined();
+  expect(button("Rdz 4")).toBeDefined();
   expect(button("Rdz 2")).toBeDefined();
   expect(button("Rdz 4")).toBeDefined();
   expect(localStorage.getItem(`${KEY}:chapters-synced-v1`)).toBe("1");

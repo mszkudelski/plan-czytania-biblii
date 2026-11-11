@@ -1859,18 +1859,6 @@ export function TodayView({
     group, member.id, today, localStorage.getItem(normalPortionKey) ?? "",
   )?.id ?? "");
   const progress = group.progress[member.id] ?? {};
-  const readingViewKey = `reading-view:${group.id}:${member.id}`;
-  const [readingView, setReadingView] = useState(() => ({ key: readingViewKey,
-    split: localStorage.getItem(readingViewKey) === "chapters" }));
-  useEffect(() => {
-    setReadingView({ key: readingViewKey, split: localStorage.getItem(readingViewKey) === "chapters" });
-  }, [readingViewKey]);
-  const preferChapters = readingView.key === readingViewKey && readingView.split;
-  function changeReadingView(split: boolean) {
-    setReadingView({ key: readingViewKey, split });
-    try { localStorage.setItem(readingViewKey, split ? "chapters" : "fragments"); }
-    catch { onError("Nie udało się zapamiętać widoku na tym urządzeniu. Bieżący wybór nadal działa."); }
-  }
   const [notificationDay, setNotificationDay] = useState(() => reminderReadingDay(group, window.location.search));
   const initialIndex = dailyDayId
     ? group.planDays.findIndex((day) => day.id === dailyDayId)
@@ -2048,7 +2036,7 @@ export function TodayView({
     if (!hadRecoverySession.current && !notificationDay && !planReading) setSelectedIndex(resumedIndex);
   }, [dailyKey, group.planDays, portionKey, progress, promptReady, recoveryKey, recoveryStart, week.overdueReadings, savingProgress, notificationDay, scheduleKey, currentDailyComplete, finalReadingId, recoveryDayKey, planReading, chaptersReady]);
   const useRecoveryView = Boolean((recoveryActive || finishedRecoveryView) && !notificationDay && !planReading);
-  const splitChapters = useRecoveryView || preferChapters;
+  const splitChapters = true;
   // Checking a row changes progress, not the navigation or the selected date.
   // Rebuild this snapshot only when entering/leaving recovery or its schedule changes.
   const navigationDays = useMemo(() => useRecoveryView
@@ -2296,14 +2284,6 @@ export function TodayView({
           <p>Wspólne czytanie zaczyna się {formatPolishDate(group.startDate, "shortYear")}.</p></div></section>
       ) : null}
       {showReading && displayedDay && <section className="reading-focus" aria-label="Wybrane czytanie" tabIndex={-1}>
-        {!useRecoveryView && <label className="reading-view-choice">
-          <span>Widok czytania <small>na tym urządzeniu</small></span>
-          <select aria-label="Widok czytania" value={preferChapters ? "chapters" : "fragments"}
-            disabled={Boolean(finalReadingId)} onChange={event => changeReadingView(event.target.value === "chapters")}>
-            <option value="fragments">Całe fragmenty</option>
-            <option value="chapters">Osobne rozdziały</option>
-          </select>
-        </label>}
         <DayCard day={displayedDay} progress={displayedProgress} onToggle={toggleDisplayedSegment} restDay={home.restDay}
           chapters={displayedChapters} splitChapters={splitChapters}
           pendingReading={finalReadingId} disabled={Boolean(finalReadingId)}

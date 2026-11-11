@@ -11,7 +11,7 @@ for (const width of [1280, 390]) {
     const session = await response.json();
     test.info().annotations.push({ type: 'test-plan', description: session.group.id });
     await openPlan(page, session);
-    await expect(reading(page, plan.planDays[0].segments[0].label)).toBeVisible();
+    await expect(reading(page, '1 Kor 1')).toBeVisible();
     await enableRecovery(page);
     await expect(page.getByLabel('Widok czytania', { exact: true })).toHaveCount(0);
     await expect(reading(page, '1 Kor 1')).toBeVisible();
@@ -19,9 +19,8 @@ for (const width of [1280, 390]) {
     await expect(reading(page, 'J 3,16–18')).toBeVisible();
     await expectSaved(request, session, []);
     await page.getByRole('button', { name: 'Wyłącz nadrabianie', exact: true }).click();
-    await expect(page.getByLabel('Widok czytania', { exact: true })).toHaveValue('fragments');
-    await expect(reading(page, plan.planDays[0].segments[0].label)).toBeVisible();
-    await page.getByLabel('Widok czytania', { exact: true }).selectOption('chapters');
+    await expect(page.getByLabel('Widok czytania', { exact: true })).toHaveCount(0);
+    await expect(reading(page, '1 Kor 1')).toBeVisible();
     const labels = ['1 Kor 1', '1 Kor 2', '1 Kor 3', 'J 3,16–18', 'J 4:1-5'];
     for (const label of labels) await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'false');
     const chapters = async () => (await readGroup(request, session)).chapterProgress?.[session.credentials.memberId]?.s0;
@@ -29,15 +28,13 @@ for (const width of [1280, 390]) {
     await expect.poll(chapters).toEqual([1]);
     await expectSaved(request, session, []);
     await page.reload();
-    await expect(page.getByLabel('Widok czytania', { exact: true })).toHaveValue('chapters');
+    await expect(page.getByLabel('Widok czytania', { exact: true })).toHaveCount(0);
     // Opening the original day in Plan includes both checked and unread parts.
     await tab(page, 'Plan').click();
     await page.locator('.plan-day-row[data-day-id="d0"]').click();
     await expect(reading(page, '1 Kor 2')).toHaveAttribute('aria-pressed', 'true');
-    await page.getByLabel('Widok czytania', { exact: true }).selectOption('fragments');
-    await expect(reading(page, plan.planDays[0].segments[0].label)).toContainText('Przeczytano 1 z 5 części');
+    await expect(reading(page, '1 Kor 2')).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(chapters).toEqual([1]);
-    await page.getByLabel('Widok czytania', { exact: true }).selectOption('chapters');
     for (const label of labels.filter(label => label !== '1 Kor 2')) {
       await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'false');
       await reading(page, label).click();
