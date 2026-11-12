@@ -53,6 +53,8 @@ export type Group = {
   members: Member[];
   progress: Record<string, Record<string, string>>;
   chapterProgress?: Record<string, Record<string, number[]>>;
+  // Completion dates reconstructed from immutable chapter operations.
+  chapterCompletedAt?: Record<string, Record<string, Record<number, string>>>;
 };
 
 export type Credentials = {
