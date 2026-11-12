@@ -9,6 +9,7 @@ export type PlanSegment = {
   id: string;
   label: string;
   section: string;
+  personalSource?: { segmentId: string; chapterIndex: number; dayId: string };
   // Missing on historical plans: retain their original progress index mapping.
   referenceVersion?: 1;
 };
@@ -21,15 +22,19 @@ export type PlanDay = {
   segments: PlanSegment[];
 };
 
+export type PersonalTempo = { version: number; planRevision: string; changes: Array<{ days: number[]; effectiveFrom: string }> };
+
 export type Member = {
   id: string;
   name: string;
   color: string;
   isAdmin: boolean;
+  personalTempo?: PersonalTempo;
   readingStart?: { skippedSegmentIds: string[]; autoRecoveryAt?: string };
 };
 
 export type Group = {
+  personalProjection?: { memberId: string; original: Group };
   id: string;
   // Analytics identity is independent of group access and participant identity.
   analyticsPlanId?: string;

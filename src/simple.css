@@ -2072,3 +2072,24 @@ body:has(.notification-card) .install-app-card { display: none; }
 .setup-custom-plan textarea { width: 100%; box-sizing: border-box; resize: vertical; }
 .setup-custom-plan pre { overflow-x: auto; }
 .setup-box h1:focus { outline: none; }
+
+.personal-tempo { padding: 20px; min-width: 0; }
+.personal-tempo > h2 { margin: 0 0 1rem; }
+.personal-tempo fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.personal-tempo .simple-segmented { grid-template-columns: repeat(4, minmax(0, 1fr)); height: auto; min-height: 44px; margin-bottom: 1rem; gap: 3px; }
+.personal-tempo .simple-segmented button { min-height: 36px; }
+.personal-tempo .simple-days { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.personal-tempo .simple-days { margin-bottom: 1rem; }
+.tempo-setting-button { display: flex; justify-content: space-between; gap: 1rem; width: 100%; border: 0; padding: .5rem 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.tempo-preview { max-height: 18rem; overflow: auto; padding-left: 1.5rem; }
+.tempo-preview li { margin: .75rem 0; overflow-wrap: anywhere; }
+.tempo-actions { display: flex; gap: 1rem; margin-top: 1rem; }
+.tempo-setting-button > span { text-align: right; overflow-wrap: anywhere; }
+.personal-tempo summary { cursor: pointer; padding: .5rem 0; }
+@media (max-width: 400px) {
+  .personal-tempo { padding: 16px; }
+  .tempo-setting-button { flex-direction: column; gap: .5rem; }
+  .tempo-setting-button > span { text-align: left; }
+  .simple-header .simple-brand { min-width: 0; white-space: normal; }
+  .simple-header .simple-brand > span, .simple-header .header-tools { flex-shrink: 0; }
+}
