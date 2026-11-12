@@ -1,3 +1,5 @@
+import PersonalTempoSettings from "./PersonalTempoSettings";
+import { projectPersonalTempo } from "./lib/personal-tempo";
 import { readingChapters } from "./lib/reading-parts";
 import { groupStartDay, initialRecoveryStart, skippedSegmentIds, type ReadingStartChoice } from "./lib/personal-schedule";
 import PlanReplacement from "./PlanReplacement";
@@ -1685,9 +1687,12 @@ export function Dashboard({
 
   const member = visibleGroup.members.find((item) => item.id === credentials.memberId);
   if (!member) return null;
+  const readingGroup = projectPersonalTempo(visibleGroup, member.id);
   function toggle(segmentId: string, completed?: boolean, optimistic = true, indices?: number[], migrate?: boolean) {
     setProgressError("");
-    return progressQueue.toggle(segmentId, completed, optimistic, indices, migrate);
+    const source = readingGroup.planDays.flatMap(day => day.segments).find(segment => segment.id === segmentId)?.personalSource;
+    return source ? progressQueue.toggle(source.segmentId, completed, optimistic, [source.chapterIndex], migrate)
+      : progressQueue.toggle(segmentId, completed, optimistic, indices, migrate);
   }
 
   async function remove(person: Member) {
@@ -1761,8 +1766,8 @@ export function Dashboard({
         {progressError && <p className="progress-error" role="alert">{progressError}</p>}
         <div hidden={tab !== "today"}>
           <TodayView
-            key={`${group.id}:${member.id}:${today}:${visibleGroup.planRevision ?? ""}:${member.readingStart?.skippedSegmentIds.length ?? 0}`}
-            group={visibleGroup}
+            key={`${group.id}:${member.id}:${today}:${visibleGroup.planRevision ?? ""}:${member.readingStart?.skippedSegmentIds.length ?? 0}:${member.personalTempo?.version ?? 0}`}
+            group={readingGroup}
             credentials={credentials}
             promptReady={promptReady && progressReady}
             savingProgress={progressQueue.hasPending}
@@ -1771,13 +1776,14 @@ export function Dashboard({
             member={member}
             onToggle={toggle}
             onError={setProgressError}
-            onWaitForSegments={progressQueue.waitForSegments}
+            onWaitForSegments={ids => progressQueue.waitForSegments(ids.map(id => readingGroup.planDays.flatMap(day => day.segments).find(s => s.id === id)?.personalSource?.segmentId ?? id))}
           />
         </div>
         {tab === "plan" && (
           <PlanView group={visibleGroup} member={member} onIncludeSkipped={includeSkipped} onOpenReading={dayId => {
             planPosition.current = { top: window.scrollY, dayId };
-            setRequestedReading({ dayId });
+            const projected = readingGroup.planDays.find(day => day.segments.some(segment => segment.personalSource?.dayId === dayId));
+            setRequestedReading({ dayId: projected?.id ?? dayId });
             updateTab("today");
           }} />
         )}
@@ -1917,8 +1923,10 @@ export function TodayView({
     const legacyCounts = parseReadChapters(localStorage.getItem(chapterKey));
     const legacyMarks = parseChapterMarks(localStorage.getItem(`${recoveryKey}:chapter-marks`));
     const confirmed = parseReadChapters(localStorage.getItem(`${recoveryKey}:confirmed-segments`));
-    const writes = group.planDays.flatMap(day => day.segments).flatMap(segment => {
-      if (confirmed[segment.id] || group.progress[member.id]?.[segment.id]) return [];
+    // Legacy device keys and API writes use source IDs, never projected tempo IDs.
+    const migrationGroup = group.personalProjection?.original ?? group;
+    const writes = migrationGroup.planDays.flatMap(day => day.segments).flatMap(segment => {
+      if (confirmed[segment.id] || migrationGroup.progress[member.id]?.[segment.id]) return [];
       const indices = readingChapters(segment).map((_, index) => index)
         .filter(index => index < (legacyCounts[segment.id] ?? 0) || legacyMarks[segment.id]?.includes(index));
       return indices.length ? [onToggle(segment.id, true, false, indices, true)] : [];
@@ -2227,7 +2235,7 @@ export function TodayView({
     }
   }
 
-  const allSegments = group.planDays.flatMap(day => day.segments);
+  const allSegments = (group.personalProjection?.original ?? group).planDays.flatMap(day => day.segments);
   const overallPercent = calculateProgressPercent(allSegments.filter(segment => progress[segment.id]).length, allSegments.length);
   const visibleStart = Math.max(0, Math.min(displayedIndex - 2, navigationDays.length - 5));
   const visibleDates = navigationDays.slice(visibleStart, visibleStart + 5);
@@ -2585,6 +2593,7 @@ function SettingsView({
           <button type="button" className="small-button" onClick={() => downloadPlanCsv(group)}>Pobierz plan CSV</button>
         </div>
       </section>
+      <PersonalTempoSettings group={group} member={member} credentials={credentials} onSaved={onReplace} disabled={savingProgress} />
       <PlanReplacement group={group} credentials={credentials} disabled={savingProgress} onReplace={onReplace} />
       {onboarding.installAvailable &&
         <section className="settings-card"><button type="button" className="small-button" onClick={() => window.dispatchEvent(new Event("reading-install-request"))}>

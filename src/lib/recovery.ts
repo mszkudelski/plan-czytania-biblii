@@ -1,4 +1,5 @@
 import { personalGroup } from "./personal-schedule";
+import { personalReadingDays } from "./personal-tempo";
 import type { Group, PlanDay } from "../types";
 import { getNextDay } from "./metrics";
 import { readingChapters } from "./reading-parts";
@@ -204,13 +205,14 @@ function readingReference(chapter: Chapter): RecoveryReading {
     chapterIndex: chapter.chapterIndex, chapterCount: chapter.chapterCount,
   };
 }
-function nextRecoveryDate(date: string, group: Group) {
-  const allowed = group.frequency.kind === "daily" ? [0, 1, 2, 3, 4, 5, 6]
-    : group.frequency.kind === "weekdays" ? [1, 2, 3, 4, 5]
-    : group.frequency.days.filter(day => day >= 0 && day <= 6);
+function nextRecoveryDate(date: string, group: Group, memberId: string) {
   const cursor = new Date(`${date}T12:00:00`);
-  do { cursor.setDate(cursor.getDate() + 1); } while (allowed.length && !allowed.includes(cursor.getDay()));
-  return `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+  while (true) {
+    cursor.setDate(cursor.getDate() + 1);
+    const candidate = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+    const allowed = personalReadingDays(group, memberId, candidate).filter(day => day >= 0 && day <= 6);
+    if (!allowed.length || allowed.includes(cursor.getDay())) return candidate;
+  }
 }
 export function parseRecoveryPortion(
   group: Group, memberId: string, today: string,
@@ -276,7 +278,8 @@ export function parseRecoverySchedule(group: Group, memberId: string, today: str
     for (const candidate of saved) {
       const date = candidate?.day?.date;
       if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-          new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date || date <= previousDate) return;
+          new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date || date <= previousDate ||
+          previousDate && !personalReadingDays(group, memberId, date).includes(new Date(`${date}T12:00:00Z`).getUTCDay())) return;
       const portion = parseRecoveryPortion(group, memberId, date, simulated.chapters, simulated.marks, JSON.stringify(candidate));
       if (!portion) return;
       const selections = Object.entries(portion.chapterIndices).filter(([id]) => portion.day.segments.some(segment => segment.id === id));
@@ -360,7 +363,7 @@ export function projectRecoveryPortions(
     if (!base.length) {
       const nextDue = chapters.find(chapter => !isDone(chapter));
       if (!nextDue) break;
-      date = nextRecoveryDate(date, group);
+      date = nextRecoveryDate(date, group, memberId);
       continue;
     }
 
@@ -397,7 +400,7 @@ export function projectRecoveryPortions(
       day: { id: `recovery:${date}`, index: portions.length, date, title: "", segments },
       extra, chapterIndices,
     });
-    date = nextRecoveryDate(date, group);
+    date = nextRecoveryDate(date, group, memberId);
   }
   return portions;
 }

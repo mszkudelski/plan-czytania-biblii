@@ -151,12 +151,14 @@ it("ignores stale own progress from a read started before the click", async () =
   const f = fixture();
   const requestRevision = f.queue.revision;
   const save = f.queue.toggle("s1");
-  f.requests[0].task.resolve(groupWith({ s1: "saved" }));
+  const confirmed = { ...groupWith({ s1: "saved" }), chapterCompletedAt: { a: { s1: { 0: "2026-11-12T12:00:00Z" } } } };
+  f.requests[0].task.resolve(confirmed);
   await save;
   const staleRead = groupWith();
   staleRead.progress.b.other = "fresh-other-progress";
   const merged = f.queue.replaceGroup(staleRead, requestRevision);
   expect(merged.progress.a.s1).toBe("saved");
+  expect(merged.chapterCompletedAt).toEqual(confirmed.chapterCompletedAt);
   expect(f.visible.progress.a.s1).toBe("saved");
   expect(f.visible.progress.b.other).toBe("fresh-other-progress");
 });

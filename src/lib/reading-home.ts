@@ -1,4 +1,5 @@
 import { personalGroup } from "./personal-schedule";
+import { personalReadingDays } from "./personal-tempo";
 import type { Group } from "../types";
 import { getReadingBalance } from "./metrics";
 import type { RecoveryPortion } from "./recovery";
@@ -44,7 +45,7 @@ export function getReadingWeekSummary(group: Group, memberId: string, today: str
   // Keep a weekly goal when the scheduled end has passed but work remains.
   const remainingAtWeekStart = days.filter(day => !complete(day) || completedOn(day) >= weekStart).length;
   const weeklyTotal = weekly.length || (today > (days.at(-1)?.date ?? today)
-    ? Math.min(group.frequency.days.length, remainingAtWeekStart) : 0);
+    ? Math.min(personalReadingDays(group, memberId, today).length, remainingAtWeekStart) : 0);
   return {
     ...getReadingBalance(group, memberId, today),
     weeklyTotal,

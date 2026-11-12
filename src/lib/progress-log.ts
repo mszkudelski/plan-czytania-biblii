@@ -37,7 +37,10 @@ export function applyProgressLog<T extends Group>(group: T, keys: string[]): T {
   const chapterProgress = Object.fromEntries(group.members.map(member => [member.id,
     Object.fromEntries(Object.entries(group.chapterProgress?.[member.id] ?? {}).filter(([id]) => activeIds.has(id))),
   ]));
-  let result = { ...group, progress, chapterProgress } as T;
+  const chapterCompletedAt = Object.fromEntries(group.members.map(member => [member.id,
+    Object.fromEntries(Object.entries(group.chapterCompletedAt?.[member.id] ?? {}).filter(([id]) => activeIds.has(id))),
+  ]));
+  let result = { ...group, progress, chapterProgress, chapterCompletedAt } as T;
   for (const key of [...keys].sort()) {
     if (!key.startsWith(prefix)) continue;
     const [memberId, indexText, version, action, ...rest] = key.slice(prefix.length).split("/");

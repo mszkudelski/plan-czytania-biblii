@@ -9,6 +9,7 @@ type ProgressOperation = {
   optimistic: boolean;
   previousValue?: string;
   previousChapters?: number[];
+  previousDates?: Record<number, string>;
   timestamp: string;
   promise: Promise<void>;
   resolve: () => void;
@@ -44,7 +45,10 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
         const chapters = { ...group.chapterProgress?.[options.memberId] };
         if (operation.previousChapters) chapters[operation.segmentId] = operation.previousChapters;
         else delete chapters[operation.segmentId];
-        group = { ...group, progress: { ...group.progress, [options.memberId]: progress },
+        const dates = { ...group.chapterCompletedAt?.[options.memberId] };
+        if (operation.previousDates) dates[operation.segmentId] = operation.previousDates;
+        else delete dates[operation.segmentId];
+        group = { ...group, chapterCompletedAt: { ...group.chapterCompletedAt, [options.memberId]: dates }, progress: { ...group.progress, [options.memberId]: progress },
           chapterProgress: { ...group.chapterProgress, [options.memberId]: chapters } };
         continue;
       }
@@ -105,6 +109,7 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
       const nextGroup = requestRevision === revision || (group.planVersion ?? 0) > (confirmedGroup.planVersion ?? 0) ? group : {
         ...group,
         chapterProgress: { ...group.chapterProgress, [options.memberId]: confirmedGroup.chapterProgress?.[options.memberId] ?? {} },
+        chapterCompletedAt: { ...group.chapterCompletedAt, [options.memberId]: confirmedGroup.chapterCompletedAt?.[options.memberId] ?? {} },
         progress: {
           ...group.progress,
           [options.memberId]: confirmedGroup.progress[options.memberId] ?? {},
@@ -132,6 +137,7 @@ export function createOptimisticProgressQueue(options: ProgressQueueOptions) {
         optimistic,
         previousValue: snapshot().progress[options.memberId]?.[segmentId],
         previousChapters: snapshot().chapterProgress?.[options.memberId]?.[segmentId],
+        previousDates: snapshot().chapterCompletedAt?.[options.memberId]?.[segmentId],
         timestamp: new Date().toISOString(),
         promise,
         resolve,

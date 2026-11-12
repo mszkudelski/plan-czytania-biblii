@@ -326,3 +326,9 @@ export async function includeSkippedReadings(credentials: Credentials) {
     method: "POST", body: JSON.stringify(credentials),
   });
 }
+
+export function savePersonalTempo(credentials: Credentials, days: number[] | null, expectedVersion: number, expectedPlanRevision: string, timeZone: string) {
+  return request<Group>(`/groups/${credentials.groupId}/personal-tempo`, {
+    method: "POST", body: JSON.stringify({ ...credentials, days, expectedVersion, expectedPlanRevision, timeZone }),
+  });
+}
