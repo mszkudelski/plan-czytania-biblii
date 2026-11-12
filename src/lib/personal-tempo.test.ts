@@ -3,8 +3,11 @@ import type { Group } from "../types";
 import { monday, nextTempo, projectPersonalTempo, tempoEffectiveFrom, validTempoDays } from "./personal-tempo";
 import { todaysReminder } from "./notifications";
 import { getReadingBalance, getNextDay } from "./metrics";
-import { getReadingHomeSummary } from "./reading-home";
+import { getReadingHomeSummary, getReadingWeekSummary } from "./reading-home";
 import { applyChapterProgress } from "./chapter-progress";
+import { parseRecoverySchedule, projectRecoveryPortions } from "./recovery";
+import { applyProgressLog, chapterProgressLogKey } from "./progress-log";
+import { replaceGroupPlan, restoreGroupPlan } from "./plan-replacement";
 const member = { id: "m", name: "Tester", color: "green", isAdmin: true };
 function group(): Group {
   return { id: "g", name: "Synthetic", createdAt: "2026-11-01", startDate: "2026-11-09",
@@ -16,6 +19,51 @@ function choose(g: Group, days: number[], today = "2026-11-08", version = 0) {
   return { ...g, members: g.members.map(m => m.id === "m" ? { ...m, personalTempo } : m) };
 }
 describe("personal cadence projection", () => {
+  it("keeps repeated pre-start choices at the Wednesday plan boundary", () => {
+    const base = group(); base.startDate = "2026-12-02";
+    base.planDays = [{ ...base.planDays[0], date: "2026-12-02" }];
+    const first = choose(base, [1, 3, 5], "2026-11-12");
+    const second = choose(first, [1, 3, 5], "2026-11-12", 1);
+    expect(second.members[0].personalTempo?.changes).toEqual([{ days: [1, 3, 5], effectiveFrom: "2026-12-02" }]);
+    expect(projectPersonalTempo(second, "m").planDays.map(d => d.date)).toEqual(["2026-12-02", "2026-12-04"]);
+    const ahead = applyChapterProgress(base, "m", "s0", true, [0], "2026-11-12T12:00:00Z");
+    expect(tempoEffectiveFrom(ahead, "m", "2026-11-12")).toBe("2026-12-07");
+  });
+  it("uses personal Saturdays and a later cadence change for recovery dates", () => {
+    const saturday = choose(group(), [6]);
+    expect(projectRecoveryPortions(saturday, "m", "2026-12-05", {}, "").map(p => p.day.date))
+      .toEqual(["2026-12-05", "2026-12-12", "2026-12-19"]);
+    const schedule = projectRecoveryPortions(saturday, "m", "2026-12-05", {}, "");
+    expect(parseRecoverySchedule(saturday, "m", "2026-12-05", {}, {}, JSON.stringify(schedule))).toEqual(schedule);
+    const stale = structuredClone(schedule); stale[1].day.date = "2026-12-06"; stale[1].day.id = "recovery:2026-12-06";
+    expect(parseRecoverySchedule(saturday, "m", "2026-12-05", {}, {}, JSON.stringify(stale))).toBeUndefined();
+    const changed = choose(saturday, [1, 3, 5], "2026-12-05", 1);
+    expect(projectRecoveryPortions(changed, "m", "2026-12-05", {}, "").map(p => p.day.date))
+      .toEqual(["2026-12-05", "2026-12-07", "2026-12-09"]);
+  });
+  it("counts an overdue personal portion completed this week using replayed chapter dates", () => {
+    const g = choose(group(), [1, 3, 5]);
+    const timestamp = "2026-11-17T12:00:00.000Z";
+    const done = applyProgressLog(g, [chapterProgressLogKey(g.id, "m", 0, true, [0,1,2,3], false, Date.parse(timestamp), "aaaaaaaa-bbbb")]);
+    expect(done.progress.m.s0).toBeUndefined();
+    expect(done.chapterCompletedAt?.m.s0[3]).toBe(timestamp);
+    expect(getReadingWeekSummary(done, "m", "2026-11-17").weeklyCompleted).toBe(1);
+    const all = applyChapterProgress(done, "m", "s0", true, [4,5,6,7,8,9,10,11], "2026-11-24T12:00:00.000Z");
+    expect(projectPersonalTempo(all, "m").progress.m['tempo:s0:0']).toBe(timestamp);
+    expect(getReadingWeekSummary(all, "m", "2026-11-24").weeklyCompleted).toBe(2);
+    const undone = applyChapterProgress(done, "m", "s0", false, [3], "2026-11-18T12:00:00.000Z");
+    expect(undone.chapterCompletedAt?.m.s0[3]).toBeUndefined();
+    expect(getReadingWeekSummary(undone, "m", "2026-11-18").weeklyCompleted).toBe(0);
+  });
+  it("retains chapter completion dates across matching replacement and snapshot restore", () => {
+    const done = applyChapterProgress(group(), "m", "s0", true, [0,1,2,3], "2026-11-17T12:00:00.000Z");
+    const replaced = replaceGroupPlan(done, { planDays: done.planDays, startDate: done.startDate, frequency: done.frequency, expectedRevision: "" }, "new", Date.parse("2026-11-18T12:00:00Z"));
+    expect(replaced.chapterCompletedAt?.m.s0).toEqual(done.chapterCompletedAt?.m.s0);
+    const restored = restoreGroupPlan(replaced, "new", "restored", Date.parse("2026-11-19T12:00:00Z"));
+    const id = restored.planDays[0].segments[0].id;
+    expect(restored.chapterCompletedAt?.m[id]).toEqual(done.chapterCompletedAt?.m.s0);
+    expect(restored.chapterCompletedAt?.m.s0).toBeUndefined();
+  });
   it.each([[6], [1, 3, 5], [1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5, 6], [2, 4], [0, 2, 4, 6], [0, 1, 2, 3, 4, 5]])("preserves weekly material, order and chosen days: %j", (...days) => {
     // Each row supplies its weekday values as arguments.
     const selected = days as number[];
@@ -40,12 +88,12 @@ describe("personal cadence projection", () => {
     expect(getReadingBalance(projected, "m", "2026-11-17").overdueReadings).toBe(3);
   });
   it("projects partial marks without rewriting source IDs, and full completion survives any cadence", () => {
-    const g = choose(applyChapterProgress(group(), "m", "s0", true, [0, 4]), [1, 3, 5]);
+    const g = applyChapterProgress(choose(group(), [1, 3, 5]), "m", "s0", true, [0, 4]);
     const projected = projectPersonalTempo(g, "m");
     const units = projected.planDays.flatMap(d => d.segments);
     expect(units.filter(s => projected.progress.m[s.id]).map(s => s.label)).toEqual(["Rdz 1", "Rdz 5"]);
     expect(units.find(s => s.label === "Rdz 5")?.personalSource).toEqual({ segmentId: "s0", chapterIndex: 4, dayId: "d0" });
-    const done = projectPersonalTempo(choose(applyChapterProgress(group(), "m", "s0", true), [6]), "m");
+    const done = projectPersonalTempo(applyChapterProgress(choose(group(), [6]), "m", "s0", true), "m");
     expect(done.planDays[0].segments.every(s => done.progress.m[s.id])).toBe(true);
     expect(getNextDay(done, "m")?.date).toBe("2026-11-21");
   });

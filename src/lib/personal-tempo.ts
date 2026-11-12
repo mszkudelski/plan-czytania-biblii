@@ -25,9 +25,17 @@ export function tempoEffectiveFrom(group: Group, memberId: string, today: string
   const first = group.planDays[0]?.date ?? group.startDate;
   // A first choice made by the original participant before the plan starts can
   // include its partial first week. Mid-week joining never rewrites that week.
-  return !started && !tempoFor(group, memberId)?.changes.length && today <= first &&
+  return !started && today <= first &&
     !member?.readingStart?.autoRecoveryAt && !member?.readingStart?.skippedSegmentIds.length
-    ? first : shiftDate(monday(today), 7);
+    ? first : [first, shiftDate(monday(started && today < first ? first : today), 7)].sort().at(-1)!;
+}
+
+export function personalReadingDays(group: Group, memberId: string, date: string): number[] {
+  const original = group.personalProjection?.original ?? group;
+  const change = [...(tempoFor(original, memberId)?.changes ?? [])].reverse().find(change => change.effectiveFrom <= date);
+  if (change) return change.days;
+  return original.frequency.kind === "daily" ? [0, 1, 2, 3, 4, 5, 6]
+    : original.frequency.kind === "weekdays" ? [1, 2, 3, 4, 5] : original.frequency.days;
 }
 export function nextTempo(group: Group, memberId: string, days: number[] | null,
   today: string, expectedVersion: number, expectedPlanRevision: string): PersonalTempo {
@@ -84,7 +92,12 @@ export function projectPersonalTempo(group: Group, memberId: string): Group {
         units.push({ ...segment, id, label, personalSource: { segmentId: segment.id, chapterIndex: index, dayId: day.id } });
         const complete = Boolean(group.progress[memberId]?.[segment.id]) ||
           Boolean(group.chapterProgress?.[memberId]?.[segment.id]?.includes(index));
-        if (complete) progress[id] = group.progress[memberId]?.[segment.id] ?? "chapter";
+        if (complete) {
+          const timestamp = group.chapterCompletedAt?.[memberId]?.[segment.id]?.[index] ?? group.progress[memberId]?.[segment.id];
+          // Old imported partial marks have no trustworthy completion date.
+          // Keep them complete without inventing a completion in the current week.
+          progress[id] = timestamp && Number.isFinite(Date.parse(timestamp)) ? timestamp : `${day.date}T12:00:00Z`;
+        }
         else delete progress[id];
         marks[id] = complete ? [0] : [];
       });

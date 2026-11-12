@@ -60,3 +60,70 @@ for (const width of [1280, 390, 320]) {
     } finally { await other.close(); }
   });
 }
+
+test('repeated pre-start choices retain the Wednesday boundary and chapter completion dates survive replay', async ({ request }) => {
+  const input = inputPlan('tempo-boundary-and-dates');
+  const start = new Date(futureMonday() + 'T12:00:00Z'); start.setUTCDate(start.getUTCDate() + 2);
+  input.startDate = iso(start);
+  input.planDays = [{ id: 'd0', index: 0, date: input.startDate, title: 'Pierwszy tydzień',
+    segments: [{ id: 's0', section: 'Tekst', label: 'Rdz 1–12' }] }];
+  const created = await request.post('/api/groups', { data: input }); expect(created.status()).toBe(201);
+  const session = await created.json(); test.info().annotations.push({ type: 'test-plan', description: session.group.id });
+  for (const expectedVersion of [0, 1]) {
+    const response = await request.post(`/api/groups/${session.group.id}/personal-tempo`, {
+      data: { ...session.credentials, days: [1,3,5], expectedVersion, expectedPlanRevision: '', timeZone: 'UTC' },
+    });
+    expect(response.status()).toBe(200);
+    const group = await readGroup(request, session);
+    expect(group.members[0].personalTempo.changes).toEqual([{ days: [1,3,5], effectiveFrom: input.startDate }]);
+    expect(group.planDays).toEqual(session.group.planDays);
+  }
+  const save = async (completed, indices) => {
+    const response = await request.post(`/api/groups/${session.group.id}/progress`, {
+      data: { ...session.credentials, segmentId: 's0', completed, indices },
+    });
+    expect(response.status()).toBe(200);
+    return readGroup(request, session);
+  };
+  const before = Date.now();
+  const partial = await save(true, [0,1,2,3,4,5]);
+  const dates = partial.chapterCompletedAt[session.credentials.memberId].s0;
+  for (const value of Object.values(dates)) {
+    expect(Date.parse(value)).toBeGreaterThanOrEqual(before - 60000);
+    expect(Date.parse(value)).toBeLessThanOrEqual(Date.now() + 60000);
+  }
+  expect(partial.progress[session.credentials.memberId].s0).toBeUndefined();
+  const repeated = await save(true, [0,1]);
+  expect(repeated.chapterCompletedAt[session.credentials.memberId].s0).toEqual(dates);
+  const undone = await save(false, [3]);
+  expect(undone.chapterCompletedAt[session.credentials.memberId].s0['3']).toBeUndefined();
+  expect(undone.chapterCompletedAt[session.credentials.memberId].s0['0']).toBe(dates['0']);
+});
+
+test('catch-up navigation follows personal Saturdays instead of the daily group cadence', async ({ page, request }) => {
+  const input = inputPlan('tempo-saturday-catchup'); const start = futureMonday();
+  const shift = (date, days) => { const d = new Date(date + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + days); return iso(d); };
+  input.startDate = start;
+  input.planDays = Array.from({ length: 4 }, (_, i) => ({ id: 'd' + i, index: i, date: shift(start, i * 7), title: 'Tydzień ' + i,
+    segments: [{ id: 's' + i, section: 'Tekst', label: `Rdz ${i * 12 + 1}–${i * 12 + 12}` }] }));
+  const response = await request.post('/api/groups', { data: input }); expect(response.status()).toBe(201);
+  const session = await response.json(); test.info().annotations.push({ type: 'test-plan', description: session.group.id });
+  const saved = await request.post(`/api/groups/${session.group.id}/personal-tempo`, {
+    data: { ...session.credentials, days: [6], expectedVersion: 0, expectedPlanRevision: '', timeZone: 'UTC' },
+  }); expect(saved.status()).toBe(200);
+  const today = shift(start, 33); // Saturday after all four scheduled portions.
+  await page.clock.install({ time: new Date(today + 'T12:00:00Z') });
+  await page.addInitScript(({ credentials, today }) => {
+    localStorage.setItem('plan-czytania-biblii-credentials', JSON.stringify(credentials));
+    // Resume catch-up using its real device preference; group and marks come from the deployed API.
+    localStorage.setItem(`reading-recovery:${credentials.groupId}:${credentials.memberId}`, today);
+  }, { credentials: session.credentials, today });
+  await page.goto('/');
+  await expect(page.getByTestId('recovery-remaining-readings')).toHaveText('4');
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', today);
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', shift(today, 7));
+  await page.getByRole('button', { name: 'Następne', exact: true }).click();
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', shift(today, 14));
+  expect((await readGroup(request, session)).progress).toEqual(session.group.progress);
+});

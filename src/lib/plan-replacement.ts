@@ -67,7 +67,7 @@ export function replacementSummary(group: Group, planDays: PlanDay[]) {
 }
 
 export const PLAN_RESTORE_TTL = 7 * 24 * 60 * 60 * 1000;
-export type SavedPlan = Pick<Group, "planDays" | "startDate" | "frequency" | "progress" | "chapterProgress" | "planTemplate"> & {
+export type SavedPlan = Pick<Group, "planDays" | "startDate" | "frequency" | "progress" | "chapterProgress" | "chapterCompletedAt" | "planTemplate"> & {
   readingStarts?: Record<string, Member["readingStart"]>;
   savedAt: string;
   expiresAt: string;
@@ -86,7 +86,7 @@ export function replaceGroupPlan<T extends Group>(group: T, input: PlanReplaceme
   const savedAt = new Date(now).toISOString();
   const expiresAt = new Date(now + PLAN_RESTORE_TTL).toISOString();
   const previousPlan: SavedPlan = structuredClone({ planDays: group.planDays, startDate: group.startDate,
-    frequency: group.frequency, progress: group.progress, chapterProgress: group.chapterProgress, planTemplate: group.planTemplate, readingStarts: Object.fromEntries(group.members.map(member => [member.id, member.readingStart])), savedAt, expiresAt });
+    frequency: group.frequency, progress: group.progress, chapterProgress: group.chapterProgress, chapterCompletedAt: group.chapterCompletedAt, planTemplate: group.planTemplate, readingStarts: Object.fromEntries(group.members.map(member => [member.id, member.readingStart])), savedAt, expiresAt });
   const matches = matchPlanSegments(group, input.planDays);
   const progressSegmentIds = [...(group.progressSegmentIds ?? group.planDays.flatMap(day => day.segments.map(segment => segment.id)))];
   let index = 0;
@@ -111,6 +111,9 @@ export function replaceGroupPlan<T extends Group>(group: T, input: PlanReplaceme
     planRevision: revision, planVersion: (group.planVersion ?? 0) + 1, progressSegmentIds,
     chapterProgress: Object.fromEntries(group.members.map(member => [member.id,
       Object.fromEntries(Object.entries(group.chapterProgress?.[member.id] ?? {}).filter(([id]) => activeIds.has(id))),
+    ])),
+    chapterCompletedAt: Object.fromEntries(group.members.map(member => [member.id,
+      Object.fromEntries(Object.entries(group.chapterCompletedAt?.[member.id] ?? {}).filter(([id]) => activeIds.has(id))),
     ])),
     progress: Object.fromEntries(group.members.map(member => [member.id,
       Object.fromEntries(Object.entries(group.progress[member.id] ?? {}).filter(([id]) => activeIds.has(id))),
@@ -149,6 +152,10 @@ export function restoreGroupPlan<T extends RestorableGroup>(group: T, expectedRe
     chapterProgress: Object.fromEntries(group.members.map(member => [member.id,
       Object.fromEntries(Object.entries(saved.chapterProgress?.[member.id] ?? {})
         .flatMap(([id, indices]) => restoredIds.has(id) ? [[restoredIds.get(id)!, indices]] : [])),
+    ])),
+    chapterCompletedAt: Object.fromEntries(group.members.map(member => [member.id,
+      Object.fromEntries(Object.entries(saved.chapterCompletedAt?.[member.id] ?? {})
+        .flatMap(([id, dates]) => restoredIds.has(id) ? [[restoredIds.get(id)!, dates]] : [])),
     ])),
     progress: Object.fromEntries(group.members.map(member => [member.id,
       Object.fromEntries(Object.entries(saved.progress[member.id] ?? {})
