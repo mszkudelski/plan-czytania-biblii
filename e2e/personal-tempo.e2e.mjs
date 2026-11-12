@@ -39,7 +39,7 @@ for (const width of [1280, 390, 320]) {
     const current = await readGroup(request, session); const member = current.members.find(m => m.id === session.credentials.memberId);
     expect(member.personalTempo.changes.at(-1).days).toEqual([1,3,5]);
     expect(current.planDays).toEqual(session.group.planDays); expect(current.progress).toEqual(session.group.progress);
-    const other = await browser.newContext({ viewport: { width, height: 900 } });
+    const other = await browser.newContext({ baseURL: process.env.E2E_BASE_URL, viewport: { width, height: 900 }, timezoneId: 'UTC', serviceWorkers: 'block' });
     try {
       const second = await other.newPage(); await second.goto('/');
       await second.evaluate(({ key, credentials }) => localStorage.setItem(key, JSON.stringify(credentials)), { key: credentialsKey, credentials: session.credentials });
