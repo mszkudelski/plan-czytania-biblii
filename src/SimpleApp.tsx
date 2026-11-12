@@ -1923,8 +1923,10 @@ export function TodayView({
     const legacyCounts = parseReadChapters(localStorage.getItem(chapterKey));
     const legacyMarks = parseChapterMarks(localStorage.getItem(`${recoveryKey}:chapter-marks`));
     const confirmed = parseReadChapters(localStorage.getItem(`${recoveryKey}:confirmed-segments`));
-    const writes = group.planDays.flatMap(day => day.segments).flatMap(segment => {
-      if (confirmed[segment.id] || group.progress[member.id]?.[segment.id]) return [];
+    // Legacy device keys and API writes use source IDs, never projected tempo IDs.
+    const migrationGroup = group.personalProjection?.original ?? group;
+    const writes = migrationGroup.planDays.flatMap(day => day.segments).flatMap(segment => {
+      if (confirmed[segment.id] || migrationGroup.progress[member.id]?.[segment.id]) return [];
       const indices = readingChapters(segment).map((_, index) => index)
         .filter(index => index < (legacyCounts[segment.id] ?? 0) || legacyMarks[segment.id]?.includes(index));
       return indices.length ? [onToggle(segment.id, true, false, indices, true)] : [];
