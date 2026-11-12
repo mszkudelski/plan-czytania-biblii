@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures.mjs';
-import { inputPlan, readGroup, tab } from './helpers.mjs';
+import { inputPlan, readGroup, tab, openPlan, reading } from './helpers.mjs';
 // Never capture credentials or synthetic cleanup capabilities.
 test.use({ screenshot: 'off' });
 const credentialsKey = 'plan-czytania-biblii-credentials';
@@ -126,4 +126,30 @@ test('catch-up navigation follows personal Saturdays instead of the daily group 
   await page.getByRole('button', { name: 'Następne', exact: true }).click();
   await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', shift(today, 14));
   expect((await readGroup(request, session)).progress).toEqual(session.group.progress);
+});
+
+test('legacy local prefix and sparse chapter marks migrate after personal days were configured elsewhere', async ({ page, request }) => {
+  const input = inputPlan('tempo-legacy-device'); const start = futureMonday();
+  input.startDate = start;
+  input.planDays = [{ id: 'd0', index: 0, date: start, title: 'Pierwszy tydzień',
+    segments: [{ id: 's0', section: 'Tekst', label: 'Rdz 1–12' }] }];
+  const response = await request.post('/api/groups', { data: input }); expect(response.status()).toBe(201);
+  const session = await response.json(); test.info().annotations.push({ type: 'test-plan', description: session.group.id });
+  const configured = await request.post(`/api/groups/${session.group.id}/personal-tempo`, {
+    data: { ...session.credentials, days: [1,3,5], expectedVersion: 0, expectedPlanRevision: '', timeZone: 'UTC' },
+  }); expect(configured.status()).toBe(200);
+  const key = `reading-recovery:${session.group.id}:${session.credentials.memberId}`;
+  await openPlan(page, session, {
+    [key + ':chapters']: JSON.stringify({ s0: 1 }),
+    [key + ':chapter-marks']: JSON.stringify({ s0: [2] }),
+  });
+  const chapters = async () => (await readGroup(request, session)).chapterProgress?.[session.credentials.memberId]?.s0;
+  await expect.poll(chapters).toEqual([0, 2]);
+  await expect.poll(() => page.evaluate(key => localStorage.getItem(key + ':chapters-synced-v1'), key)).toBe('1');
+  for (const label of ['Rdz 1', 'Rdz 3']) await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
+  expect((await readGroup(request, session)).progress[session.credentials.memberId].s0).toBeUndefined();
+  await page.reload();
+  for (const label of ['Rdz 1', 'Rdz 3']) await expect(reading(page, label)).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(chapters).toEqual([0, 2]);
 });
