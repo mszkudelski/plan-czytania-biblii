@@ -76,13 +76,12 @@ export function getReadingHomeSummary(group: Group, memberId: string, today: str
   };
 }
 
-export function getDailyReadingDay(group: Group, memberId: string, _today: string, savedDayId = "") {
+export function getDailyReadingDay(group: Group, memberId: string, _today: string) {
   group = personalGroup(group, memberId);
   const progress = group.progress[memberId] ?? {};
   const next = group.planDays.find(day => day.segments.some(segment => !progress[segment.id]));
-  const saved = group.planDays.find(day => day.id === savedDayId);
-  // Keep a finished daily portion on reload, but do not skip an earlier unread day.
-  if (saved && (!next || group.planDays.indexOf(next) >= group.planDays.indexOf(saved))) return saved;
+  // Opening the app follows current progress, including overdue and future days.
+  // Keeping a just-finished card visible belongs to the mounted view, not storage.
   return next ?? group.planDays.at(-1);
 }
 

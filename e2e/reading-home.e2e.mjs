@@ -202,7 +202,7 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 
-  test('reading is first, completion survives reload and continuing is optional at width ' + width, async ({ page, request }) => {
+  test('reading stays stable while checking and reopens at the first unread day at width ' + width, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await createPlan(request, 'home-portion-' + width);
     await openPlan(page, session);
@@ -219,9 +219,10 @@ for (const width of [1280, 390]) {
     await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('button', { name: 'Następne', exact: true })).toBeVisible();
     await page.reload();
-    await expect(page.locator('.reading-finished')).toContainText('Przeczytane');
-    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
+    await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
     await expect(page.locator('.reading-finished')).toHaveText('Przeczytane');
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
     await page.getByRole('button', { name: 'Następne', exact: true }).click();
     await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
     await expectSaved(request, session, ['s0', 's1']);
@@ -244,6 +245,7 @@ for (const width of [1280, 390]) {
     await expectWeek(page, '1 z 3 czytań');
     await page.reload();
     await expect(day).toHaveAttribute('data-complete', 'true');
+    await day.click();
     await reading(page, 'Mt 1').click();
     await expectSaved(request, session, ['t0a']);
     await expect(day).toHaveAttribute('data-complete', 'false');
@@ -511,8 +513,10 @@ for (const width of [1280, 390]) {
     await expect(page.locator('.reading-date[data-day-id="d0"], .reading-date[data-day-id="d1"]')).toHaveCount(0);
     await page.reload();
     await expect(page.locator('.reading-date[data-day-id="d0"], .reading-date[data-day-id="d1"]')).toHaveCount(0);
+    await expect(reading(page, 'Rdz 4')).toBeVisible();
+    await page.getByRole('button', { name: 'Poprzednie', exact: true }).click();
     await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
-    await page.getByRole('button', { name: 'Następne', exact: true }).click();
+    await page.getByRole('button', { name: 'Wróć do swojego miejsca', exact: true }).click();
     await expect(reading(page, 'Rdz 4')).toBeVisible();
     await expect(reading(page, 'Rdz 1')).toHaveCount(0);
     await expectSaved(request, session, ['s0', 's1', 's2']);
@@ -544,3 +548,97 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 }
+
+for (const width of [1280, 390]) {
+  test('startup follows partial progress, another device and ahead-reading gaps without writing on open at width ' + width, async ({ page, request, browser }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const input = inputPlan('startup-unread-' + width);
+    input.startDate = date(-7);
+    input.planDays = [-7, -6, 1, 2].map((offset, index) => ({ id: 'u' + index, index, date: date(offset), title: 'Czytanie', segments: [
+      { id: 'u' + index + 'a', label: index === 0 ? 'Rdz 1–3' : 'Rdz ' + (index + 3), section: 'ST' },
+      { id: 'u' + index + 'b', label: 'Mt ' + (index + 1), section: 'NT' },
+    ] }));
+    const created = await request.post('/api/groups', { data: input }); expect(created.status()).toBe(201);
+    const session = await created.json(); test.info().annotations.push({ type: 'test-plan', description: session.group.id });
+    const marked = await request.post(`/api/groups/${session.group.id}/progress`, { data: { ...session.credentials, segmentId: 'u0a', indices: [0], completed: true } });
+    expect(marked.status()).toBe(200);
+    for (const id of ['u0b', 'u2a', 'u2b']) await saveProgress(request, session, id);
+    const beforeOpen = await readGroup(request, session);
+    let writes = 0;
+    page.on('request', r => { if (r.method() === 'POST' && new URL(r.url()).pathname.endsWith('/progress')) writes++; });
+    await openPlan(page, session, { [`reading-home:${session.group.id}:${session.credentials.memberId}:${TODAY}`]: 'u2' });
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-7));
+    await expect(reading(page, 'Rdz 1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(reading(page, 'Rdz 2')).toHaveAttribute('aria-pressed', 'false');
+    await expect(reading(page, 'Mt 1')).toHaveAttribute('aria-pressed', 'true');
+    expect(writes).toBe(0);
+    expect((await readGroup(request, session)).chapterProgress).toEqual(beforeOpen.chapterProgress);
+    await reading(page, 'Rdz 2').click();
+    await expect.poll(async () => (await readGroup(request, session)).chapterProgress[session.credentials.memberId].u0a).toEqual([0,1]);
+    await reading(page, 'Rdz 3').click();
+    await expectSaved(request, session, ['u0a', 'u0b', 'u2a', 'u2b']);
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-7));
+    await expect(page.locator('.reading-finished')).toBeVisible();
+    const beforeReload = writes;
+    await page.reload();
+    await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-6));
+    expect(writes).toBe(beforeReload);
+    const other = await browser.newContext({ baseURL: process.env.E2E_BASE_URL, viewport: { width, height: 900 }, timezoneId: 'UTC', serviceWorkers: 'block' });
+    try {
+      const second = await other.newPage(); await openPlan(second, session);
+      await expect(second.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-6));
+      await reading(page, 'Rdz 4').click(); await reading(page, 'Mt 2').click();
+      await expectSaved(request, session, ['u0a','u0b','u1a','u1b','u2a','u2b']);
+      await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-6));
+      await second.reload();
+      await expect(second.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(2));
+      await second.getByRole('button', { name: 'Poprzednie', exact: true }).click();
+      await expect(second.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(1));
+      await second.getByRole('button', { name: 'Wróć do swojego miejsca', exact: true }).click();
+      await expect(second.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(2));
+      await reading(second, 'Rdz 6').click(); await reading(second, 'Mt 4').click();
+      await expectSaved(request, session, input.planDays.flatMap(d => d.segments.map(s => s.id)));
+      await second.reload();
+      await expect(second.getByRole('heading', { name: 'Plan ukończony', exact: true })).toBeVisible();
+      await second.goto('/?' + new URLSearchParams({ reading: session.group.id, day: 'u0' }));
+      await expect(second.locator('.reading-card-head time')).toHaveAttribute('dateTime', date(-7));
+      await expect(reading(second, 'Rdz 2')).toHaveAttribute('aria-pressed', 'true');
+    } finally { await other.close(); }
+    expect((await readGroup(request, session)).planDays).toEqual(session.group.planDays);
+    await fitsViewport(page);
+  });
+}
+
+test('startup uses the incomplete personal portion on a rest day and advances only on reopening', async ({ page, request }) => {
+  const start = new Date(); start.setUTCHours(12,0,0,0); start.setUTCDate(start.getUTCDate() + (8 - start.getUTCDay()) % 7 + 7);
+  const iso = d => d.toISOString().slice(0,10);
+  const shift = days => { const d = new Date(start); d.setUTCDate(d.getUTCDate()+days); return iso(d); };
+  const input = inputPlan('startup-personal-rest'); input.startDate = iso(start);
+  input.planDays = [{ id:'personal-week', index:0, date:iso(start), title:'Tydzień', segments:[{ id:'personal-source', label:'Rdz 1–12', section:'ST' }] }];
+  const created = await request.post('/api/groups', { data:input }); expect(created.status()).toBe(201);
+  const session = await created.json(); test.info().annotations.push({ type:'test-plan', description:session.group.id });
+  const tempo = await request.post(`/api/groups/${session.group.id}/personal-tempo`, { data:{ ...session.credentials, days:[1,3,5], expectedVersion:0, expectedPlanRevision:'', timeZone:'UTC' } });
+  expect(tempo.status()).toBe(200);
+  const progress = await request.post(`/api/groups/${session.group.id}/progress`, { data:{ ...session.credentials, segmentId:'personal-source', completed:true, indices:[0,1,2,3,4] } });
+  expect(progress.status()).toBe(200);
+  await page.clock.install({ time:new Date(shift(3)+'T12:00:00Z') });
+  await page.addInitScript(credentials => localStorage.setItem('plan-czytania-biblii-credentials',JSON.stringify(credentials)),session.credentials);
+  let writes=0; page.on('request',r=>{ if(r.method()==='POST'&&new URL(r.url()).pathname.endsWith('/progress'))writes++; });
+  await page.goto('/');
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime',shift(2));
+  await expect(reading(page,'Rdz 5')).toHaveAttribute('aria-pressed','true');
+  await expect(reading(page,'Rdz 6')).toHaveAttribute('aria-pressed','false');
+  await expect(page.locator('.simple-day > .reading-rest-hint')).toHaveText(restHint);
+  expect(writes).toBe(0);
+  for(const [label,index] of [['Rdz 6',5],['Rdz 7',6],['Rdz 8',7]]) {
+    await reading(page,label).click();
+    await expect.poll(async()=> (await readGroup(request,session)).chapterProgress[session.credentials.memberId]['personal-source']).toEqual(Array.from({length:index+1},(_,i)=>i));
+  }
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime',shift(2));
+  await page.reload();
+  await expect(page.locator('.reading-card-head time')).toHaveAttribute('dateTime',shift(4));
+  await expect(reading(page,'Rdz 9')).toHaveAttribute('aria-pressed','false');
+  const current=await readGroup(request,session);
+  expect(current.planDays).toEqual(session.group.planDays);
+  expect(current.progress[session.credentials.memberId]['personal-source']).toBeUndefined();
+});

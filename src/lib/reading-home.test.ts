@@ -55,18 +55,18 @@ describe("czytanie na stronie głównej", () => {
     expect(getDailyReadingDay(plan, "member", TODAY)).toBeUndefined();
   });
 
-  it("keeps a completed daily portion until a new day instead of jumping on reload", () => {
+  it("opens the first unread day after completing a previous portion, including reading ahead", () => {
     const plan = group();
     expect(getDailyReadingDay(plan, "member", TODAY)?.id).toBe("d0");
     plan.progress.member = { "s0-0": "done", "s0-1": "done" };
-    expect(getDailyReadingDay(plan, "member", TODAY, "d0")?.id).toBe("d0");
+    expect(getDailyReadingDay(plan, "member", TODAY)?.id).toBe("d1");
     expect(getDailyReadingDay(plan, "member", "2026-10-11")?.id).toBe("d1");
   });
 
-  it("rejects an invalid anchor and an anchor that skips earlier unread work", () => {
+  it("does not let later completed readings skip an earlier partial day", () => {
     const plan = group();
-    expect(getDailyReadingDay(plan, "member", TODAY, "missing")?.id).toBe("d0");
-    expect(getDailyReadingDay(plan, "member", TODAY, "d2")?.id).toBe("d0");
+    plan.progress.member = { "s0-0": "done", "s2-0": "done", "s2-1": "done" };
+    expect(getDailyReadingDay(plan, "member", TODAY)?.id).toBe("d0");
   });
 
   it("continues with the first unread reading when today is complete", () => {

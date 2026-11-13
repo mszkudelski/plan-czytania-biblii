@@ -49,7 +49,7 @@ describe("personal late-join schedule", () => {
     group.members[0].readingStart = createReadingStart(group, "group", today);
     expect(group.members[0].readingStart).toEqual({ skippedSegmentIds: ["s0", "s1"] });
     expect(getNextDay(group, "m")?.id).toBe("d2");
-    expect(getDailyReadingDay(group, "m", today, "d0")?.id).toBe("d2");
+    expect(getDailyReadingDay(group, "m", today)?.id).toBe("d2");
     expect(getMemberMetrics(group, "m", today)).toMatchObject({ progressPercent: 0, paceDays: 0, expectedSegments: 1 });
     expect(getReadingWeekSummary(group, "m", today)).toMatchObject({ overdueReadings: 0, weeklyTotal: 2, weeklyCompleted: 0 });
     expect(getOverdueDays(group, "m", today)).toEqual([]);

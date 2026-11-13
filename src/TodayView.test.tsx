@@ -6,6 +6,7 @@ import { TodayView } from "./SimpleApp";
 import { createOptimisticProgressQueue } from "./lib/optimistic-progress";
 import { applyChapterProgress } from "./lib/chapter-progress";
 import { projectRecoveryPortions } from "./lib/recovery";
+import { nextTempo, projectPersonalTempo } from "./lib/personal-tempo";
 import type { Group } from "./types";
 
 vi.mock("./RecoveryPrompt", () => ({ default: ({ onEnable }: { onEnable: () => void }) =>
@@ -26,7 +27,7 @@ function plan(count = 12): Group {
     })), progress: { m: {} } };
 }
 type Pending = { id: string; completed: boolean; resolve: () => void; reject: () => void };
-function mount(initial: Group, enabled = true, ready = true) {
+function mount(initial: Group, enabled = true, ready = true, requestedReading?: { dayId: string }) {
   if (enabled) localStorage.setItem(KEY, TODAY);
   let group = initial;
   let verified = ready;
@@ -46,7 +47,7 @@ function mount(initial: Group, enabled = true, ready = true) {
   });
   function render() {
     root.render(<TodayView group={group} credentials={{ groupId: "g", memberId: "m", token: "test" }}
-      member={group.members[0]} active promptReady={verified} savingProgress={queue.hasPending}
+      requestedReading={requestedReading} member={group.members[0]} active promptReady={verified} savingProgress={queue.hasPending}
       onToggle={(id, completed, optimistic, indices, migrate) => queue.toggle(id, completed, optimistic, indices, migrate)}
       onWaitForSegments={queue.waitForSegments} onError={message => { if (message) errors.push(message); }} />);
   }
@@ -138,7 +139,8 @@ it("always splits normal reading across remounts and ignores the old whole-fragm
   await act(async () => root.unmount()); root = createRoot(container);
   const reloaded = mount(f.group, false); await act(async () => reloaded.render());
   expect(reloaded.group.chapterProgress?.m.s0).toEqual([1]);
-  expect([...container.querySelectorAll('.simple-readings strong')].map(node => node.textContent)).toEqual(["Rdz 1", "Rdz 3"]);
+  expect([...container.querySelectorAll('.simple-readings strong')].map(node => node.textContent)).toEqual(["Rdz 1", "Rdz 2", "Rdz 3"]);
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("true");
   await click("Rdz 1"); await act(async () => reloaded.writes[0].resolve());
   expect(reloaded.group.chapterProgress?.m.s0).toEqual([0, 1]);
   expect(reloaded.group.progress.m.s0).toBeUndefined();
@@ -198,6 +200,7 @@ it("honors a normal uncheck after recovery instead of re-checking cached chapter
   localStorage.setItem(`${KEY}:chapters`, JSON.stringify({ s0: 1 }));
   localStorage.setItem(`reading-home:g:m:${TODAY}`, "d0");
   const f = mount(g, false); await act(async () => f.render());
+  await click("Poprzednie");
   await click("Rdz 1");
   await act(async () => f.writes[0].resolve()); await flush();
   expect(f.group.progress.m.s0).toBeUndefined();
@@ -420,7 +423,7 @@ it("keeps checked forecast assignments on the same date after reload", async () 
   expect(button("Rdz 4").getAttribute("aria-pressed")).toBe("false");
 });
 
-it("normal reading shows only chapters not already consumed by a recovery extra", async () => {
+it("normal reading retains checked recovery chapters alongside the unfinished range", async () => {
   const g = plan(); g.planDays[1].segments[0].label = "Rdz 2-4";
   const f = mount(g); await act(async () => f.render());
   await click("Rdz 1"); await act(async () => f.writes[0].resolve());
@@ -429,6 +432,7 @@ it("normal reading shows only chapters not already consumed by a recovery extra"
   await act(async () => f.writes[1].resolve());
   expect(f.group.progress.m.s1).toBeUndefined();
   await click("Wyłącz nadrabianie"); await click("Następne");
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("true");
   expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("false");
   expect(button("Rdz 4").getAttribute("aria-pressed")).toBe("false");
   await click("Rdz 3");
@@ -593,3 +597,124 @@ it("imports legacy completion before deciding whether a startup recovery flag is
   expect(container.querySelector('.reading-extra')).toBeNull();
 });
 
+
+it("opens the first unread day despite a legacy completed daily anchor and keeps manual return working", async () => {
+  const g = plan(4); g.progress.m.s0 = "done";
+  localStorage.setItem(`reading-home:g:m:${TODAY}`, "d0");
+  const before = JSON.stringify(g);
+  const f = mount(g, false); await act(async () => f.render());
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
+  expect(container.querySelector('.reading-card-head time')?.getAttribute('datetime')).toBe(date(-3));
+  expect(JSON.stringify(f.group)).toBe(before); expect(f.writes).toHaveLength(0);
+  await click("Poprzednie"); expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("true");
+  await click("Wróć do swojego miejsca"); expect(button("Rdz 2")).toBeDefined();
+});
+
+it("keeps partial chapter marks on entry and the finished card in-session, then reopens at the next day", async () => {
+  let g = plan(3); g.planDays[0].segments[0].label = "Rdz 1–3";
+  g.planDays[1].segments[0].label = "Rdz 4"; g.planDays[2].segments[0].label = "Rdz 5";
+  g = applyChapterProgress(g, "m", "s0", true, [0], `${TODAY}T12:00:00Z`);
+  const f = mount(g, false); await act(async () => f.render());
+  expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("true");
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
+  expect(f.writes).toHaveLength(0);
+  await click("Rdz 2"); await act(async () => f.writes[0].resolve());
+  await click("Rdz 3"); await act(async () => f.writes[1].resolve());
+  expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("true");
+  expect(container.querySelector('.reading-card-head time')?.getAttribute('datetime')).toBe(date(-4));
+  await act(async () => root.unmount()); root = createRoot(container);
+  const reopened = mount(f.group, false); await act(async () => reopened.render());
+  expect(button("Rdz 4").getAttribute("aria-pressed")).toBe("false");
+  expect(container.querySelector('.reading-card-head time')?.getAttribute('datetime')).toBe(date(-3));
+  expect(reopened.writes).toHaveLength(0);
+});
+
+it("settles once from verified progress instead of stale startup data, without following later background updates", async () => {
+  const f = mount(plan(6), false, false); await act(async () => f.render());
+  expect(button("Rdz 1")).toBeDefined(); expect(f.writes).toHaveLength(0);
+  const fresh = plan(6); fresh.progress.m = { s0: "done", s1: "done" };
+  await act(async () => f.refresh(fresh));
+  expect(button("Rdz 3")).toBeDefined();
+  const later = structuredClone(fresh); later.progress.m.s2 = "done";
+  await act(async () => f.refresh(later));
+  expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("true");
+  expect(f.writes).toHaveLength(0);
+  await act(async () => root.unmount()); root = createRoot(container);
+  const reopened = mount(later, false); await act(async () => reopened.render());
+  expect(button("Rdz 4")).toBeDefined();
+});
+
+it("does not override navigation performed while initial synchronization is still loading", async () => {
+  const f = mount(plan(6), false, false); await act(async () => f.render());
+  await click("Następne"); expect(button("Rdz 2")).toBeDefined();
+  const fresh = plan(6); fresh.progress.m = { s0: "done", s1: "done" };
+  await act(async () => f.refresh(fresh));
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("true");
+  await click("Wróć do swojego miejsca"); expect(button("Rdz 3")).toBeDefined();
+  expect(f.writes).toHaveLength(0);
+});
+
+it("resolves an explicit notification day after fresh data loads rather than choosing the first unread day", async () => {
+  window.history.replaceState({}, "", "/?reading=g&day=d4");
+  const f = mount(plan(2), false, false); await act(async () => f.render());
+  const fresh = plan(6); fresh.progress.m.s0 = "done";
+  await act(async () => f.refresh(fresh));
+  expect(button("Rdz 5")).toBeDefined(); expect(f.writes).toHaveLength(0);
+});
+
+it("preserves an explicitly requested Plan row and manual navigation after verification", async () => {
+  const f = mount(plan(6), false, false, { dayId: "d4" }); await act(async () => f.render());
+  expect(button("Rdz 5")).toBeDefined();
+  const fresh = plan(6); fresh.progress.m.s0 = "done";
+  await act(async () => f.refresh(fresh));
+  expect(button("Rdz 5")).toBeDefined();
+  await click("Następne"); expect(button("Rdz 6")).toBeDefined();
+  await click("Wróć do swojego miejsca"); expect(button("Rdz 2")).toBeDefined();
+  expect(f.writes).toHaveLength(0);
+});
+
+it("opens the first incomplete personal portion on a rest day without changing the source plan", async () => {
+  let original = plan(1); original.startDate = "2026-10-12"; original.planDays[0].date = original.startDate;
+  original.planDays[0].segments[0].label = "Rdz 1–12";
+  original.members[0].personalTempo = nextTempo(original, "m", [1,3,5], "2026-10-11", 0, "");
+  original = applyChapterProgress(original, "m", "s0", true, [0,1,2,3], `${TODAY}T12:00:00Z`);
+  const g = projectPersonalTempo(original, "m"); const before = JSON.stringify(g);
+  const f = mount(g, false); await act(async () => f.render());
+  expect(container.querySelector('.reading-card-head time')?.getAttribute('datetime')).toBe("2026-10-14");
+  expect(button("Rdz 5").getAttribute("aria-pressed")).toBe("false");
+  expect(JSON.stringify(f.group)).toBe(before); expect(f.writes).toHaveLength(0);
+});
+
+it("opens the first incomplete frozen recovery portion after another device completes the previous one", async () => {
+  const g = plan(8); const schedule = projectRecoveryPortions(g, "m", TODAY, {}, "");
+  g.progress.m = { s0: "done", s1: "done" };
+  localStorage.setItem(`${KEY}:ordered:${TODAY}:portion-v3`, JSON.stringify(schedule[0]));
+  localStorage.setItem(`${KEY}:schedule-v1`, JSON.stringify(schedule));
+  const f = mount(g); await act(async () => f.render());
+  expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("false");
+  expect(f.writes).toHaveLength(0);
+  await click("Poprzednie"); expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("true");
+  await click("Wróć do swojego miejsca"); expect(button("Rdz 3")).toBeDefined();
+});
+
+it.each([false, true])("keeps the existing new/finished-plan state on startup (finished: %s)", async complete => {
+  const g = plan(3);
+  if (complete) g.progress.m = { s0: "done", s1: "done", s2: "done" };
+  const before = JSON.stringify(g); const f = mount(g, false); await act(async () => f.render());
+  if (complete) { expect(container.textContent).toContain("Plan ukończony"); expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("true"); }
+  else expect(button("Rdz 1").getAttribute("aria-pressed")).toBe("false");
+  expect(JSON.stringify(f.group)).toBe(before); expect(f.writes).toHaveLength(0);
+});
+
+it("returns from an explicit notification to the first incomplete recovery portion", async () => {
+  const g = plan(8); const schedule = projectRecoveryPortions(g, "m", TODAY, {}, "");
+  g.progress.m = { s0: "done", s1: "done" };
+  localStorage.setItem(`${KEY}:ordered:${TODAY}:portion-v3`, JSON.stringify(schedule[0]));
+  localStorage.setItem(`${KEY}:schedule-v1`, JSON.stringify(schedule));
+  window.history.replaceState({}, "", "/?reading=g&day=d6");
+  const f = mount(g); await act(async () => f.render());
+  expect(button("Rdz 7")).toBeDefined();
+  await click("Wróć do swojego miejsca");
+  expect(button("Rdz 3").getAttribute("aria-pressed")).toBe("false");
+  expect(f.writes).toHaveLength(0);
+});
