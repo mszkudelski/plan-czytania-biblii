@@ -138,7 +138,8 @@ it("always splits normal reading across remounts and ignores the old whole-fragm
   await act(async () => root.unmount()); root = createRoot(container);
   const reloaded = mount(f.group, false); await act(async () => reloaded.render());
   expect(reloaded.group.chapterProgress?.m.s0).toEqual([1]);
-  expect([...container.querySelectorAll('.simple-readings strong')].map(node => node.textContent)).toEqual(["Rdz 1", "Rdz 3"]);
+  expect([...container.querySelectorAll('.simple-readings strong')].map(node => node.textContent)).toEqual(["Rdz 1", "Rdz 2", "Rdz 3"]);
+  expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("true");
   await click("Rdz 1"); await act(async () => reloaded.writes[0].resolve());
   expect(reloaded.group.chapterProgress?.m.s0).toEqual([0, 1]);
   expect(reloaded.group.progress.m.s0).toBeUndefined();
@@ -479,6 +480,22 @@ it("keeps the labels and chapter selection stable while toggling a normal partia
   expect(f.group.chapterProgress?.m.s0).toEqual([0]);
   await click("Rdz 2"); await act(async () => f.writes[2].reject());
   expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
+});
+
+it("shows a previously completed chapter after reopening a partially read range", async () => {
+  const g = plan(2);
+  g.planDays[0].segments = [
+    { id: "genesis", label: "Rdz 47–48", section: "ST" },
+    { id: "mark", label: "Mk 16", section: "NT" },
+  ];
+  g.chapterProgress = { m: { genesis: [0] } };
+  g.progress.m.mark = `${TODAY}T12:00:00Z`;
+  const f = mount(g, false); await act(async () => f.render());
+  expect(button("Rdz 47").getAttribute("aria-pressed")).toBe("true");
+  expect(button("Rdz 48").getAttribute("aria-pressed")).toBe("false");
+  expect(button("Mk 16").getAttribute("aria-pressed")).toBe("true");
+  expect(f.group.chapterProgress?.m.genesis).toEqual([0]);
+  expect(f.writes).toHaveLength(0);
 });
 
 it("keeps a notification's selected day when a stale recovery flag is cleared", async () => {
