@@ -2052,7 +2052,7 @@ export function TodayView({
     : undefined;
   // Keep the visible chapter slice intact until explicit navigation or refresh.
   const normalPortion = useMemo(() => selectedDay
-    ? getStandardReadingPortion(selectedDay, progress, planReading ? {} : readChapters, planReading ? {} : chapterMarks) : undefined,
+    ? getStandardReadingPortion(selectedDay, progress, {}, {}) : undefined,
     [selectedDay?.id, useRecoveryView, promptReady, planReading, chaptersReady]);
   const displayedDay = useRecoveryView
     ? (browsedPortion?.day ?? historicalDay ?? currentPortion?.day)
