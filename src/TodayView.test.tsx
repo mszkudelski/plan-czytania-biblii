@@ -485,6 +485,22 @@ it("keeps the labels and chapter selection stable while toggling a normal partia
   expect(button("Rdz 2").getAttribute("aria-pressed")).toBe("false");
 });
 
+it("shows a previously completed chapter after reopening a partially read range", async () => {
+  const g = plan(2);
+  g.planDays[0].segments = [
+    { id: "genesis", label: "Rdz 47–48", section: "ST" },
+    { id: "mark", label: "Mk 16", section: "NT" },
+  ];
+  g.chapterProgress = { m: { genesis: [0] } };
+  g.progress.m.mark = `${TODAY}T12:00:00Z`;
+  const f = mount(g, false); await act(async () => f.render());
+  expect(button("Rdz 47").getAttribute("aria-pressed")).toBe("true");
+  expect(button("Rdz 48").getAttribute("aria-pressed")).toBe("false");
+  expect(button("Mk 16").getAttribute("aria-pressed")).toBe("true");
+  expect(f.group.chapterProgress?.m.genesis).toEqual([0]);
+  expect(f.writes).toHaveLength(0);
+});
+
 it("keeps a notification's selected day when a stale recovery flag is cleared", async () => {
   const g = plan(); g.progress.m = Object.fromEntries(g.planDays.slice(0, 4).map(day => [day.segments[0].id, "done"]));
   window.history.replaceState({}, "", "/?reading=g&day=d1");
