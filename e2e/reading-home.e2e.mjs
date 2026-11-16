@@ -544,3 +544,30 @@ for (const width of [1280, 390]) {
     await fitsViewport(page);
   });
 }
+
+
+test('completed chapter remains visible when reopening a partial range', async ({ page, request }) => {
+  const input = inputPlan('partial-range-visible');
+  input.startDate = date(-1);
+  input.planDays = [{ id: 'partial-day', index: 0, date: date(-1), title: 'Czytanie', segments: [
+    { id: 'genesis', label: 'Rdz 47–48', section: 'ST' },
+    { id: 'mark', label: 'Mk 16', section: 'NT' },
+  ] }];
+  const created = await request.post('/api/groups', { data: input });
+  expect(created.status()).toBe(201);
+  const session = await created.json();
+  test.info().annotations.push({ type: 'test-plan', description: session.group.id });
+  const marked = await request.post(`/api/groups/${session.group.id}/progress`, { data: {
+    ...session.credentials, segmentId: 'genesis', indices: [0], completed: true,
+  } });
+  expect(marked.status()).toBe(200);
+  await saveProgress(request, session, 'mark');
+  await openPlan(page, session);
+  for (const [label, checked] of [['Rdz 47', 'true'], ['Rdz 48', 'false'], ['Mk 16', 'true']]) {
+    await expect(reading(page, label)).toHaveAttribute('aria-pressed', checked);
+  }
+  await page.reload();
+  await expect(reading(page, 'Rdz 47')).toHaveAttribute('aria-pressed', 'true');
+  await expect(reading(page, 'Rdz 48')).toHaveAttribute('aria-pressed', 'false');
+  expect((await readGroup(request, session)).chapterProgress[session.credentials.memberId].genesis).toEqual([0]);
+});
